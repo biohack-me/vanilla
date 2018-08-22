@@ -1,7 +1,7 @@
 {
     "name": "Basic Mobile",
     "description": "A simplified theme made to target mobile browsers.",
-    "version": "1.1.4",
+    "version": "1.1.4.1",
     "isMobile": true,
     "hidden": false,
     "key": "mobile",

@@ -56,6 +56,7 @@ input.DraftButton,
 input.PreviewButton,
 .CheckBoxColumn,
 .HomepageTitle,
+.CategoryBox .ToggleFlyout,
 #Panel {
     display: none;
 }
