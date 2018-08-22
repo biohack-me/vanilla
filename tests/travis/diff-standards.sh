@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 if [ -z "$1" ]; then
-    echo "No branch provided. Linting against default branch master"
-    echo ""
     DIFF_BRANCH="master"
+    echo "No branch provided. Linting against default branch: $DIFF_BRANCH"
+    echo ""
 else
-    echo "Linting compared to provided branch $1"
     DIFF_BRANCH=$1
+    echo "Linting compared to provided branch: $1"
 fi
 
 if [ -z "$2" ]; then
@@ -48,5 +48,10 @@ echo "Comparing results of PHP_CodeSniffer scan with changed lines from branch d
 echo ""
 ./vendor/bin/diffFilter --phpcs $GIT_DIFF_FILENAME $PHPCS_DIFF_FILENAME
 
+CODESNIFFER_RESULT=$?
+
 # End folding in Travis.
 [ $TRAVIS ] && echo "travis_fold:end:coding_standards"
+
+# Make sure this script exits with the same status as the PHP_CodeSniffer command.
+exit $CODESNIFFER_RESULT
