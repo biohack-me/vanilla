@@ -57,6 +57,7 @@
 *.kpf
 .DS_Store
 .htaccess
+.htpasswd
 Thumbs.db
 *.swp
 _notes
