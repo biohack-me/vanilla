@@ -40,7 +40,6 @@ a:hover {
 
 .Banner {
     position: relative;
-    min-height: 98px;
     text-align: left;
     padding: 20px;
 }
@@ -48,7 +47,6 @@ a:hover {
 .SiteTitle {
     font-size: 40px;
     font-weight: bold;
-    line-height: 100px;
 }
 
 .SiteTitle a {
@@ -138,16 +136,31 @@ a:hover {
     margin: 8px;
 }
 
+.CategoryBox {
+    margin-bottom: 25px;
+}
+
+.CategoryBox .ToggleFlyout {
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0px 0px 12px 0px;
+}
+
 .CategoryBox h2 {
-    margin: 20px 8px 8px;
+    margin: 0px 8px 12px 0px;
+    font-size: 150%;
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .CategoryBox h2 a {
-    color: #aaa;
+    color: #999999;
 }
 
 .HomepageTitle {
-    margin: 0 8px;
+    margin: 0px 0px 10px 0px;
+    font-size: 150%;
+    text-align: right;
 }
 
 .HomepageTitle .AdminCheck {
