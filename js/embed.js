@@ -39,7 +39,6 @@ window.vanilla.embed = function(host) {
                 host = scripts[i].src;
                 host = host.replace('http://', '').replace('https://', '');
                 host = host.substr(0, host.indexOf(jsPath));
-                host += '/index.php?p=';
 
                 host_base_url = scripts[i].src;
                 host_base_url = host_base_url.substr(0, host_base_url.indexOf(jsPath));
@@ -154,9 +153,8 @@ window.vanilla.embed = function(host) {
                 if (currentPath != message[1]) {
                     currentPath = message[1];
                     // Strip off the values that this script added
-                    currentPath = currentPath.replace('/index.php?p=', ''); // 1
-                    currentPath = stripParam(currentPath, 'remote='); // 2
-                    currentPath = stripParam(currentPath, 'locale='); // 3
+                    currentPath = stripParam(currentPath, 'remote='); // 1
+                    currentPath = stripParam(currentPath, 'locale='); // 2
                     window.location.hash = currentPath;
                 }
             }
@@ -239,6 +237,8 @@ window.vanilla.embed = function(host) {
 
         if (embed_type == 'comments') {
             result = '//' + host + '/discussion/embed/'
+            // Break the cache. /embed/ gets cached, looks like you are not logged in.
+            + '&c=' + new Date().getTime()
             + '&vanilla_identifier=' + encodeURIComponent(foreign_id)
             + '&vanilla_url=' + encodeURIComponent(foreign_url);
 

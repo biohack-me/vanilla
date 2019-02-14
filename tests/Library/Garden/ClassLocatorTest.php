@@ -1,15 +1,15 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Garden;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Garden\ClassLocator;
 
-class ClassLocatorTest extends TestCase {
+class ClassLocatorTest extends SharedBootstrapTestCase {
 
     public function testFindClass() {
         $classLocator = new ClassLocator();

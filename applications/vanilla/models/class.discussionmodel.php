@@ -2,13 +2,15 @@
 /**
  * Discussion model
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
 
 use Vanilla\Exception\PermissionException;
+use Vanilla\Formatting\FormatService;
+use Vanilla\Formatting\UpdateMediaTrait;
 
 /**
  * Manages discussions data.
@@ -17,6 +19,8 @@ class DiscussionModel extends Gdn_Model {
 
     use StaticInitializer;
     use \Vanilla\FloodControlTrait;
+
+    use UpdateMediaTrait;
 
     /** Cache key. */
     const CACHE_DISCUSSIONVIEWS = 'discussion.%s.countviews';
@@ -29,6 +33,9 @@ class DiscussionModel extends Gdn_Model {
 
     /** Max comments on a discussion before it cannot be auto-deleted by SPAM or moderation actions. */
     const DELETE_COMMENT_THRESHOLD = 10;
+
+    /** @var int The maximum length*/
+    const MAX_POST_LENGTH = 50000;
 
     /** @var array|bool */
     private static $categoryPermissions = null;
@@ -101,12 +108,16 @@ class DiscussionModel extends Gdn_Model {
     /**
      * Class constructor. Defines the related database table name.
      *
-     * @since 2.0.0
-     * @access public
+     * @param Gdn_Validation $validation The validation dependency.
      */
-    public function __construct() {
-        parent::__construct('Discussion');
+    public function __construct(Gdn_Validation $validation = null) {
+        parent::__construct('Discussion', $validation);
         $this->floodGate = FloodControlHelper::configure($this, 'Vanilla', 'Discussion');
+
+        $this->setFormatterService(Gdn::getContainer()->get(FormatService::class));
+        $this->setMediaForeignTable($this->Name);
+        $this->setMediaModel(Gdn::getContainer()->get(MediaModel::class));
+        $this->setSessionInterface(Gdn::getContainer()->get("Session"));
     }
 
     /**
@@ -219,6 +230,22 @@ class DiscussionModel extends Gdn_Model {
             }
         }
         return '';
+    }
+
+    /**
+     * Update the attachment status of attachemnts in particular discussion.
+     *
+     * @param int $discussionID The ID of the discussion.
+     * @param bool $isUpdate Whether or not we are updating an existing discussion.
+     */
+    private function calculateMediaAttachments(int $discussionID, bool $isUpdate) {
+        $discussionRow = $this->getID($discussionID, DATASET_TYPE_ARRAY);
+        if ($discussionRow) {
+            if ($isUpdate) {
+                $this->flagInactiveMedia($discussionID, $discussionRow["Body"], $discussionRow["Format"]);
+            }
+            $this->refreshMediaAttachments($discussionID, $discussionRow["Body"], $discussionRow["Format"]);
+        }
     }
 
     /**
@@ -977,7 +1004,7 @@ class DiscussionModel extends Gdn_Model {
         $archiveTimestamp = Gdn_Format::toTimestamp(Gdn::config('Vanilla.Archive.Date', 0));
 
         // Fix up output
-        $discussion->Name = Gdn_Format::text($discussion->Name);
+        $discussion->Name = htmlspecialchars($discussion->Name);
         $discussion->Attributes = dbdecode($discussion->Attributes);
         $discussion->Url = discussionUrl($discussion);
         $discussion->Tags = $this->formatTags($discussion->Tags);
@@ -1036,6 +1063,11 @@ class DiscussionModel extends Gdn_Model {
                 if ($discussion->Read) {
                     $discussion->CountUnreadComments = 0;
                 }
+            }
+
+            // Discussions are always unread to guests.
+            if (!Gdn::session()->isValid()) {
+                $discussion->Read = false;
             }
         }
 
@@ -1282,9 +1314,9 @@ class DiscussionModel extends Gdn_Model {
             return new Gdn_DataSet([]);
         }
 
-        // Allow us to set perspective of a different user.
-        if (empty($watchUserID)) {
-            $watchUserID = $userID;
+        // If no user was provided, view from the perspective of a guest.
+        if (!filter_var($watchUserID, FILTER_VALIDATE_INT)) {
+            $watchUserID = UserModel::GUEST_USER_ID;
         }
 
         // The point of this query is to select from one comment table, but filter and sort on another.
@@ -1301,7 +1333,7 @@ class DiscussionModel extends Gdn_Model {
             ->orderBy('d.DiscussionID', 'desc');
 
         // Join in the watch data.
-        if ($watchUserID > 0) {
+        if ($watchUserID > UserModel::GUEST_USER_ID) {
             $this->SQL
                 ->select('w.UserID', '', 'WatchUserID')
                 ->select('w.DateLastViewed, w.Dismissed, w.Bookmarked')
@@ -1310,7 +1342,7 @@ class DiscussionModel extends Gdn_Model {
                 ->join('UserDiscussion w', 'd2.DiscussionID = w.DiscussionID and w.UserID = '.$watchUserID, 'left');
         } else {
             $this->SQL
-                ->select('0', '', 'WatchUserID')
+                ->select((string) UserModel::GUEST_USER_ID, '', 'WatchUserID')
                 ->select('now()', '', 'DateLastViewed')
                 ->select('0', '', 'Dismissed')
                 ->select('0', '', 'Bookmarked')
@@ -2188,7 +2220,11 @@ class DiscussionModel extends Gdn_Model {
                     }
 
                     // Notify all of the users that were mentioned in the discussion.
-                    $usernames = getMentions($discussionName.' '.$story);
+                    if ($fields['Format'] === "Rich") {
+                        $usernames = Gdn_Format::getRichMentionUsernames($fields['Body']);
+                    } else {
+                        $usernames = getMentions($discussionName.' '.$story);
+                    }
 
                     // Use our generic Activity for events, not mentions
                     $this->EventArguments['Activity'] = $activity;
@@ -2243,6 +2279,8 @@ class DiscussionModel extends Gdn_Model {
                 if ($storedCategoryID) {
                     $this->updateDiscussionCount($storedCategoryID);
                 }
+
+                $this->calculateMediaAttachments($discussionID, !$insert);
 
                 // Fire an event that the discussion was saved.
                 $this->EventArguments['FormPostValues'] = $formPostValues;
@@ -2901,7 +2939,12 @@ class DiscussionModel extends Gdn_Model {
         }
         $userModel = Gdn::userModel();
         // Get category permission.
-        $hasPermission = $userID && $userModel->getCategoryViewPermission($userID, val('CategoryID', $discussion), $permission);
+        $categoryID = val('CategoryID', $discussion);
+        if ($userID && Gdn::session()->UserID === $userID) {
+            $hasPermission = CategoryModel::checkPermission($categoryID, $permission);
+        } else {
+            $hasPermission = $userID && $userModel->getCategoryViewPermission($userID, $categoryID, $permission);
+        }
         // Check if we've timed out.
         if (strpos(strtolower($permission), 'edit' !== false)) {
             $hasPermission &= self::editContentTimeout($discussion);
@@ -3198,5 +3241,39 @@ class DiscussionModel extends Gdn_Model {
             'name' => $setName,
             'wheres' => [], 'group' => 'default'
         ];
+    }
+
+    /**
+     * Get structured data about a discussion and its related records.
+     *
+     * @param array $discussion
+     * @return array
+     * @link http://schema.org/DiscussionForumPosting
+     */
+    public function structuredData(array $discussion): array {
+        $name = $discussion['Name'] ?? '';
+        $dateInserted = $discussion['DateInserted'] ?? '';
+        $body = Gdn_Format::reduceWhiteSpaces(Gdn_Format::excerpt($discussion['Body'] ?? '', $discussion['Format'] ?? 'Html'));
+
+        $result = [
+            "headline" => $name,
+            "description" => sliceString($body, 500),
+            "discussionUrl" => discussionUrl($discussion),
+            "dateCreated" => $dateInserted
+        ];
+
+        if (array_key_exists('InsertUserID', $discussion) && $discussion['InsertUserID']) {
+            $user = Gdn::userModel()->getID($discussion['InsertUserID'], DATASET_TYPE_ARRAY);
+            if ($user) {
+                $result["author"] = [
+                    "@context" => "https://schema.org",
+                    "@type" => "Person",
+                    "name" => $user['Name'],
+                    "image" => userPhotoUrl($user),
+                    "url" => url(userUrl($user), true)
+                ];
+            }
+        }
+        return $result;
     }
 }

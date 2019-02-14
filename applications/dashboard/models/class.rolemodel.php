@@ -2,8 +2,8 @@
 /**
  * A role model you can look up to.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -746,8 +746,6 @@ class RoleModel extends Gdn_Model {
                 ->set('UserRole.RoleID', $newRoleID)
                 ->where(['UserRole.RoleID' => $roleID])
                 ->put();
-        } else {
-            $this->SQL->delete('UserRole', ['RoleID' => $roleID]);
         }
 
         // Remove permissions for this role.
@@ -755,6 +753,7 @@ class RoleModel extends Gdn_Model {
         $permissionModel->delete($roleID);
 
         // Remove the role
+        $this->SQL->delete('UserRole', ['RoleID' => $roleID]);
         $result = $this->SQL->delete('Role', ['RoleID' => $roleID]);
         return $result;
     }

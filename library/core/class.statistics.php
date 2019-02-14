@@ -5,8 +5,8 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0.17
  */
@@ -30,9 +30,14 @@ class Gdn_Statistics extends Gdn_Pluggable {
     public function __construct() {
         parent::__construct();
 
-        $analyticsServer = c('Garden.Analytics.Remote', 'analytics.vanillaforums.com');
-        $analyticsServer = str_replace(['http://', 'https://'], '', $analyticsServer);
+        $analyticsServer = c('Garden.Analytics.Remote', 'https://analytics.vanillaforums.com');
         $this->AnalyticsServer = $analyticsServer;
+
+        $scheme = parse_url($this->AnalyticsServer, PHP_URL_SCHEME); // Will give you the protocol (http, https) or null/false on error.
+
+        if ($scheme === null) {
+            $this->AnalyticsServer = 'https://'.$this->AnalyticsServer;
+        }
 
         $this->TickExtra = [];
     }
@@ -57,7 +62,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
         $apiController = strtolower($apiController);
         $apiMethod = stringEndsWith(strtolower($apiMethod), '.json', true, true).'.json';
 
-        $finalURL = 'http://'.combinePaths([
+        $finalURL = combinePaths([
                 $this->AnalyticsServer,
                 $apiController,
                 $apiMethod

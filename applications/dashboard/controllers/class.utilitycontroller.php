@@ -2,8 +2,8 @@
 /**
  * Perform miscellaneous operations for Dashboard.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -35,6 +35,14 @@ class UtilityController extends DashboardController {
         'PHP_AUTH_DIGEST',
         'AUTH_TYPE'
     ];
+
+    /**
+     * UtilityController constructor.
+     */
+    public function __construct() {
+        parent::__construct();
+        $this->setHeader('Cache-Control', \Vanilla\Web\CacheControlMiddleware::NO_CACHE);
+    }
 
     /**
      * Runs before every call to this controller.

@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests;
@@ -16,7 +16,13 @@ use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Vanilla\Addon;
 use Vanilla\AddonManager;
+use Vanilla\Authenticator\PasswordAuthenticator;
+use Vanilla\Contracts\ConfigurationInterface;
 use Vanilla\InjectableInterface;
+use Vanilla\Models\AuthenticatorModel;
+use Vanilla\Models\SSOModel;
+use VanillaTests\Fixtures\Authenticator\MockAuthenticator;
+use VanillaTests\Fixtures\Authenticator\MockSSOAuthenticator;
 use VanillaTests\Fixtures\NullCache;
 
 /**
@@ -34,7 +40,7 @@ class Bootstrap {
      *
      * @param string $baseUrl The base URL of the installation.
      */
-    public function __construct($baseUrl = 'http://vanilla.test') {
+    public function __construct($baseUrl) {
         $this->baseUrl = str_replace('\\', '/', $baseUrl);
     }
 
@@ -80,12 +86,14 @@ class Bootstrap {
             ->addAlias('Cache')
 
             // Configuration
-            ->rule(\Gdn_Configuration::class)
+            ->rule(ConfigurationInterface::class)
+            ->setClass(\Gdn_Configuration::class)
             ->setShared(true)
             ->addCall('defaultPath', [$this->getConfigPath()])
             ->addCall('autoSave', [false])
             ->addCall('load', [PATH_ROOT.'/conf/config-defaults.php'])
             ->addAlias('Config')
+            ->addAlias(\Gdn_Configuration::class)
 
             // AddonManager
             ->rule(AddonManager::class)
@@ -181,13 +189,28 @@ class Bootstrap {
             ->setShared(true)
             ->addAlias(Gdn::AliasDispatcher)
 
+            ->rule(\Gdn_Validation::class)
+            ->addCall('addRule', ['BodyFormat', new Reference(\Vanilla\BodyFormatValidator::class)])
+
+            ->rule(AuthenticatorModel::class)
+            ->setShared(true)
+            ->addCall('registerAuthenticatorClass', [PasswordAuthenticator::class])
+            ->addCall('registerAuthenticatorClass', [MockAuthenticator::class])
+            ->addCall('registerAuthenticatorClass', [MockSSOAuthenticator::class])
+
+            ->rule(SearchModel::class)
+            ->setShared(true)
+
+            ->rule(SSOModel::class)
+            ->setShared(true)
+
             ->rule(\Garden\Web\Dispatcher::class)
             ->setShared(true)
             ->addCall('addRoute', ['route' => new \Garden\Container\Reference('@api-v2-route'), 'api-v2'])
 
             ->rule('@api-v2-route')
             ->setClass(\Garden\Web\ResourceRoute::class)
-            ->setConstructorArgs(['/api/v2/', '%sApiController'])
+            ->setConstructorArgs(['/api/v2/', '*\\%sApiController'])
             ->addCall('setConstraint', ['locale', ['position' => 0]])
             ->addCall('setMeta', ['CONTENT_TYPE', 'application/json; charset=utf-8'])
 
@@ -210,10 +233,39 @@ class Bootstrap {
             ->setClass(\Vanilla\Web\WebLinking::class)
             ->setShared(true)
 
-            ->rule(\WebScraper::class)
+            ->rule(\Vanilla\Formatting\Embeds\EmbedManager::class)
+            ->addCall('addCoreEmbeds')
+            ->addCall('setNetworkEnabled', [false])
             ->setShared(true)
-            ->addCall('setDisableFetch', [true]);
-        ;
+
+            ->rule(\Vanilla\PageScraper::class)
+            ->addCall('registerMetadataParser', [new Reference(\Vanilla\Metadata\Parser\OpenGraphParser::class)])
+            ->addCall('registerMetadataParser', [new Reference(\Vanilla\Metadata\Parser\JsonLDParser::class)])
+            ->setShared(true)
+
+            ->rule(\Vanilla\Formatting\Quill\Parser::class)
+            ->addCall('addCoreBlotsAndFormats')
+            ->setShared(true)
+
+            ->rule(\Vanilla\Formatting\Quill\Renderer::class)
+            ->setShared(true)
+
+            ->rule('BBCodeFormatter')
+            ->setClass(\BBCode::class)
+            ->setShared(true)
+
+            ->rule('HtmlFormatter')
+            ->setClass(\VanillaHtmlFormatter::class)
+            ->setShared(true)
+
+            ->rule(\Vanilla\Formatting\FormatService::class)
+            ->addCall('registerFormat', [\Vanilla\Formatting\Formats\RichFormat::FORMAT_KEY, \Vanilla\Formatting\Formats\RichFormat::class])
+            ->setShared(true)
+
+            ->rule('HtmlFormatter')
+            ->setClass(\VanillaHtmlFormatter::class)
+            ->setShared(true)
+            ;
     }
 
     private function initializeAddons(Container $dic) {
@@ -296,6 +348,7 @@ class Bootstrap {
     public function setGlobals(Container $container) {
         // Set some server globals.
         $baseUrl = $this->getBaseUrl();
+        $_SERVER['REMOTE_ADDR'] = '::1'; // Simulate requests from local IPv6 address.
         $_SERVER['HTTP_HOST'] = parse_url($baseUrl, PHP_URL_HOST);
         $_SERVER['SERVER_PORT'] = parse_url($baseUrl, PHP_URL_PORT) ?: null;
         $_SERVER['SCRIPT_NAME'] = parse_url($baseUrl, PHP_URL_PATH);
@@ -311,11 +364,25 @@ class Bootstrap {
      * Clean up a container and remove its global references.
      *
      * @param Container $container The container to clean up.
+     *
+     * @throws \Garden\Container\ContainerException
+     * @throws \Garden\Container\NotFoundException
      */
     public static function cleanup(Container $container) {
-        \CategoryModel::$Categories = null;
+        self::cleanUpContainer($container);
+        self::cleanUpGlobals();
+    }
 
-        if ($container->hasInstance(AddonManager::class)) {
+    /**
+     * Clean up container.
+     *
+     * @param \Garden\Container\Container $container
+     *
+     * @throws \Garden\Container\ContainerException
+     * @throws \Garden\Container\NotFoundException
+     */
+    public static function cleanUpContainer(Container $container) {
+       if ($container->hasInstance(AddonManager::class)) {
             /* @var AddonManager $addonManager */
 
             $addonManager = $container->get(AddonManager::class);
@@ -323,13 +390,18 @@ class Bootstrap {
         }
 
         $container->clearInstances();
+    }
 
-        if ($GLOBALS['dic'] === $container) {
-            unset($GLOBALS['dic']);
+    /**
+     * Clean up global variables.
+     */
+    public static function cleanUpGlobals() {
+        if (class_exists(\CategoryModel::class)) {
+            \CategoryModel::$Categories = null;
         }
-        if (Gdn::getContainer() === $container) {
-            Gdn::setContainer(null);
-        }
+
+        unset($GLOBALS['dic']);
+        Gdn::setContainer(new NullContainer());
     }
 
     /**

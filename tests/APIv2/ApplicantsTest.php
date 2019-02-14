@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
@@ -27,7 +27,7 @@ class ApplicantsTest extends AbstractResourceTest {
      */
     public function record() {
         static $inc = 0;
-        $name = 'vanilla-'.($inc++);
+        $name = 'vanilla_'.($inc++);
         $record = [
             'email' => "{$name}@example.com",
             'name' => $name,
@@ -105,7 +105,8 @@ class ApplicantsTest extends AbstractResourceTest {
 
     /**
      * {@inheritdoc}
-     * @requires function ApplicationsApiController::get_edit
+     * @requires function ApplicantsApiController::get_edit
+     * @group ignore
      */
     public function testGetEdit($record = null) {
         $this->fail(__METHOD__.' needs to be implemented.');
@@ -113,7 +114,8 @@ class ApplicantsTest extends AbstractResourceTest {
 
     /**
      * {@inheritdoc}
-     * @requires function ApplicationsApiController::get_edit
+     * @requires function ApplicantsApiController::get_edit
+     * @group ignore
      */
     public function testGetEditFields() {
         $this->fail(__METHOD__.' needs to be implemented.');
@@ -121,6 +123,7 @@ class ApplicantsTest extends AbstractResourceTest {
 
     /**
      * {@inheritdoc}
+     * @group ignore
      */
     public function testPatchFull() {
         $this->markTestSkipped();
@@ -129,6 +132,7 @@ class ApplicantsTest extends AbstractResourceTest {
     /**
      * {@inheritdoc}
      * @dataProvider providePatchFields
+     * @group ignore
      */
     public function testPatchSparse($field) {
         $this->markTestSkipped();

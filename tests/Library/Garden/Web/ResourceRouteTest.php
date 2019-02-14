@@ -1,16 +1,20 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Garden\Web;
 
 use PHPUnit\Framework\TestCase;
+use VanillaTests\Fixtures\RootHelpController;
+use VanillaTests\Fixtures\ArticlesHelpController;
 use Garden\Web\Action;
 use Garden\Web\ResourceRoute;
 use Garden\Web\Route;
+use VanillaTests\Fixtures\AddonsController;
+use VanillaTests\Fixtures\CommentsController;
 use VanillaTests\Fixtures\DiscussionsController;
 use VanillaTests\Fixtures\Request;
 
@@ -60,7 +64,9 @@ class ResourceRouteTest extends TestCase {
      * @return array Returns test data.
      */
     public function provideKnownRoutes() {
+        $ac = AddonsController::class;
         $dc = DiscussionsController::class;
+        $cc = CommentsController::class;
 
         $r = [
             'index' => ['GET', '/discussions', [$dc, 'index'], ['page' => '']],
@@ -72,6 +78,10 @@ class ResourceRouteTest extends TestCase {
             'get recent' => ['GET', '/discussions/recent?after=1', [$dc, 'get_recent'], ['query' => ['after' => '1']]],
             'get recent too long' => ['GET', '/discussions/recent/1', null],
             'get bookmarked' => ['GET', '/discussions/bookmarked', [$dc, 'get_bookmarked'], ['page' => '']],
+
+            'get string id' => ['GET', '/addons/editor', [$ac, 'get'], ['id' => 'editor']],
+            'patch string id' => ['PATCH', '/addons/editor', [$ac, 'patch'], ['id' => 'editor']],
+            'delete string id' => ['DELETE', '/addons/editor', [$ac, 'delete'], ['id' => 'editor']],
 
             'map body' => ['POST', '/discussions', [$dc, 'post'], ['body' => ['!']]],
             'map data' => ['PATCH', '/discussions/1', [$dc, 'patch'], ['id' => '1', 'data' => ['id' => '1', 0 => '!']]],
@@ -85,10 +95,20 @@ class ResourceRouteTest extends TestCase {
             'index /:id/idsub' => ['GET', '/discussions/123/idsub', [$dc, 'index_idsub'], ['id' => '123']],
             'get /:id/idsub/:id2' => ['GET', '/discussions/123/idsub/abc', [$dc, 'get_idsub'], ['id' => '123', 'id2' => 'abc']],
 
+            // Integer type hints.
+            'index comments' => ['GET', '/comments/p1', [$cc, 'index'], ['param' => 'p1']],
+            'get comments/:id' => ['GET', '/comments/1', [$cc, 'get'], ['id' => '1']],
+            'get comments/archives' => ['GET', '/comments/archives', [$cc, 'index_archives']],
+            'get comments/:id/archives' => ['GET', '/comments/1/archives', [$cc, 'get_archives'], ['id' => '1']],
+
             // Special routes are special.
             'bad index' => ['GET', '/discussions/index', null],
             'bad get' => ['GET', '/discussions/get/123', null],
-            'bad post' => ['PATCH', '/discussions/post', null]
+            'bad post' => ['PATCH', '/discussions/post', null],
+
+            // File extensions.
+            'foo.js' => ['GET', '/discussions/123/foo.js', [$dc, 'get_foo_js'], ['id' => '123']],
+            'foos.js' => ['GET', '/discussions/foos.js', [$dc, 'index_foos_js'], []],
         ];
 
         return $r;
@@ -242,5 +262,55 @@ class ResourceRouteTest extends TestCase {
 
         $a = $route->match($request);
         $this->assertNull($a);
+    }
+
+    /**
+     * Test allowing resource routes to specify a root controller.
+     *
+     * @param string $method The HTTP method of the request.
+     * @param string $path The path to test.
+     * @param array|null $expectedCall The expected callback signature in the form `[className, methodName]`.
+     * @param array $expectedArgs The expected arguments.
+     *
+     * @dataProvider provideRootControllerTests
+     */
+    public function testRootController(string $method, string $path, $expectedCall, $expectedArgs = []) {
+        $route = new ResourceRoute(
+            '/help/',
+            '\\VanillaTests\\Fixtures\\%sHelpController'
+        );
+        $route->setRootController(RootHelpController::class);
+
+        $request = new Request($path, $method, $method === 'GET' ? [] : ['!']);
+
+        $match = $route->match($request);
+
+        if ($expectedCall === null) {
+            $this->assertNull($match);
+        } else {
+            $this->assertInstanceOf(Action::class, $match, "The route was supposed to match and return an array.");
+            $callback = $match->getCallback();
+            $this->assertSame($expectedCall[0], get_class($callback[0]));
+            $this->assertEquals(strtolower($expectedCall[1]), strtolower($callback[1]));
+            $this->assertEquals((array)$expectedArgs, $match->getArgs());
+        }
+    }
+
+    /**
+     * Provide path mapping tests.
+     *
+     * @return array Returns a data provider.
+     */
+    public function provideRootControllerTests() {
+        $ac = ArticlesHelpController::class;
+        $rc = RootHelpController::class;
+
+        $r = [
+            'non-root' => ['GET', '/help/articles/123', [$ac, 'get'], ['id' => 123]],
+            'root-index' => ['GET', '/help', [$rc, 'index']],
+            'root-get' => ['GET', '/help/something', [$rc, 'get'], ['code' => 'something']],
+        ];
+
+        return $r;
     }
 }

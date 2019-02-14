@@ -1,18 +1,18 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use DateTime;
 
 /**
  * Test the jsonFilter function.
  */
-class JsonFilterTest extends TestCase {
+class JsonFilterTest extends SharedBootstrapTestCase {
 
     public function testJsonFilterDateTime() {
         $date = new DateTime('now', new \DateTimeZone('UTC'));

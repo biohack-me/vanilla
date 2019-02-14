@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license https://opensource.org/licenses/GPL-2.0 GPL-2.0
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
@@ -17,18 +17,7 @@ class AuthenticatorsTest extends AbstractAPIv2Test {
     private static $authenticators;
 
     /** @var string */
-    private $baseUrl;
-
-    /**
-     * AuthenticatorsTest constructor.
-     *
-     * @param null $name
-     * @param array $data
-     * @param string $dataName
-     */
-    public function __construct($name = null, array $data = [], $dataName = '') {
-        $this->baseUrl = '/authenticators';
-    }
+    protected $baseUrl = '/authenticators';
 
     /**
      * @inheritdoc
@@ -40,13 +29,16 @@ class AuthenticatorsTest extends AbstractAPIv2Test {
         $authenticatorModel = self::container()->get(AuthenticatorModel::class);
         self::$authenticators = $authenticatorModel->getAuthenticators();
 
-
+        /** @var \Gdn_Configuration $config */
+        $config = static::container()->get(\Gdn_Configuration::class);
+        $config->set('Feature.'.\AuthenticateApiController::FEATURE_FLAG.'.Enabled', true, true, false);
     }
 
     /**
      * @inheritdoc
      */
     public function setUp() {
+        parent::setUp();
         if (!self::$authenticators) {
             $this->markTestSkipped('No Authenticator found.');
         }
@@ -61,19 +53,65 @@ class AuthenticatorsTest extends AbstractAPIv2Test {
         $this->assertArrayHasKey('authenticatorID', $record);
         $this->assertArrayHasKey('type', $record);
         $this->assertArrayHasKey('resourceUrl', $record);
+
         $this->assertArrayHasKey('ui', $record);
         $this->assertInternalType('array', $record['ui']);
+        $this->assertArrayHasKey('url', $record['ui']);
+        $this->assertArrayHasKey('buttonName', $record['ui']);
+        $this->assertArrayHasKey('backgroundColor', $record['ui']);
+        $this->assertArrayHasKey('foregroundColor', $record['ui']);
+
         $this->assertArrayHasKey('isActive', $record);
         $this->assertInternalType('bool', $record['isActive']);
+
+        // They also have to enable SignIn.
+        if (isset($record['sso'])) {
+            $this->assertArrayHasKey('canSignIn', $record['sso']);
+            $this->assertInternalType('bool', $record['sso']['canSignIn']);
+            $this->assertTrue($record['sso']['canSignIn']);
+        }
     }
 
     /**
-     * Test GET /authenticators/:id
+     * Test GET /authenticators/:type/:id
      */
     public function testGetAuthenticators() {
+        $type = self::$authenticators[0]::getType();
         $id = self::$authenticators[0]->getID();
 
-        $response = $this->api()->get($this->baseUrl.'/'.$id);
+        $response = $this->api()->get($this->baseUrl.'/'.$type.'/'.$id);
+
+        $this->assertEquals(200, $response->getStatusCode());
+
+        $body = $response->getBody();
+        $this->assertIsAuthenticator($body);
+    }
+
+    /**
+     * Test GET /authenticators/ucfirst(:type)/ucfirst(:id)
+     */
+    public function testGetAuthenticatorsUCFirst() {
+        $type = ucfirst(self::$authenticators[0]::getType());
+        $id = ucfirst(self::$authenticators[0]->getID());
+
+        $response = $this->api()->get($this->baseUrl.'/'.$type.'/'.$id);
+
+        $this->assertEquals(200, $response->getStatusCode());
+
+        $body = $response->getBody();
+        $this->assertIsAuthenticator($body);
+    }
+
+    /**
+     * Test GET /authenticators/strtolower(:type)/strtolower(:id)
+     *
+     * This should be what is returned by the api in the URL fields.
+     */
+    public function testGetAuthenticatorsLowerCase() {
+        $type = strtolower(self::$authenticators[0]::getType());
+        $id = strtolower(self::$authenticators[0]->getID());
+
+        $response = $this->api()->get($this->baseUrl.'/'.$type.'/'.$id);
 
         $this->assertEquals(200, $response->getStatusCode());
 

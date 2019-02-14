@@ -1,15 +1,15 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license Proprietary
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 
-class GeneralFunctionsTest extends TestCase {
+class GeneralFunctionsTest extends SharedBootstrapTestCase {
 
     /**
      * Test {@link urlMatch()}.
@@ -116,6 +116,41 @@ class GeneralFunctionsTest extends TestCase {
             'path mismatch' => ['https://bar.com/another', false],
             'wildcard path 1' => ['https://baz.com/entry', true],
             'wildcard path 2' => ['https://baz.com/entry/signin', true]
+        ];
+
+        return $r;
+    }
+
+    /**
+     * Test the **absoluteSource()** function.
+     *
+     * @param string $srcPath The source path.
+     * @param string $url The full URL that the source path is on.
+     * @param string $expected The expected absolute source result.
+     * @dataProvider provideAbsoluteSourceTests
+     */
+    public function testAbsoluteSource(string $srcPath, string $url, string $expected) {
+        $actual = absoluteSource($srcPath, $url);
+        $this->assertSame($expected, $actual);
+    }
+
+    /**
+     * Provide tests for **testAbsoluteSource()**.
+     *
+     * @return array Returns a data provider array.
+     */
+    public function provideAbsoluteSourceTests() {
+        $r = [
+            'root' => ['/foo', 'http://ex.com/bar', 'http://ex.com/foo'],
+            'relative' => ['bar', 'http://ex.com/foo', 'http://ex.com/foo/bar'],
+            'relative slash' => ['bar', 'http://ex.com/foo/', 'http://ex.com/foo/bar'],
+            'scheme' => ['https://ex.com', 'http://ex.com', 'https://ex.com'],
+            'schema-less' => ['//ex.com', 'https://baz.com', 'https://ex.com'],
+            'bad scheme' => ['bad://ex.com', 'http://ex.com', ''],
+            'bad scheme 2' => ['foo', 'bad://ex.com', ''],
+            '..' => ['../foo', 'http://ex.com/bar/baz', 'http://ex.com/bar/foo'],
+            '.. 2' => ['../foo', 'http://ex.com/bar/baz/', 'http://ex.com/bar/foo'],
+            '../..' => ['../../foo', 'http://ex.com/bar/baz', 'http://ex.com/foo'],
         ];
 
         return $r;

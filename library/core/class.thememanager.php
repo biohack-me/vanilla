@@ -5,8 +5,8 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -318,7 +318,7 @@ class Gdn_ThemeManager extends Gdn_Pluggable {
      *
      *
      * @param $themeName
-     * @return mixed
+     * @return array|bool
      */
     public function getThemeInfo($themeName) {
         $theme = $this->addonManager->lookupTheme($themeName);
@@ -585,6 +585,7 @@ class Gdn_ThemeManager extends Gdn_Pluggable {
 
         if ($oldTheme !== $themeName) {
             $this->themeHook($themeName, self::ACTION_ENABLE, true);
+            $this->themeHook($oldTheme, self::ACTION_DISABLE, true);
             Logger::event(
                 'theme_changed',
                 Logger::NOTICE,

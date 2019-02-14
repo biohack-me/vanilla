@@ -3,8 +3,8 @@
  * Database manager
  *
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -203,7 +203,7 @@ class Gdn_Database {
      *   - <b>Engine</b>: Required. The name of the database engine (MySQL, pgsql, sqlite, odbc, etc.
      *   - <b>Dsn</b>: Optional. The dsn for the connection. If the dsn is not supplied then the connectio information below must be supplied.
      *   - <b>Host, Dbname</b>: Optional. The individual database connection options that will be build into a dsn.
-     *   - <b>User</b>: The username to connect to the datbase.
+     *   - <b>User</b>: The username to connect to the database.
      *   - <b>Password</b>: The password to connect to the database.
      *   - <b>ConnectionOptions</b>: Other PDO connection attributes.
      */
@@ -488,6 +488,88 @@ class Gdn_Database {
     }
 
     /**
+     * Translate a database data type into a type compatible with Garden Schema.
+     *
+     * @param string $fieldType
+     * @return string
+     */
+    private function simpleDataType(string $fieldType): string {
+        $fieldType = strtolower($fieldType);
+
+        switch ($fieldType) {
+            case 'bool':
+            case 'boolean':
+                $result = 'boolean';
+                break;
+            case 'bit':
+            case 'tinyint':
+            case 'smallint':
+            case 'mediumint':
+            case 'int':
+            case 'integer':
+            case 'bigint':
+                $result = 'integer';
+                break;
+            case 'decimal':
+            case 'dec':
+            case 'float':
+            case 'double':
+                $result = 'number';
+                break;
+            case 'timestamp':
+                $result = 'timestamp';
+                break;
+            case 'date':
+            case 'datetime':
+                $result = 'datetime';
+                break;
+            default:
+                $result = 'string';
+        }
+
+        return $result;
+    }
+
+    /**
+     * Generate a Garden Schema instance, based on the database table schema.
+     *
+     * @param string $table Target table for building the Schema.
+     * @return \Garden\Schema\Schema
+     */
+    public function simpleSchema(string $table): \Garden\Schema\Schema {
+        $schema = [];
+        $databaseSchema = $this->sql()->fetchTableSchema($table);
+
+        /** @var object $databaseField */
+        foreach ($databaseSchema as $databaseField) {
+            $type = $this->simpleDataType($databaseField->Type);
+            $allowNull = (bool)$databaseField->AllowNull;
+            $isAutoIncrement = (bool)$databaseField->AutoIncrement;
+            $hasDefault = !($databaseField->Default === null);
+            $isRequired = !$allowNull && !$isAutoIncrement && !$hasDefault;
+
+            $field = [
+                'allowNull' => $allowNull,
+                'required' => $isRequired,
+                'type' => $type,
+            ];
+            if ($type === 'string' && $databaseField->Length) {
+                $field['maximumLength'] = $databaseField->Length;
+            }
+            if (is_array($databaseField->Enum) && !empty($databaseField->Enum)) {
+                $field['enum'] = $databaseField->Enum;
+            }
+
+            // Garden Schema requires appending a question mark to the field name if it's not required.
+            $key = $databaseField->Name.(!$isRequired ? '?' : '');
+            $schema[$key] = $field;
+        }
+
+        $result = \Garden\Schema\Schema::parse($schema);
+        return $result;
+    }
+
+    /**
      * The slave connection to the database.
      *
      * @return PDO
@@ -514,7 +596,7 @@ class Gdn_Database {
             $name = $this->Engine.'Driver';
             $this->_SQL = Gdn::factory($name);
             if (!$this->_SQL) {
-                $this->_SQL = new stdClass();
+                throw new Exception("Could not instantiate database driver '$name'.");
             }
             $this->_SQL->Database = $this;
         }

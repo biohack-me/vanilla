@@ -1,6 +1,6 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GPLv2
  */
 
@@ -14,7 +14,7 @@ if (!function_exists('WriteAttachment')) {
     function writeAttachment($attachment) {
 
         $customMethod = AttachmentModel::getWriteAttachmentMethodName($attachment['Type']);
-        if (function_exists($customMethod)) {
+        if (function_exists($customMethod) && strcasecmp($customMethod, 'writeAttachment') !== 0) {
             if (val('Error', $attachment)) {
                 writeErrorAttachment($attachment);
                 return;

@@ -10,6 +10,8 @@
 # Mark built files as binary
 *.map binary
 composer.lock binary
+*.min.js binary
+*.min.css binary
 
 # Skip files on archive
 .editorconfig export-ignore

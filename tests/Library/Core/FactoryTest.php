@@ -1,20 +1,20 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2016 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license Proprietary
  */
 
 namespace Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Gdn;
 use VanillaTests\Fixtures\Tuple;
 
 /**
  * Tests for the {@link Gdn_Factory}.
  */
-class FactoryTest extends TestCase {
+class FactoryTest extends SharedBootstrapTestCase {
     const TUPLE = 'VanillaTests\Fixtures\Tuple';
 
     /**

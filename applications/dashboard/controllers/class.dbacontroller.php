@@ -2,8 +2,8 @@
 /**
  * Contains useful functions for cleaning up the database.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.1
  */
@@ -27,7 +27,6 @@ class DbaController extends DashboardController {
         Gdn_Theme::section('Dashboard');
         $this->Model = new DBAModel();
         $this->Form = new Gdn_Form();
-        $this->addCssFile('style.css');
         $this->addJsFile('dba.js');
     }
 

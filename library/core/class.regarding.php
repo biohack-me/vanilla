@@ -3,8 +3,8 @@
  * Regarding system.
  *
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */

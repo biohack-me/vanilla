@@ -5,8 +5,8 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -32,6 +32,7 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
     /** @var array List of exceptions not to block */
     private $blockExceptions = [
         '#^api/v\d+/applicants(/|$)#' => self::BLOCK_NEVER,
+        '#^api/v\d+/locales.*#' => self::BLOCK_NEVER,
         '#^asset(/|$)#' => self::BLOCK_NEVER,
         '#^authenticate(/|$)#' => self::BLOCK_NEVER,
         '#^discussions/getcommentcounts(/|$)#' => self::BLOCK_NEVER,
@@ -204,7 +205,11 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
      * @param string $name The name to convert.
      * @return string Returns the filtered name.
      */
-    private function filterName($name) {
+    protected function filterName($name) {
+        if (empty($name) || $name[0] === '-' || substr($name, -1) === '-' || preg_match('`--`', $name)) {
+            return $name;
+        }
+
         $result = implode('', array_map('ucfirst', explode('-', $name)));
         return $result;
     }
@@ -387,7 +392,7 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
         if ($controllerName) {
             // The controller was found based on the path.
             $result['controller'] = $controllerName;
-        } elseif (Gdn::pluginManager()->hasNewMethod('RootController', val(0, $parts))) {
+        } elseif (Gdn::pluginManager()->hasNewMethod('RootController', $parts[0] ?? false)) {
             // There is a plugin defining a new root method.
             $result['controller'] = 'RootController';
         } else {
@@ -468,9 +473,9 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
      * @return array Returns an array in the form `[$controllerName, $parts]` where `$parts` is the remaining path parts.
      * If a controller cannot be found then an array in the form of `['', $parts]` is returned.
      */
-    private function findController($parts) {
+    private function findController(array $parts) {
         // Look for the old-school application name as the first part of the path.
-        if (in_array(val(0, $parts), $this->getEnabledApplicationFolders())) {
+        if (in_array(($parts[0] ?? false), $this->getEnabledApplicationFolders())) {
             $application = array_shift($parts);
         } else {
             $application = '';
@@ -505,12 +510,15 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
      * If the method is not found then an empty string is returned for the method name.
      */
     private function findControllerMethod($controller, $pathArgs) {
-        if ($this->methodExists($controller, reset($pathArgs))) {
-            return [array_shift($pathArgs), $pathArgs];
-        } elseif ($this->methodExists($controller, 'x'.reset($pathArgs))) {
-            $method = array_shift($pathArgs);
-            deprecated(get_class($controller)."->x$method", get_class($controller)."->$method");
-            return ['x'.$method, $pathArgs];
+        $first = $this->filterName(reset($pathArgs));
+
+        if ($this->methodExists($controller, $first)) {
+            array_shift($pathArgs);
+            return [lcfirst($first), $pathArgs];
+        } elseif ($this->methodExists($controller, "x$first")) {
+            array_shift($pathArgs);
+            deprecated(get_class($controller)."->x$first", get_class($controller)."->$first");
+            return ["x$first", $pathArgs];
         } elseif ($this->methodExists($controller, 'index')) {
             // "index" is the default controller method if an explicit method cannot be found.
             $this->EventArguments['PathArgs'] = $pathArgs;
@@ -830,12 +838,21 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
             // Augment the arguments to the plugin with the sender and these arguments.
             // The named sender and args keys are an old legacy format before plugins could override controller methods properly.
             $inputArgs = array_merge([$controller], $pathArgs, ['sender' => $controller, 'args' => $pathArgs]);
-            $args = reflectArgs($callback, $inputArgs, $reflectionArguments);
         } else {
             $callback = [$controller, $controllerMethod];
-            $args = reflectArgs($callback, $pathArgs, $reflectionArguments);
+            $inputArgs = $pathArgs;
         }
+        $method = is_array($callback) ? new ReflectionMethod($callback[0], $callback[1]) : new ReflectionFunction($callback);
+        $args = reflectArgs($method, $inputArgs, $reflectionArguments);
         $controller->ReflectArgs = $args;
+
+
+        $canonicalUrl = url($this->makeCanonicalUrl($controller, $method, $args), true);
+        $canonicalUrlOld = $this->makeCanonicalUrlOld($controller);
+        if ($canonicalUrl !== $canonicalUrlOld) {
+            trigger_error("Canonical URL $canonicalUrl !== $canonicalUrlOld.", E_USER_NOTICE);
+        }
+        $controller->canonicalUrl($canonicalUrl);
 
         // Now that we have everything its time to call the callback for the controller.
         try {
@@ -843,10 +860,143 @@ class Gdn_Dispatcher extends Gdn_Pluggable {
             Gdn::pluginManager()->callEventHandlers($controller, $controllerName, $controllerMethod, 'before');
 
             call_user_func_array($callback, $args);
-        } catch (Exception $ex) {
+        } catch (\Throwable $ex) {
             $controller->renderException($ex);
             exit();
         }
+    }
+
+    /**
+     * This is the old default implementation of canonical URL calculation from `Gdn_Controller`.
+     *
+     * This method is here for debugging purposes and will be removed eventually.
+     *
+     * @param object $sender The controller about to be dispatched.
+     * @return string Returns a URL.
+     * @deprecated
+     */
+    private function makeCanonicalUrlOld($sender): string {
+        $controller = strtolower(stringEndsWith($sender->ControllerName, 'Controller', true, true));
+
+        if ($controller == 'settings') {
+            $parts[] = strtolower($sender->ApplicationFolder);
+        }
+
+        if ($controller != 'root') {
+            $parts[] = $controller;
+        }
+
+        if (strcasecmp($sender->RequestMethod, 'index') != 0) {
+            $parts[] = strtolower($sender->RequestMethod);
+        }
+
+        // The default canonical url is the fully-qualified url.
+        if (is_array($sender->RequestArgs)) {
+            $parts = array_merge($parts, $sender->RequestArgs);
+        } elseif (is_string($sender->RequestArgs)) {
+            $parts = trim($sender->RequestArgs, '/');
+        }
+
+        $path = implode('/', $parts);
+        $result = url($path, true);
+
+        return $result;
+    }
+
+    /**
+     * Make the default canonical URL.
+     *
+     * @param object $controller The controller to use for the canonical URL.
+     * @param ReflectionFunctionAbstract $method The method being dispatched.
+     * @param $array $args The reflected arguments.
+     * @return string Returns a URL.
+     */
+    protected function makeCanonicalUrl($controller, \ReflectionFunctionAbstract $method, $args): string {
+        $parts = [];
+
+        $controllerName = stringEndsWith(\Garden\EventManager::classBasename(get_class($controller)), 'Controller', true, true);
+        $controllerName = $this->dashCase($controllerName);
+
+        if ($controllerName !== 'root') {
+            $parts[] = $controllerName;
+        }
+
+        $methodName = $method->getName();
+        if (preg_match('`^[^_]+_([^_]+)`', $methodName, $m)) {
+            $methodName = $m[1];
+        }
+        $methodName = $this->dashCase($methodName);
+        if ($methodName !== 'index') {
+            $parts[] = $methodName;
+        }
+
+        // Remove empty parameters from the parts.
+        $defaults = [];
+        foreach ($method->getParameters() as $param) {
+            if ($param->isDefaultValueAvailable()) {
+                $defaults[strtolower($param->getName())] = $param->getDefaultValue();
+            }
+
+            if (strcasecmp($param->getName(), 'page') === 0 && empty($defaults['page'])) {
+                $defaults['page'] = 'p1';
+            }
+        }
+
+
+        $args = array_change_key_case($args);
+
+        // Add args after known names to the querystring.
+        $query = [];
+        $split = false;
+        foreach ($args as $key => $value) {
+            if (is_object($value)) {
+                continue;
+            } elseif (in_array($key, ['search', 'query']) || $split) {
+                if (!empty($value) && $value != ($defaults[$key] ?? '')) {
+                    $query[$key] = $value;
+                }
+                $split = true;
+            } elseif (is_numeric($key)) {
+                break;
+            } else {
+                $parts[$key] = $value;
+            }
+        }
+        $query = array_filter($query);
+
+        // Remove empty or default path parameters from the end.
+        $keys = array_reverse(array_keys($parts));
+        foreach ($keys as $key) {
+            $value = $parts[$key];
+            if (empty($value) || $value == ($defaults[$key] ?? '')) {
+                unset($parts[$key]);
+            } else {
+                break;
+            }
+        }
+
+        $path = implode('/', array_map('rawurlencode', $parts));
+        if (!empty($query)) {
+            ksort($query);
+            $path .= '?'.http_build_query($query);
+        }
+
+        return '/'.$path;
+    }
+
+    /**
+     * Convert a string to dash-case.
+     *
+     * @param string $str The string to convert.
+     * @return string Returns a dash-case string.
+     */
+    protected function dashCase(string $str): string {
+        if (preg_match_all('`((?:[A-Z]|^)[A-Z]*[a-z0-9]*)`', $str, $m)) {
+            $result = implode('-', array_map('strtolower', $m[1]));
+        } else {
+            $result = strtolower($str);
+        }
+        return $result;
     }
 
     /**

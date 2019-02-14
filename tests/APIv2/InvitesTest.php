@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
@@ -52,6 +52,7 @@ class InvitesTest extends AbstractResourceTest {
     /**
      * {@inheritdoc}
      * @requires function InvitationsApiController::get_edit
+     * @group ignore
      */
     public function testGetEdit($record = null) {
         $this->fail(__METHOD__.' needs to be implemented.');
@@ -60,6 +61,7 @@ class InvitesTest extends AbstractResourceTest {
     /**
      * {@inheritdoc}
      * @requires function InvitationsApiController::get_edit
+     * @group ignore
      */
     public function testGetEditFields() {
         $this->fail(__METHOD__.' needs to be implemented.');

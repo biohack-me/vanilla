@@ -3,7 +3,7 @@
  * VanillaStats Plugin
  *
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
  * @package VanillaStats
  */
@@ -40,26 +40,13 @@ class VanillaStatsPlugin extends Gdn_Plugin {
      * VanillaStatsPlugin constructor.
      */
     public function __construct() {
-        $this->AnalyticsServer = c('Garden.Analytics.Remote', 'analytics.vanillaforums.com');
+        $this->AnalyticsServer = c('Garden.Analytics.Remote', 'https://analytics.vanillaforums.com');
         $this->VanillaID = Gdn::installationID();
 
         $isVanillaAnalyticEnabled = Gdn::addonManager()->isEnabled('vanillaanalytics', Vanilla\Addon::TYPE_ADDON);
         $this->dashboardSummariesEnabled = c('Garden.Analytics.DashboardSummaries', !$isVanillaAnalyticEnabled);
 
         parent::__construct();
-    }
-
-    /**
-     * Override the default dashboard page with the new stats one.
-     *
-     * @param Gdn_Dispatcher $sender
-     */
-    public function gdn_dispatcher_beforeDispatch_handler($sender) {
-        $enabled = c('Garden.Analytics.Enabled', true);
-
-        if ($enabled) {
-            Gdn::pluginManager()->registerNewMethod('VanillaStatsPlugin', 'StatsDashboard', 'SettingsController', 'home');
-        }
     }
 
     /**

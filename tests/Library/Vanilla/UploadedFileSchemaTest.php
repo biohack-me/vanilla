@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Vanilla;
@@ -10,11 +10,13 @@ use PHPUnit\Framework\TestCase;
 use Gdn_Upload;
 use Vanilla\UploadedFile;
 use Vanilla\UploadedFileSchema;
+use VanillaTests\BootstrapTrait;
 
 /**
  * Tests for the **UploadedFileSchema** class.
  */
 class UploadedFileSchemaTest extends TestCase {
+    use BootstrapTrait;
 
     /**
      * Test an upload possessing an invalid file extension.

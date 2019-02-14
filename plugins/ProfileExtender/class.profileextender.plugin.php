@@ -3,7 +3,7 @@
  * ProfileExtender Plugin.
  *
  * @author Lincoln Russell <lincoln@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
  * @package ProfileExtender
  */
@@ -31,7 +31,7 @@ class ProfileExtenderPlugin extends Gdn_Plugin {
     }
 
     /** @var array */
-    public $MagicLabels = ['Twitter', 'Google', 'Facebook', 'LinkedIn', 'GitHub', 'Website', 'Real Name'];
+    public $MagicLabels = ['Twitter', 'Google', 'Facebook', 'LinkedIn', 'GitHub', 'Instagram', 'Website', 'Real Name'];
 
     /**
      * Available form field types in format Gdn_Type => DisplayName.
@@ -146,6 +146,9 @@ class ProfileExtenderPlugin extends Gdn_Plugin {
                 case 'Google':
                     $fields['Google'] = anchor('Google+', $value, '', ['rel' => 'me']);
                     break;
+                case 'Instagram':
+                    $fields['Instagram'] = '@'.anchor($value, 'http://instagram.com/'.$value);
+                    break;
                 case 'Website':
                     $linkValue = (isUrl($value)) ? $value : 'http://'.$value;
                     $fields['Website'] = anchor($value, $linkValue);
@@ -228,11 +231,17 @@ class ProfileExtenderPlugin extends Gdn_Plugin {
      * @access private
      */
     private function profileFields($Sender) {
+
+        /** @var \Garden\EventManager $eventManager */
+        $eventManager = Gdn::getContainer()->get(\Garden\EventManager::class);
         // Retrieve user's existing profile fields
         $this->ProfileFields = $this->getProfileFields();
-
+        $this->ProfileFields = $eventManager->fireFilter("modifyProfileFields", $this->ProfileFields);
         // Get user-specific data
         $this->UserFields = Gdn::userModel()->getMeta($Sender->Form->getValue('UserID'), 'Profile.%', 'Profile.');
+        $this->UserFields = $eventManager->fireFilter("modifyUserFields", $this->UserFields);
+
+        $this->fireEvent('beforeGetProfileFields');
         // Fill in user data on form
         foreach ($this->UserFields as $Field => $Value) {
             $Sender->Form->setValue($Field, $Value);
@@ -519,28 +528,43 @@ class ProfileExtenderPlugin extends Gdn_Plugin {
 
         // Determine profile fields we need to add.
         $fields = $this->getProfileFields();
-        $columnNames = ['Name', 'Email', 'Joined', 'Last Seen', 'Discussions', 'Comments', 'Points', 'InviteUserID', 'InvitedByName'];
+        $columnNames = ['Name', 'Email', 'Joined', 'Last Seen', 'LastIPAddress', 'Discussions', 'Comments', 'Points', 'InviteUserID', 'InvitedByName', 'Location', 'Roles'];
 
         // Set up our basic query.
         Gdn::sql()
-            ->select('u.Name')
-            ->select('u.Email')
-            ->select('u.DateInserted')
-            ->select('u.DateLastActive')
-            ->select('u.CountDiscussions')
-            ->select('u.CountComments')
-            ->select('u.Points')
-            ->select('u.InviteUserID')
-            ->select('u2.Name', '', 'InvitedByName')
+            ->select([
+                'u.Name',
+                'u.Email',
+                'u.DateInserted',
+                'u.DateLastActive',
+                'inet6_ntoa(u.LastIPAddress)',
+                'u.CountDiscussions',
+                'u.CountComments',
+                'u.Points',
+                'u.InviteUserID',
+                'u2.Name as InvitedByName',
+                'u.Location',
+                'group_concat(r.Name) as Roles',
+            ])
             ->from('User u')
             ->leftJoin('User u2', 'u.InviteUserID = u2.UserID and u.InviteUserID is not null')
+            ->join('UserRole ur', 'u.UserID = ur.UserID')
+            ->join('Role r', 'r.RoleID = ur.RoleID')
             ->where('u.Deleted', 0)
-            ->where('u.Admin <', 2);
+            ->where('u.Admin <', 2)
+            ->groupBy('u.UserID');
 
         if (val('DateOfBirth', $fields)) {
             $columnNames[] = 'Birthday';
             Gdn::sql()->select('u.DateOfBirth');
             unset($fields['DateOfBirth']);
+        }
+
+        if (Gdn::addonManager()->isEnabled('Ranks', \Vanilla\Addon::TYPE_ADDON)) {
+            $columnNames[] = 'Rank';
+            Gdn::sql()
+                ->select('ra.Name as Rank')
+                ->leftJoin('Rank ra', 'ra.RankID = u.RankID');
         }
 
         $i = 0;
@@ -563,7 +587,7 @@ class ProfileExtenderPlugin extends Gdn_Plugin {
         die();
 
         // Useful for query debug.
-        //$sender->render('blank');
+        // $sender->render('blank');
     }
 
     /**

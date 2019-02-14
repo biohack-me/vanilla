@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package vanilla-smarty
  * @since 2.0
  */
@@ -16,7 +16,7 @@
 function smarty_function_module($params, &$smarty) {
     $name = val('name', $params);
     unset($params['name']);
-   
+
     $result = Gdn_Theme::module($name, $params);
 	return $result;
 }

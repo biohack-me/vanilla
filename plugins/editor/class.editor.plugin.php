@@ -3,7 +3,7 @@
  * Editor Plugin
  *
  * @author Dane MacMillan
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
  * @package editor
  */
@@ -62,7 +62,7 @@ class EditorPlugin extends Gdn_Plugin {
         $this->pluginInfo = Gdn::pluginManager()->getPluginInfo('editor', Gdn_PluginManager::ACCESS_PLUGINNAME);
         $this->ForceWysiwyg = c('Plugins.editor.ForceWysiwyg', false);
 
-        // Check for additional formats
+        // Check for additional formats that render with the Advanced Editor.
         $this->EventArguments['formats'] = &$this->Formats;
         $this->fireEvent('GetFormats');
     }
@@ -529,7 +529,7 @@ class EditorPlugin extends Gdn_Plugin {
     }
 
     /**
-     * Placed these components everywhere due to some Web sites loading the
+     * Placed these Components everywhere due to some Web sites loading the
      * editor in some areas where the values were not yet injected into HTML.
      */
     public function base_render_before($sender) {
@@ -544,7 +544,7 @@ class EditorPlugin extends Gdn_Plugin {
 
         // If user wants to modify styling of Wysiwyg content in editor,
         // they can override the styles with this file.
-        $cssInfo = AssetModel::cssPath('wysiwyg.css', 'plugins/editor');
+        $cssInfo = \Vanilla\Web\Asset\LegacyAssetModel::cssPath('wysiwyg.css', 'plugins/editor');
         if ($cssInfo) {
             $cssPath = asset($cssInfo[1]);
         }
@@ -563,6 +563,9 @@ class EditorPlugin extends Gdn_Plugin {
         $c->addJsFile('jquery.iframe-transport.js', 'plugins/editor');
         $c->addJsFile('jquery.fileupload.js', 'plugins/editor');
 
+        // Mentions
+        $c->addJsFile('jquery.atwho.js');
+
         // Set definitions for JavaScript to read
         $c->addDefinition('editorVersion', $this->pluginInfo['Version']);
         $c->addDefinition('editorInputFormat', $this->Format);
@@ -580,6 +583,7 @@ class EditorPlugin extends Gdn_Plugin {
         $c->addDefinition('canUpload', $this->canUpload());
         $c->addDefinition('fileErrorSize', t('editor.fileErrorSize', 'File size is too large.'));
         $c->addDefinition('fileErrorFormat', t('editor.fileErrorFormat', 'File format is not allowed.'));
+        $c->addDefinition('fileErrorAlreadyExists', t('editor.fileErrorAlreadyExists', 'File already uploaded.'));
         $c->addDefinition('fileErrorSizeFormat', t('editor.fileErrorSizeFormat', 'File size is too large and format is not allowed.'));
 
         $additionalDefinitions = [];
@@ -730,7 +734,7 @@ class EditorPlugin extends Gdn_Plugin {
      * @throws Gdn_UserException
      */
     public function postController_editorUpload_create($sender, $args = []) {
-        $sender->permission('Garden.SignIn.Allow');
+        $sender->permission('Garden.Uploads.Add');
 
         // @Todo Move to a library/functions file.
         require 'generate_thumbnail.php';
@@ -984,6 +988,18 @@ class EditorPlugin extends Gdn_Plugin {
         // Array of Media IDs, as input is MediaIDs[]
         $mediaIds = (array)Gdn::request()->getValue('MediaIDs');
 
+        $discussionID = Gdn::request()->getValue('DiscussionID');
+        $discussionModel = new DiscussionModel();
+        $discussion = $discussionModel->getID($discussionID);
+        if ($discussion) {
+            $categoryID = $discussion->CategoryID;
+            $category = CategoryModel::categories($categoryID);
+
+            if ($category && $category['AllowFileUploads'] !==1  && Gdn::request()->getValue('MediaIDs') !== false) {
+                throw new Exception(t('You are not allowed to upload files in this category.'));
+            }
+        }
+        
         if (count($mediaIds)) {
             foreach ($mediaIds as $mediaId) {
                 $this->attachEditorUploads($mediaId, $id, $type);
@@ -1400,25 +1416,47 @@ class EditorPlugin extends Gdn_Plugin {
     }
 
     /**
+     * Add the rich editor format to the posting page.
      *
-     * @param SettingsController $sender
-     * @param array $args
+     * @param string[] $postFormats Existing post formats.
+     *
+     * @return string[] Additional post formats.
      */
-    public function settingsController_editor_create($sender, $args) {
-        $sender->permission('Garden.Settings.Manage');
-        $cf = new ConfigurationModule($sender);
+    public function getPostFormats_handler(array $postFormats): array {
+        return array_merge($postFormats, $this->Formats);
+    }
 
-        $formats = array_combine($this->Formats, $this->Formats);
+    /**
+     * Add additional WYSIWYG specific form item to the dashboard posting page.
+     *
+     * @param string $additionalFormItemHTML
+     * @param Gdn_Form $form The Form instance from the page.
+     * @param Gdn_ConfigurationModel $configModel The config model used for the Form.
+     *
+     * @return string The built up form html
+     */
+    public function postingSettings_formatSpecificFormItems_handler(
+        string $additionalFormItemHTML,
+        Gdn_Form $form,
+        Gdn_ConfigurationModel $configModel
+    ): string {
+        $forceWysiwygLabel = 'Reinterpret All Posts As Wysiwyg';
+        $forceWysiwygNote1 =  t('ForceWysiwyg.Notes1', 'Check the below option to tell the editor to reinterpret all old posts as Wysiwyg.');
+        $forceWysiwygNote2 = t('ForceWysiwyg.Notes2', 'This setting will only take effect if Wysiwyg was chosen as the Post Format above. The purpose of this option is to normalize the editor format. If older posts edited with another format, such as markdown or BBCode, are loaded, this option will force Wysiwyg.');
+        $label = '<p class="info">'.$forceWysiwygNote1.'</p><p class="info"><strong>'.t('Note:').' </strong>'.$forceWysiwygNote2.'</p>';
+        $configModel->setField('Plugins.editor.ForceWysiwyg');
+        $form->setValue('Plugins.editor.ForceWysiwyg', c('Plugins.editor.ForceWysiwyg'));
+        $formToggle = $form->toggle('Plugins.editor.ForceWysiwyg', $forceWysiwygLabel, [], $label);
 
-        $cf->initialize([
-            'Garden.InputFormatter' => ['LabelCode' => 'Post Format', 'Control' => 'DropDown', 'Description' => '<p>Select the default format of the editor for posts in the community.</p><p><strong>Note:</strong> the editor will auto-detect the format of old posts when editing them and load their original formatting rules. Aside from this exception, the selected post format below will take precedence.</p>', 'Items' => $formats],
-            'Plugins.editor.ForceWysiwyg' => ['LabelCode' => 'Reinterpret All Posts As Wysiwyg', 'Control' => 'Checkbox', 'Description' => '<p class="info">Check the below option to tell the editor to reinterpret all old posts as Wysiwyg.</p> <p class="info"><strong>Note:</strong> This setting will only take effect if Wysiwyg was chosen as the Post Format above. The purpose of this option is to normalize the editor format. If older posts edited with another format, such as markdown or BBCode, are loaded, this option will force Wysiwyg.</p>'],
-            'Garden.MobileInputFormatter' => ['LabelCode' => 'Mobile Format', 'Control' => 'DropDown', 'Description' => '<p>Specify an editing format for mobile devices. If mobile devices should have the same experience, specify the same one as above. If users report issues with mobile editing, this is a good option to change.</p>', 'Items' => $formats, 'DefaultValue' => c('Garden.MobileInputFormatter')]
-        ]);
+        $additionalFormItemHTML .= "<li class='form-group'>$formToggle</li>";
+        return $additionalFormItemHTML;
+    }
 
-
-        $sender->setData('Title', t('Advanced Editor Settings'));
-        $cf->renderAll();
+    /**
+     * This settings from this page have been moved into vanilla core.
+     */
+    public function settingsController_editor_create() {
+        redirectTo('/vanilla/settings/posting', 301);
     }
 
     /**
@@ -1426,7 +1464,7 @@ class EditorPlugin extends Gdn_Plugin {
      * This way, the editor plugin always takes precedence.
      */
     public function setup() {
-        touchConfig([
+        \Gdn::config()->touch([
             'Garden.MobileInputFormatter' => 'TextEx',
             'Plugins.editor.ForceWysiwyg' => false
         ]);
@@ -1439,7 +1477,7 @@ class EditorPlugin extends Gdn_Plugin {
      * @throws Exception
      */
     public function structure() {
-         $pluginEditors = [
+        $pluginEditors = [
             'cleditor',
             'ButtonBar',
             'Emotify',
@@ -1451,7 +1489,7 @@ class EditorPlugin extends Gdn_Plugin {
         }
 
         // Set to false by default, so change in config if uploads allowed.
-        touchConfig('Garden.AllowFileUploads', true);
+        \Gdn::config()->touch('Garden.AllowFileUploads', true);
 
         $structure = Gdn::structure();
         $structure

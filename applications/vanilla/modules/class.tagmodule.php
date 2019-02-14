@@ -2,8 +2,8 @@
 /**
  * Tagging plugin.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Tagging
  */
 
@@ -102,6 +102,17 @@ class TagModule extends Gdn_Module {
         $tagQuery = Gdn::sql();
 
         $this->autoContext();
+        // Allow addon to manipulate the data being rendered.
+        $tagData = null;
+        $this->EventArguments['ParentID'] = $this->ParentID;
+        $this->EventArguments['ParentType'] = $this->ParentType;
+        $this->EventArguments['tagData'] = &$tagData;
+        $this->fireEvent('getData');
+        
+        if (is_array($tagData)) {
+            $this->_TagData = new Gdn_DataSet($tagData, DATASET_TYPE_ARRAY);
+            return;
+        }
 
         $tagCacheKey = "TagModule-{$this->ParentType}-{$this->ParentID}";
         switch ($this->ParentType) {

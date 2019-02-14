@@ -2,8 +2,8 @@
 /**
  * Conversation model.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Conversations
  * @since 2.0
  */
@@ -181,7 +181,7 @@ class ConversationModel extends ConversationsModel {
         }
 
         // Join the participants.
-        $this->joinParticipants($result);
+        $this->joinParticipants($result, 5, ["Name", "Email", "Photo", "DateLastActive"]);
 
         // Join in the last message.
         Gdn_DataSet::join(
@@ -359,7 +359,7 @@ class ConversationModel extends ConversationsModel {
      * @param array $data
      * @param int $max
      */
-    public function joinParticipants(&$data, $max = 5) {
+    public function joinParticipants(&$data, $max = 5, array $fields = ["Name", "Email", "Photo"]) {
         // Loop through the data and find the conversations with >= $Max participants.
         $ids = [];
         foreach ($data as $row) {
@@ -374,7 +374,11 @@ class ConversationModel extends ConversationsModel {
             ->whereIn('uc.ConversationID', $ids)
             ->get()->resultArray();
 
-        Gdn::userModel()->joinUsers($users, ['UserID']);
+        Gdn::userModel()->joinUsers(
+            $users,
+            ['UserID'],
+            ["Join" => $fields]
+        );
 
         $users = Gdn_DataSet::index($users, ['ConversationID'], ['Unique' => false]);
 
@@ -508,10 +512,14 @@ class ConversationModel extends ConversationsModel {
      *
      * @param array $formPostValues Values submitted via form.
      * @param array $settings
+     * @param array $options
      *   - ConversationOnly If set, no message will be created.
      * @return int Unique ID of conversation created or updated.
      */
-    public function save($formPostValues, $settings = []) {
+    public function save($formPostValues, $settings = [], $options = []) {
+        if (!is_array($options)) {
+            $options = [];
+        }
         $deprecated = $settings instanceof ConversationMessageModel;
         $createMessage =  $deprecated || empty($settings['ConversationOnly']);
 
@@ -663,7 +671,7 @@ class ConversationModel extends ConversationsModel {
 
                 $notifyUserIDs = array_column($unreadData, 'UserID');
 
-                $this->notifyUsers($conversation, $message, $notifyUserIDs);
+                $this->notifyUsers($conversation, $message, $notifyUserIDs, $options + ['FirstMessage' => true]);
             }
 
         } else if ($createMessage) {

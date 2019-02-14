@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Garden\Web;
@@ -36,6 +36,11 @@ class ResourceRoute extends Route {
     private $controllerPattern;
 
     /**
+     * @var string
+     */
+    private $rootController;
+
+    /**
      * @var ContainerInterface
      */
     private $container;
@@ -67,7 +72,7 @@ class ResourceRoute extends Route {
 
 
         $this
-            ->setConstraint('id', ['regex' => '`^\d+$`', 'position' => 0])
+            ->setConstraint('id', ['position' => 0, 'notype' => ['regex' => '`^\d+$`']])
             ->setConstraint('page', '`^p\d+$`');
     }
 
@@ -80,6 +85,8 @@ class ResourceRoute extends Route {
         // First check and strip the base path.
         if (stripos($path, $this->basePath) === 0) {
             $pathPart = substr($path, strlen($this->basePath));
+        } elseif ($this->basePath === $path.'/' && !empty($this->rootController)) {
+            $pathPart = '';
         } else {
             return null;
         }
@@ -88,11 +95,22 @@ class ResourceRoute extends Route {
 
         // First look for the controller.
         $resource = array_shift($pathArgs);
-        $controllerSlug = $this->filterName($resource);
-        foreach ((array)$this->controllerPattern as $controllerPattern) {
-            $controllerClass = $this->classLocator->findClass(sprintf($controllerPattern, $controllerSlug));
-            if ($controllerClass) {
-                break;
+
+        if (empty($resource) && !empty($this->rootController)) {
+            $controllerClass = $this->rootController;
+        } else {
+            $controllerSlug = $this->filterName($resource);
+            foreach ((array)$this->controllerPattern as $controllerPattern) {
+                $controllerClass = $this->classLocator->findClass(sprintf($controllerPattern, $controllerSlug));
+                if ($controllerClass) {
+                    break;
+                }
+            }
+
+            // No specific controller was found, so try the root controller.
+            if (!isset($controllerClass) && !empty($this->rootController)) {
+                $controllerClass = $this->rootController;
+                array_unshift($pathArgs, $resource);
             }
         }
         if (!isset($controllerClass)) {
@@ -114,10 +132,16 @@ class ResourceRoute extends Route {
      * Convert a dash-cased name into capital case.
      *
      * @param string $name The name to convert.
+     * @param bool $ext Whether or not to look for a file extension.
      * @return string Returns the filtered name.
      */
-    private function filterName($name) {
+    private function filterName($name, bool $ext = false) {
         $result = implode('', array_map('ucfirst', explode('-', $name)));
+
+        // Get the extension too.
+        if ($ext && $pos = strrpos($result, '.')) {
+            $result[$pos] = '_';
+        }
         return $result;
     }
 
@@ -379,7 +403,7 @@ class ResourceRoute extends Route {
         $result = [];
 
         if (isset($pathArgs[0])) {
-            $name = lcfirst($this->filterName($pathArgs[0]));
+            $name = lcfirst($this->filterName($pathArgs[0], count($pathArgs) === 1));
             $result[] = ["{$method}_{$name}", 0];
 
             if ($method === 'get') {
@@ -387,7 +411,7 @@ class ResourceRoute extends Route {
             }
         }
         if (isset($pathArgs[1])) {
-            $name = lcfirst($this->filterName($pathArgs[1]));
+            $name = lcfirst($this->filterName($pathArgs[1], count($pathArgs) === 2));
             $result[] = ["{$method}_{$name}", 1];
 
             if ($method === 'get') {
@@ -399,6 +423,12 @@ class ResourceRoute extends Route {
 
         if ($method === 'get') {
             $result[] = ['index', null];
+        } elseif ($method === "patch" && empty($pathArgs)) {
+            /**
+             * Kludge to allow patch requests to a resource's index. Necessary because current dispatching cannot
+             * differentiate between an index or resource-specific reqeust by the method name, only its parameters.
+             */
+            $result[] = ['patch_index', null];
         } elseif ($method === 'post' && !empty($pathArgs)) {
             // This is a bit of a kludge to allow POST to be used against the usual PATCH method to allow for
             // multipart/form-data on PATCH (edit) endpoints.
@@ -467,6 +497,27 @@ class ResourceRoute extends Route {
      */
     public function setControllerPattern($controllerPattern) {
         $this->controllerPattern = $controllerPattern;
+        return $this;
+    }
+
+    /**
+     * Get the root controller name.
+     *
+     * The root controller is called if there is no match for any controllers.
+     *
+     * @return string
+     */
+    public function getRootController(): string {
+        return $this->rootController;
+    }
+
+    /**
+     * Set the root controller name.
+     *
+     * @param string $class
+     */
+    public function setRootController(string $class) {
+        $this->rootController = $class;
         return $this;
     }
 }

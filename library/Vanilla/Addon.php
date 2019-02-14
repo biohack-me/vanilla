@@ -1,19 +1,20 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla;
 
-
+use Vanilla\Contracts;
 use Vanilla\Utility\CamelCaseScheme;
 
 /**
  * Contains the information for a single addon.
  */
-class Addon {
+class Addon implements Contracts\AddonInterface {
+
     const TYPE_ADDON = 'addon';
     const TYPE_LOCALE = 'locale';
     const TYPE_THEME = 'theme';
@@ -194,7 +195,7 @@ class Addon {
      *
      * @return string Returns the subdir.
      */
-    public function getSubdir() {
+    public function getSubdir(): string {
         return $this->subdir;
     }
 
@@ -496,14 +497,11 @@ class Addon {
     private function scanClassPaths() {
         $dirs = [
             '',
-            '/controllers',
-            '/Controllers',
+            '/[Cc]ontrollers',
             '/library',
             '/src',
-            '/models',
-            '/Models',
-            '/modules',
-            '/Modules',
+            '/[Mm]odels',
+            '/[Mm]odules',
             '/settings/class.hooks.php'
         ];
 
@@ -810,7 +808,7 @@ class Addon {
      *
      * @return string Returns the key as a string.
      */
-    public function getKey() {
+    public function getKey(): string {
         return empty($this->info['key']) ? '' : $this->info['key'];
     }
 

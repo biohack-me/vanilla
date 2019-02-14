@@ -7,6 +7,7 @@ $Configuration = [];
 $Configuration['EnabledPlugins']['stubcontent'] = true;
 $Configuration['EnabledPlugins']['swagger-ui'] = true;
 $Configuration['EnabledApplications']['Dashboard'] = 'dashboard';
+$Configuration['EnabledPlugins']['rich-editor'] = true;
 
 // Database defaults.
 $Configuration['Database']['Engine'] = 'MySQL';
@@ -94,12 +95,14 @@ $Configuration['Garden']['Upload']['MaxFileSize'] = '50M';
 $Configuration['Garden']['Upload']['AllowedFileExtensions'] = ['txt', 'jpg', 'jpeg', 'gif', 'png', 'bmp', 'tiff', 'ico', 'zip', 'gz', 'tar.gz', 'tgz', 'psd', 'ai', 'fla', 'pdf', 'doc', 'xls', 'ppt', 'docx', 'xlsx', 'pptx', 'log', 'rar', '7z'];
 $Configuration['Garden']['Profile']['MaxHeight'] = 560;
 $Configuration['Garden']['Profile']['MaxWidth'] = 560;
-$Configuration['Garden']['Thumbnail']['Size'] = 120;
+$Configuration['Garden']['Thumbnail']['Size'] = 200;
 
 // Appearance.
-$Configuration['Garden']['Theme'] = 'default';
-$Configuration['Garden']['MobileTheme'] = 'mobile';
+$Configuration['Garden']['Theme'] = 'keystone';
+$Configuration['Garden']['MobileTheme'] = 'keystone';
 $Configuration['Garden']['Menu']['Sort'] = ['Dashboard', 'Discussions', 'Questions', 'Activity', 'Applicants', 'Conversations', 'User'];
+$Configuration['Garden']['ThemeOptions']['Styles']['Key'] = 'Default';
+$Configuration['Garden']['ThemeOptions']['Styles']['Value'] = '%s_default';
 
 // Profiles.
 $Configuration['Garden']['Profile']['Public']= true;
@@ -115,12 +118,13 @@ $Configuration['Garden']['Embed']['PageToForum'] = true;
 $Configuration['Garden']['SignIn']['Popup'] = true; // Should the sign-in link pop up or go to it's own page? (SSO requires going to it's own external page)
 
 // User experience & formatting.
-$Configuration['Garden']['InputFormatter'] = 'Markdown'; // Html, BBCode, Markdown, Text
+$Configuration['Garden']['InputFormatter'] = 'Rich'; // Html, BBCode, Markdown, Text, Rich
+$Configuration['Garden']['MobileInputFormatter'] = 'Rich';
 $Configuration['Garden']['Html']['AllowedElements'] = "a, abbr, acronym, address, area, audio, b, bdi, bdo, big, blockquote, br, caption, center, cite, code, col, colgroup, dd, del, details, dfn, div, dl, dt, em, figure, figcaption, font, h1, h2, h3, h4, h5, h6, hgroup, hr, i, img, ins, kbd, li, map, mark, menu, meter, ol, p, pre, q, s, samp, small, span, strike, strong, sub, sup, summary, table, tbody, td, tfoot, th, thead, time, tr, tt, u, ul, var, video, wbr";
 $Configuration['Garden']['Search']['Mode'] = 'boolean'; // matchboolean, match, boolean, like
 $Configuration['Garden']['EditContentTimeout'] = 3600; // -1 means no timeout. 0 means immediate timeout. > 0 is in seconds. 60 * 60 = 3600 (aka 1hr)
 $Configuration['Garden']['Format']['Mentions'] = true;
-$Configuration['Garden']['Format']['Hashtags'] = true;
+$Configuration['Garden']['Format']['Hashtags'] = false;
 $Configuration['Garden']['Format']['YouTube'] = true;
 $Configuration['Garden']['Format']['Vimeo'] = true;
 $Configuration['Garden']['Format']['EmbedSize'] = 'normal'; // tiny/small/normal/big/huge or WIDTHxHEIGHT

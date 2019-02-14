@@ -2,8 +2,8 @@
 /**
  * Post controller
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
@@ -148,9 +148,6 @@ class PostController extends VanillaController {
             $this->Form->addHidden('CategoryID', $this->Category->CategoryID);
             if (val('DisplayAs', $this->Category) == 'Discussions' && !$draftID) {
                 $this->ShowCategorySelector = false;
-            } else {
-                // Get all our subcategories to add to the category if we are in a Header or Categories category.
-                $this->Context = CategoryModel::getSubtree($this->CategoryID);
             }
         }
 
@@ -193,6 +190,11 @@ class PostController extends VanillaController {
 
         touchValue('Type', $this->Data, 'Discussion');
 
+        // Remove Announce parameter if it was injected into the form.
+        if (!CategoryModel::checkPermission($category['CategoryID'], 'Vanilla.Discussions.Announce')) {
+            $this->Form->removeFormValue('Announce');
+        }
+
         if (!$useCategories || $this->ShowCategorySelector) {
             // See if we should fill the CategoryID value.
             $allowedCategories = CategoryModel::getByPermission(
@@ -223,14 +225,17 @@ class PostController extends VanillaController {
             // Prep form with current data for editing
             if (isset($this->Discussion)) {
                 $this->Form->setData($this->Discussion);
-            } elseif (isset($this->Draft))
+            } elseif (isset($this->Draft)) {
                 $this->Form->setData($this->Draft);
-            else {
+            } else {
                 if ($this->Category !== null) {
                     $this->Form->setData(['CategoryID' => $this->Category->CategoryID]);
                 }
                 $this->populateForm($this->Form);
             }
+            
+            // Decode HTML entities escaped by DiscussionModel::calculate() here.
+            $this->Form->setValue('Name', htmlspecialchars_decode($this->Form->getValue('Name')));
 
         } elseif ($this->Form->authenticatedPostBack()) { // Form was submitted
             // Save as a draft?
@@ -428,6 +433,9 @@ class PostController extends VanillaController {
             $this->CategoryID = $this->Discussion->CategoryID;
         }
 
+        // Verify we can add to the category content
+        $this->categoryPermission($this->CategoryID, 'Vanilla.Discussions.Add');
+
         if (c('Garden.ForceInputFormatter')) {
             $this->Form->removeFormValue('Format');
         }
@@ -472,6 +480,15 @@ class PostController extends VanillaController {
             $vanilla_identifier = $this->Form->getFormValue('vanilla_identifier', '');
             $isEmbeddedComments = $vanilla_url != '' && $vanilla_identifier != '';
 
+            // If we already have a discussion with this ForeginID, add the discussion id to the form, to avoid duplicate discussions.
+            if ($isEmbeddedComments && !$DiscussionID) {
+                $Discussion = $this->DiscussionModel->getWhere(['ForeignID' => $vanilla_identifier])->firstRow(DATASET_TYPE_OBJECT);
+                if (!empty($Discussion)) {
+                    $DiscussionID =  $this->DiscussionID = $Discussion->DiscussionID;
+                    $this->Discussion = $Discussion;
+                    $this->Form->setFormValue('DiscussionID', $DiscussionID);
+                }
+            }
             // Only allow vanilla identifiers of 32 chars or less - md5 if larger
             if (strlen($vanilla_identifier) > 32) {
                 $Attributes['vanilla_identifier'] = $vanilla_identifier;
@@ -660,10 +677,24 @@ class PostController extends VanillaController {
         if ($this->Form->authenticatedPostBack()) {
             // Save as a draft?
             $FormValues = $this->Form->formValues();
+
+            if (isset($FormValues['DiscussionID'])) {
+                $formID = (int)$FormValues['DiscussionID'];
+                $DiscussionID = (int)$DiscussionID;
+                if ($formID !== $DiscussionID) {
+                    throw new Exception('DiscussionID mismatch.');
+                }
+            }
+
             $filters = ['Score'];
             $FormValues = $this->filterFormValues($FormValues, $filters);
             $FormValues = $this->CommentModel->filterForm($FormValues);
+            $formDiscussion = $this->DiscussionModel->getID($this->Form->_FormValues['DiscussionID']);
 
+            if ($formDiscussion && $formDiscussion->Closed === 1 && !CategoryModel::checkPermission($formDiscussion->CategoryID, 'Vanilla.Discussions.Close')) {
+                throw new Exception(t('You cannot comment in a closed discussion.'));
+            }
+            
             if (!$Editing) {
                 unset($FormValues['CommentID']);
             }

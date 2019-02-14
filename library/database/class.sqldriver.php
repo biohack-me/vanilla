@@ -9,8 +9,8 @@
  * CodeIgniter (http://www.codeigniter.com). My hat is off to them.
  *
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -1915,26 +1915,28 @@ abstract class Gdn_SQLDriver {
         }
 
         foreach ($field as $f => $v) {
-            if (is_array($v) || is_object($v)) {
+            if ($v instanceof DateTimeImmutable) {
+                $v = $v->format(MYSQL_DATE_FORMAT);
+            } elseif (is_array($v) || is_object($v)) {
                 throw new Exception('Invalid value type ('.gettype($v).') in INSERT/UPDATE statement.', 500);
-            } else {
-                $escapedName = $this->escapeFieldReference($f, true);
-                if (in_array(substr($f, -1),  ['+', '-'], true)) {
-                    // This is an increment/decrement.
-                    $op = substr($f, -1);
-                    $f = substr($f, 0, -1);
-                    $escapedName = $this->escapeFieldReference($f, true);
+            }
 
-                    $parameter = $this->namedParameter($f, $createNewNamedParameter);
-                    $this->_NamedParameters[$parameter] = $v;
-                    $this->_Sets[$escapedName] = "$escapedName $op $parameter";
-                } elseif ($escapeString) {
-                    $namedParameter = $this->namedParameter($f, $createNewNamedParameter);
-                    $this->_NamedParameters[$namedParameter] = $v;
-                    $this->_Sets[$escapedName] = $namedParameter;
-                } else {
-                    $this->_Sets[$escapedName] = $v;
-                }
+            $escapedName = $this->escapeFieldReference($f, true);
+            if (in_array(substr($f, -1), ['+', '-'], true)) {
+                // This is an increment/decrement.
+                $op = substr($f, -1);
+                $f = substr($f, 0, -1);
+                $escapedName = $this->escapeFieldReference($f, true);
+
+                $parameter = $this->namedParameter($f, $createNewNamedParameter);
+                $this->_NamedParameters[$parameter] = $v;
+                $this->_Sets[$escapedName] = "$escapedName $op $parameter";
+            } elseif ($escapeString) {
+                $namedParameter = $this->namedParameter($f, $createNewNamedParameter);
+                $this->_NamedParameters[$namedParameter] = $v;
+                $this->_Sets[$escapedName] = $namedParameter;
+            } else {
+                $this->_Sets[$escapedName] = $v;
             }
         }
 
@@ -2139,6 +2141,10 @@ abstract class Gdn_SQLDriver {
         if (count($in) > 0) {
             $inExpr = '('.implode(', ', $in).')';
         } else {
+            if ($op == 'not in') {
+                deprecated('Gdn_SQLDriver::whereNotIn() was called with empty $values array. This will no longer be supported in a future release.');
+                \Vanilla\Utility\Deprecation::log();
+            }
             $inExpr = '(null)';
         }
 

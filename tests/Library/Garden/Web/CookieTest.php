@@ -1,19 +1,19 @@
 <?php
 /**
  * @author Vanilla Forums Inc.
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Garden\Web;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Garden\Web\Cookie;
 
 /**
  * Test the {@link ResourceRoute} class.
  */
-class CookieTest extends TestCase {
+class CookieTest extends SharedBootstrapTestCase {
 
     /**
      * Parse a Cookie header into its individual cookie key-value pairs.

@@ -1,17 +1,17 @@
 <?php
 /**
  * @author Eric Vachaviolos <eric.v@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Gdn_Controller;
 use stdClass;
 
-class ControllerTest extends TestCase {
+class ControllerTest extends SharedBootstrapTestCase {
 
     /**
      * Testing that the same key will be used to set data and to get it back.

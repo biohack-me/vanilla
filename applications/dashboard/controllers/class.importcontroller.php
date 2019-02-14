@@ -4,8 +4,8 @@
  *
  * This controller could use a code audit. Don't use it as sample code.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -96,6 +96,10 @@ class ImportController extends DashboardController {
      */
     private function checkAccess() {
         $this->permission('Garden.Import'); // This permission doesn't exist, so only users with Admin == '1' will succeed.
+        \Vanilla\FeatureFlagHelper::ensureFeature(
+            'Import',
+            t('Imports are not enabled.', 'Imports are not enabled. Set the config Feature.Import.Enabled = true to enable imports.')
+        );
     }
 
     /**

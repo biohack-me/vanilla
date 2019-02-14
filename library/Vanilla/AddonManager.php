@@ -1,13 +1,14 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla;
 
 use Garden\EventManager;
+use Vanilla\Contracts;
 
 /**
  * A class to manage all of the addons in the application.
@@ -19,7 +20,7 @@ use Garden\EventManager;
  * - The addon can declare a class ending in "Plugin" and its events will be registered.
  * - Any translations the addon has declared will be loaded for the currently enabled locale.
  */
-class AddonManager {
+class AddonManager implements Contracts\AddonProviderInterface {
 
     /// Constants ///
 
@@ -346,7 +347,9 @@ class AddonManager {
             try {
                 $addon = new Addon($subdir);
                 $key = $addon->getKey();
-                if (!array_key_exists($key, $addons)) {
+                if (!static::validateKey($key)) {
+                    trigger_error("The $type in $subdir has an invalid key: $key.", E_USER_WARNING);
+                } elseif (!array_key_exists($key, $addons)) {
                     $addons[$key] = $addon;
                 } else {
                     \Logger::error('Duplicate addon: {key}', [
@@ -394,7 +397,9 @@ class AddonManager {
             $paths = glob(PATH_ROOT."$subdir/*", GLOB_ONLYDIR | GLOB_NOSORT);
             foreach ($paths as $path) {
                 $basename = basename($path);
-                if (!array_key_exists($basename, $result)) {
+                if (!AddonManager::validateKey($basename)) {
+                    trigger_error("The $type in $subdir/$basename has an invalid key: $basename.", E_USER_WARNING);
+                } elseif (!array_key_exists($basename, $result)) {
                     $result[$basename] = substr($path, $strlen);
                 } else {
                     \Logger::error('Duplicate addon: {basename}', [
@@ -855,11 +860,9 @@ class AddonManager {
     }
 
     /**
-     * Get the enabled addons, sorted by priority with the highest priority first.
-     *
-     * @return array[Addon] Returns an array of {@link Addon} objects.
+     * @inheritdoc
      */
-    public function getEnabled() {
+    public function getEnabled(): array {
         if (!$this->enabledSorted) {
             uasort($this->enabled, ['\Vanilla\Addon', 'comparePriority']);
             $this->enabledSorted = true;

@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 if (!function_exists('addActivity')) {
@@ -61,6 +61,48 @@ if (!function_exists('arrayInArray')) {
         }
         return $return;
     }
+}
+
+/**
+ * The array_merge_recursive function does indeed merge arrays, but it converts values with duplicate
+ * keys to arrays rather than overwriting the value in the first array with the duplicate
+ * value in the second array, as array_merge does. I.e., with array_merge_recursive,
+ * this happens (documented behavior):
+ *
+ * array_merge_recursive(array('key' => 'org value'), array('key' => 'new value'));
+ *     => array('key' => array('org value', 'new value'));
+ *
+ * array_merge_recursive_distinct does not change the datatypes of the values in the arrays.
+ * Matching keys' values in the second array overwrite those in the first array, as is the
+ * case with array_merge, i.e.:
+ *
+ * array_merge_recursive_distinct(array('key' => 'org value'), array('key' => 'new value'));
+ *     => array('key' => array('new value'));
+ *
+ * Parameters are passed by reference, though only for performance reasons. They're not
+ * altered by this function.
+ *
+ * @param array $array1
+ * @param mixed $array2
+ * @return array
+ * @author daniel@danielsmedegaardbuus.dk
+ * @deprecated
+ */
+function &arrayMergeRecursiveDistinct(array &$array1, &$array2 = null) {
+    deprecated('arrayMergeRecursiveDistinct');
+    $merged = $array1;
+
+    if (is_array($array2)) {
+        foreach ($array2 as $key => $val) {
+            if (is_array($array2[$key])) {
+                $merged[$key] = is_array($merged[$key]) ? arrayMergeRecursiveDistinct($merged[$key], $array2[$key]) : $array2[$key];
+            } else {
+                $merged[$key] = $val;
+            }
+        }
+    }
+
+    return $merged;
 }
 
 if (!function_exists('arrayValue')) {
@@ -296,6 +338,7 @@ if (!function_exists('formatDottedAssignment')) {
      * @deprecated
      */
     function formatDottedAssignment(&$array, $prefix, $value) {
+        \Vanilla\Utility\Deprecation::log();
         if (is_array($value)) {
             // If $Value doesn't contain a key of "0" OR it does and it's value IS
             // an array, this should be treated as an associative array.
@@ -446,6 +489,7 @@ if (!function_exists('parseUrl')) {
      * @deprecated
      */
     function parseUrl($url, $component = -1) {
+        \Vanilla\Utility\Deprecation::log();
         $defaults = [
             'scheme' => 'http',
             'host' => '',
@@ -676,6 +720,7 @@ if (!function_exists('safeParseStr')) {
      * @see parse_str()
      */
     function safeParseStr($str, &$output, $original = null) {
+        \Vanilla\Utility\Deprecation::log();
         $exploded = explode('&', $str);
         $output = [];
         if (is_array($original)) {
@@ -744,7 +789,7 @@ if (!function_exists('trueStripSlashes')) {
          * @deprecated
          */
         function trueStripSlashes($string) {
-            deprecated('trueStripSlashes()');
+            \Vanilla\Utility\Deprecation::log();
             return stripslashes($string);
         }
     } else {
@@ -752,7 +797,7 @@ if (!function_exists('trueStripSlashes')) {
          * @deprecated
          */
         function trueStripSlashes($string) {
-            deprecated('trueStripSlashes()');
+            \Vanilla\Utility\Deprecation::log();
             return $string;
         }
     }
@@ -769,7 +814,7 @@ if (!function_exists('viewLocation')) {
      * @deprecated
      */
     function viewLocation($view, $controller, $folder) {
-        deprecated('viewLocation()');
+        \Vanilla\Utility\Deprecation::log();
         $paths = [];
 
         if (strpos($view, '/') !== false) {
@@ -824,5 +869,23 @@ if (!function_exists('viewLocation')) {
         trace($paths, 'ViewLocation()');
 
         return false;
+    }
+}
+
+if (!function_exists('\Gdn::config()->touch')) {
+    /**
+     * Make sure the config has a setting.
+     *
+     * This function is useful to call in the setup/structure of plugins to
+     * make sure they have some default config set.
+     *
+     * @param string|array $name The name of the config key or an array of config key value pairs.
+     * @param mixed $default The default value to set in the config.
+     *
+     * @deprecated 2.8 Use Gdn_Configuration::touch()
+     */
+    function touchConfig($name, $default = null) {
+        deprecated(__FUNCTION__, 'Gdn_Configuration::touch()');
+        Gdn::config()->touch($name, $default);
     }
 }

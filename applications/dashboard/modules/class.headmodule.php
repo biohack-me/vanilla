@@ -2,8 +2,8 @@
 /**
  * Head module.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -47,6 +47,9 @@ if (!class_exists('HeadModule', false)) {
 
         /** @var bool  */
         private $_MobileAddressBarColorSet = false;
+
+        /** @var array JSON Linking Data */
+        private $jsonLD = [];
 
         /**
          *
@@ -137,7 +140,6 @@ if (!class_exists('HeadModule', false)) {
          *  - numeric: This will be the script's sort.
          *  - string: This will hint the script (inline will inline the file in the page.
          *  - array: An array of options (ex. sort, hint, version).
-         *
          */
         public function addScript($src, $type = 'text/javascript', $addVersion = true, $options = []) {
             if (is_numeric($options)) {
@@ -456,6 +458,10 @@ if (!class_exists('HeadModule', false)) {
                 $this->addTag('meta', ['name' => 'description', 'property' => 'og:description', 'content' => $description]);
             }
 
+            if ($robots = $this->_Sender->data('_robots')) {
+                $this->addTag('meta', ['name' => 'robots', 'content' => $robots]);
+            }
+
             $hasRelevantImage = false;
 
             // Default to the site logo if there were no images provided by the controller.
@@ -497,6 +503,10 @@ if (!class_exists('HeadModule', false)) {
                 }
             }
 
+            if ($this->jsonLD) {
+                $this->addTag('script', ['type' => 'application/ld+json'], json_encode($this->jsonLD));
+            }
+
             $this->fireEvent('BeforeToString');
 
             $tags = $this->_Tags;
@@ -515,8 +525,8 @@ if (!class_exists('HeadModule', false)) {
                 $tag = $attributes[self::TAG_KEY];
 
                 // Inline the content of the tag, if necessary.
-                if (val('_hint', $attributes) == 'inline') {
-                    $path = val('_path', $attributes);
+                if (($attributes['_hint'] ?? false) == 'inline') {
+                    $path = ($attributes['_path'] ?? false);
                     if ($path && !stringBeginsWith($path, 'http')) {
                         $attributes[self::CONTENT_KEY] = file_get_contents($path);
 
@@ -587,6 +597,30 @@ if (!class_exists('HeadModule', false)) {
             }
 
             return $head;
+        }
+
+        /**
+         * Get current JSON LD data.
+         *
+         * @return array
+         */
+        public function getJsonLD(): array {
+            return $this->jsonLD;
+        }
+
+        /**
+         * Set JSON LD data.
+         *
+         * @param string $type Document type.
+         * @param array $data Metadata attributes for the document.
+         * @param string $context Metadata schema context.
+         * @return array
+         * @link https://json-ld.org
+         */
+        public function setJsonLD(string $type, array $data, string $context = 'https://schema.org'): array {
+            $data['@context'] = $context;
+            $data['@type'] = $type;
+            return $this->jsonLD = $data;
         }
     }
 }

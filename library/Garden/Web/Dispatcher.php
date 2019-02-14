@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Garden\Web;
@@ -15,8 +15,10 @@ use Garden\Web\Exception\NotFoundException;
 use Garden\Web\Exception\Pass;
 use Interop\Container\ContainerInterface;
 use Vanilla\Permissions;
+use Garden\CustomExceptionHandler;
 
 class Dispatcher {
+    use MiddlewareAwareTrait;
 
     /** @var Gdn_Locale */
     private $locale;
@@ -42,7 +44,10 @@ class Dispatcher {
      * @param Gdn_Locale $locale
      * @param ContainerInterface $container The container is used to fetch view handlers.
      */
-    public function __construct(Gdn_Locale $locale, ContainerInterface $container) {
+    public function __construct(Gdn_Locale $locale = null, ContainerInterface $container = null) {
+        $this->middleware = function (RequestInterface $request): Data {
+            return $this->dispatchInternal($request);
+        };
         $this->locale = $locale;
         $this->container = $container;
     }
@@ -87,13 +92,30 @@ class Dispatcher {
     /**
      * Dispatch a request and return a response.
      *
+     * This method applies all added middleware and dispatches the inner request.
+     *
+     * @param RequestInterface $request The request to handle.
+     * @return Data Returns the response as a data object.
+     */
+    public function dispatch(RequestInterface $request) {
+        try {
+            $result = $this->callMiddleware($request);
+        } catch (\Exception $ex) {
+            $result = $this->makeResponse($ex);
+        }
+        return $result;
+    }
+
+    /**
+     * Internal representation of the dispatch.
+     *
      * This method currently returns a {@link Data} object that will be directly rendered. This really only for API calls
      * and will be changed in the future. If you use this method now you'll have to refactor later.
      *
      * @param RequestInterface $request The request to handle.
      * @return Data Returns the response as a data object.
      */
-    public function dispatch(RequestInterface $request) {
+    protected function dispatchInternal(RequestInterface $request) {
         $ex = null;
 
         foreach ($this->routes as $route) {
@@ -120,28 +142,46 @@ class Dispatcher {
                         }
                     }
 
-                    try {
-                        ob_start();
-                        $actionResponse = $action();
-                    } finally {
-                        $ob = ob_get_clean();
-                    }
-                    $response = $this->makeResponse($actionResponse, $ob);
-                    if (is_object($action) && method_exists($action, 'getMetaArray')) {
-                        $this->mergeMeta($response, $action->getMetaArray());
-                    }
-                    $this->mergeMeta($response, $route->getMetaArray());
+                    $fn = function (RequestInterface $request) use ($route, $action): Data {
+                        if (is_object($action) && method_exists($action, 'replaceRequest')) {
+                            $action->replaceRequest($request);
+                        }
+
+                        try {
+                            ob_start();
+                            $actionResponse = $action();
+                        } finally {
+                            $ob = ob_get_clean();
+                        }
+                        $response = $this->makeResponse($actionResponse, $ob);
+                        if (is_object($action) && method_exists($action, 'getMetaArray')) {
+                            $this->mergeMeta($response, $action->getMetaArray());
+                        }
+                        $this->mergeMeta($response, $route->getMetaArray());
+
+                        return $response;
+                    };
+
+                    $response = static::callMiddlewares($request, $route->getMiddlewares(), $fn);
+
                     break;
                 }
             } catch (Pass $pass) {
                 // Pass to the next route.
                 continue;
-            } catch (\Exception $dispatchEx) {
-                $response = $this->makeResponse($dispatchEx);
-                $this->mergeMeta($response, $route->getMetaArray());
-                break;
-            } catch (\Error $dispatchError) {
-                $response = $this->makeResponse($dispatchError);
+            } catch (\Throwable $dispatchEx) {
+                $response = null;
+                if ($action instanceof Action) {
+                    $obj = $action->getCallback()[0] ?? false;
+                    if ($obj instanceof CustomExceptionHandler) {
+                        if ($obj->hasExceptionHandler($dispatchEx)) {
+                            $response = $obj->handleException($dispatchEx);
+                        }
+                    }
+                }
+                if (empty($response)) {
+                    $response = $this->makeResponse($dispatchEx);
+                }
                 $this->mergeMeta($response, $route->getMetaArray());
                 break;
             }
@@ -233,7 +273,7 @@ class Dispatcher {
         } elseif (is_array($raw) || is_string($raw)) {
             // This is an array of response data.
             $result = new Data($raw);
-        } elseif ($raw instanceof \Exception || $raw instanceof \Error) {
+        } elseif ($raw instanceof \Throwable) {
 
             // Let's not mask errors when in debug mode!
             if ($raw instanceof \Error && debug())  {
@@ -251,7 +291,7 @@ class Dispatcher {
             $data = $raw instanceof \JsonSerializable ? $raw->jsonSerialize() : ['message' => $raw->getMessage()];
             $result = new Data($data, $errorCode);
             // Provide stack trace as meta information.
-            $result->setMeta('errorTrace', $raw->getTraceAsString());
+            $result->setMeta('exception', $raw);
 
             $this->mergeMeta($result, ['template' => 'error-page']);
         } elseif ($raw instanceof \JsonSerializable) {
@@ -342,6 +382,34 @@ class Dispatcher {
     public function setAllowedOrigins($origins) {
         $this->allowedOrigins = $origins;
         return $this;
+    }
+
+    /**
+     * Call an array of middlewares on a request and return the result.
+     *
+     * This methods dynamically composes the middlewares so that they can be called against a core handler that may change.
+     *
+     * @param RequestInterface $request The request to handle.
+     * @param array $middlewares The middlewares to apply to the handler.
+     * @param callable $core The core request handler (inner middleware).
+     * @return Data Returns the response from the core handler passed through the middleware.
+     */
+    public static function callMiddlewares(RequestInterface $request, array $middlewares, callable $core): Data {
+        $makeNext = function (array $middlewares, callable $core, int $index) use (&$makeNext): callable {
+            if ($index >= count($middlewares)) {
+                return $core;
+            } else {
+                return function (RequestInterface $request) use ($middlewares, $core, $index, $makeNext): Data {
+                    $next = $makeNext($middlewares, $core, $index + 1);
+                    $response = call_user_func($middlewares[$index], $request, $next);
+
+                    return $response;
+                };
+            }
+        };
+
+        $fn = $makeNext($middlewares, $core, 0);
+        return $fn($request);
     }
 
     /**

@@ -3,8 +3,8 @@
  * Gdn_Locale.
  *
  * @author Mark O'Sullivan <mark@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -15,6 +15,7 @@ use Vanilla\AddonManager;
  * for different locales. It is a singleton class.
  */
 class Gdn_Locale extends Gdn_Pluggable {
+    use \Garden\StaticCacheConfigTrait;
 
     /**  @var string The name of the currently loaded Locale. */
     public $Locale = '';
@@ -355,9 +356,11 @@ class Gdn_Locale extends Gdn_Pluggable {
             }
         }
 
-        $this->EventArguments['Code'] = $code;
-        $this->EventArguments['Default'] = $default;
-        $this->fireEvent('BeforeTranslate');
+        if (self::c('Debug', false)) {
+            $this->EventArguments['Code'] = $code;
+            $this->EventArguments['Default'] = $default;
+            $this->fireEvent('BeforeTranslate');
+        }
 
         return $translation;
     }

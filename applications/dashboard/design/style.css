@@ -2245,8 +2245,8 @@ img.LeftAlign {
   clear: both;
 }
 
+.codeBlock,
 code, pre {
-  border-radius: 2px;
   background: #ff9;
   padding: 4px 8px;
   font-family: monospace;
@@ -2254,10 +2254,12 @@ code, pre {
   border: 1px solid #eec;
 }
 
+.code,
 code {
   white-space: pre-wrap;
 }
 
+.codeBlock,
 pre {
   display: block;
   margin: 1em 0;
@@ -5880,7 +5882,7 @@ Styleguide Item
 .item-attachment .item-heading {
   margin-bottom: 0 !important;
   /* Hack */
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .item-attachment .item-body {
@@ -5999,6 +6001,12 @@ Styleguide Attachments
 
 .Groups.Section-DiscussionList .HomepageTitle {
   display: none;
+}
+
+.InputBox {
+  background: #fff;
+  border: 1px solid #999;
+  border: 1px solid rgba(0, 0, 0, 0.4);
 }
 
 .jcrop-holder {

@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package vanilla-smarty
  * @since 2.0
  */
@@ -19,7 +19,7 @@ function smarty_function_searchbox($params, &$smarty) {
     /* @var Gdn_Form $form */
     $result =
         $form->open(['action' => url('/search'), 'method' => 'get']).
-        $form->textBox('Search', ['placeholder' => $placeholder, 'accesskey' => '/', 'aria-label' => t('Enter your search term.'), 'title' => t('Enter your search term.'), 'role' => 'searchbox']).
+        $form->textBox('Search', ['placeholder' => $placeholder, 'accesskey' => '/', 'aria-label' => t('Enter your search term.'), 'title' => t('Enter your search term.'), 'role' => 'searchbox', 'class' => 'InputBox js-search']).
         $form->button('Go', ['Name' => '', 'aria-label' => t('Search')]).
         $form->close();
 

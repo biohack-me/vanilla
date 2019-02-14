@@ -1,16 +1,17 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license https://opensource.org/licenses/GPL-2.0 GPL-2.0
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2\Authenticate;
 
-use Prophecy\Exception\Exception;
+use Exception;
+use Vanilla\Models\AuthenticatorModel;
 use Vanilla\Models\SSOData;
 use VanillaTests\APIv2\AbstractAPIv2Test;
-use VanillaTests\Fixtures\MockSSOAuthenticator;
+use VanillaTests\Fixtures\Authenticator\MockSSOAuthenticator;
 
 /**
  * Class InactiveAuthenticatorTest
@@ -25,9 +26,10 @@ class InactiveAuthenticatorTest extends AbstractAPIv2Test {
      */
     public static function setupBeforeClass() {
         parent::setupBeforeClass();
-        self::container()
-            ->rule(MockSSOAuthenticator::class)
-            ->setAliasOf('MockSSOAuthenticator');
+        self::container()->rule(MockSSOAuthenticator::class);
+        /** @var \Gdn_Configuration $config */
+        $config = static::container()->get(\Gdn_Configuration::class);
+        $config->set('Feature.'.\AuthenticateApiController::FEATURE_FLAG.'.Enabled', true, true, false);
     }
 
     /**
@@ -36,11 +38,18 @@ class InactiveAuthenticatorTest extends AbstractAPIv2Test {
     public function setUp() {
         parent::setUp();
 
-        $uniqueID = uniqid('inactv_auth_');
-        $this->authenticator = new MockSSOAuthenticator($uniqueID);
-        $this->authenticator->setActive(false);
 
-        $this->container()->setInstance('MockSSOAuthenticator', $this->authenticator);
+        /** @var \Vanilla\Models\AuthenticatorModel $authenticatorModel */
+        $authenticatorModel = $this->container()->get(AuthenticatorModel::class);
+
+        $uniqueID = uniqid('inactv_auth_');
+        $authType = MockSSOAuthenticator::getType();
+        $this->authenticator = $authenticatorModel->createSSOAuthenticatorInstance([
+            'authenticatorID' => $authType,
+            'type' => $authType,
+            'SSOData' => json_decode(json_encode(new SSOData($authType, $authType, $uniqueID)), true),
+        ]);
+        $this->authenticator->setActive(false);
 
         $session = $this->container()->get(\Gdn_Session::class);
         $session->end();
@@ -48,12 +57,14 @@ class InactiveAuthenticatorTest extends AbstractAPIv2Test {
 
     /**
      * @expectedException Exception
-     * @expectedExceptionMessage The authenticator is not active.
+     * @expectedExceptionMessage Cannot authenticate with an inactive authenticator.
      */
     public function testInactiveAuth() {
         $postData = [
-            'authenticatorType' => $this->authenticator::getType(),
-            'authenticatorID' => $this->authenticator->getID(),
+            'authenticate' => [
+                'authenticatorType' => $this->authenticator::getType(),
+                'authenticatorID' => $this->authenticator->getID(),
+            ],
         ];
 
         $this->api()->post('/authenticate', $postData);

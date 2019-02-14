@@ -4,8 +4,8 @@
  * DO NOT USE THIS FILE IN PRODUCTION.
  *
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 error_reporting(E_ALL & ~E_NOTICE & ~E_STRICT); //E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR);
@@ -54,8 +54,8 @@ class SimpleConfig {
      * @return bool Returns **true** on success or **false** on failure.
      */
     private function unlink($path) {
-        $r = unlink($path);
         $this->flushPathCache($path);
+        $r = unlink($path);
         return $r;
     }
 
@@ -69,7 +69,7 @@ class SimpleConfig {
             // This fixes a bug with some configurations of apc.
             @apc_delete_file($path);
         } elseif (function_exists('opcache_invalidate')) {
-            @opcache_invalidate($path);
+            @opcache_invalidate($path, true);
         }
     }
 

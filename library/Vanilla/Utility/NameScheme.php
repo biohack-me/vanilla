@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla\Utility;
@@ -31,9 +31,11 @@ abstract class NameScheme {
         $result = [];
         foreach ($array as $key => $value) {
             $key = $this->convert($key);
-            if (is_array($value)) {
-                if (!in_array($key, $keysSkipRecursion)) {
+            if (!in_array($key, $keysSkipRecursion)) {
+                if (is_array($value)) {
                     $value = $this->convertArrayKeys($value);
+                } elseif ($value instanceof \ArrayObject) {
+                    $value->exchangeArray($this->convertArrayKeys($value->getArrayCopy()));
                 }
             }
             $result[$key] = $value;

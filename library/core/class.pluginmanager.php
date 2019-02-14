@@ -5,8 +5,8 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -784,15 +784,16 @@ class Gdn_PluginManager extends Gdn_Pluggable implements ContainerInterface {
      * @return mixed Returns whatever the event handler returns or **false** of there is not event handler.
      */
     public function callEventHandler($sender, $className, $eventName, $handlerType = 'handler') {
-        $eventKey = strtolower("{$className}_{$eventName}");
-        $handlerType = strtolower($handlerType);
+        $eventKey = "{$className}_{$eventName}";
         $originalEventKey = $eventKey.'_'.$handlerType;
 
         switch ($handlerType) {
             case 'handler':
+            case 'Handler':
                 // Do nothing.
                 break;
             case 'create':
+            case 'Create':
                 $eventKey = $originalEventKey.'_method';
                 break;
             default:

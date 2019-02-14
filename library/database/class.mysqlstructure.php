@@ -6,8 +6,8 @@
  * database servers.
  *
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -796,8 +796,8 @@ class Gdn_MySQLStructure extends Gdn_DatabaseStructure {
             if ($column->Type !== 'timestamp') {
                 $return .= " default ".self::_quoteValue($column->Default);
             } else {
-                if (in_array(strtolower($column->Default), ['current_timestamp', 'current_timestamp()'])) {
-                    $return .= " default ".$column->Default;
+                if (in_array(strtolower($column->Default), ['current_timestamp', 'current_timestamp()', true])) {
+                    $return .= " default current_timestamp";
                 }
             }
         }

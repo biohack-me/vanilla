@@ -2,7 +2,7 @@
 /**
  * Twitter plugin.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
  * @package Twitter
  */
@@ -274,7 +274,7 @@ class TwitterPlugin extends Gdn_Plugin {
             $redirectUri .= (strpos($redirectUri, '?') === false ? '?' : '&').$query;
         }
 
-        $params = ['oauth_callback' => $redirectUri];
+        $params = ['callback_url' => $redirectUri];
 
         $url = 'https://api.twitter.com/oauth/request_token';
         $request = OAuthRequest::from_consumer_and_token($consumer, null, 'POST', $url, $params);
@@ -897,7 +897,7 @@ class TwitterPlugin extends Gdn_Plugin {
             $cssClass = 'ReactButton PopupWindow';
         }
 
-        echo anchor(sprite('ReactTwitter', 'Sprite ReactSprite', t('Share on Twitter')), $url, $cssClass);
+        echo anchor(sprite('ReactTwitter', 'Sprite ReactSprite', t('Share on Twitter')), $url, $cssClass, ['rel' => 'nofollow']);
     }
 
     /**

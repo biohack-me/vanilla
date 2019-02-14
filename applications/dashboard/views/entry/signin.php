@@ -89,14 +89,14 @@ echo $this->Form->open(['Action' => url('/entry/passwordrequest'), 'id' => 'Form
     <ul>
         <li>
             <?php
-            echo $this->Form->label('Enter your Email address or username', 'Email');
+            echo $this->Form->label($this->data('RecoverPasswordLabelCode', 'Enter your email to continue.'), 'Email');
             echo $this->Form->textBox('Email');
             ?>
         </li>
         <li class="Buttons">
             <?php
             echo $this->Form->button('Request a new password', ['class' => 'Button Primary']);
-            echo anchor(t('I remember now!'), '/entry/signin', 'ForgotPassword');
+            echo anchor(t('I remember now!'), '/entry/signin', 'ForgotPassword ForgotPassword-remember');
             ?>
         </li>
     </ul>

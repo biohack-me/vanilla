@@ -1,20 +1,20 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Vanilla;
 
 use Garden\Schema\Schema;
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Vanilla\ApiUtils;
 
 /**
  * Class ApiUtilsTest
  */
-class ApiUtilsTest extends TestCase {
+class ApiUtilsTest extends SharedBootstrapTestCase {
 
     /**
      * @param Schema $schema

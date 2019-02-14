@@ -2,8 +2,8 @@
 /**
  * Update model.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -162,7 +162,7 @@ class UpdateModel extends Gdn_Model {
                         'AddonKey' => 'vanilla',
                         'AddonTypeID' => ADDON_TYPE_CORE,
                         'Name' => 'Vanilla',
-                        'Description' => 'Vanilla is an open-source, standards-compliant, multi-lingual, fully extensible discussion forum for the web. Anyone who has web-space that meets the requirements can download and use Vanilla for free!',
+                        'Description' => 'Vanilla is a powerfully simple discussion forum you can easily customize to make as unique as your community.',
                         'Version' => $version,
                         'License' => 'GPLv2',
                         'Path' => $entry['Path']];
@@ -179,7 +179,7 @@ class UpdateModel extends Gdn_Model {
                         'AddonKey' => 'porter',
                         'AddonTypeID' => ADDON_TYPE_CORE,
                         'Name' => 'Vanilla Porter',
-                        'Description' => 'Drop this script in your existing site and navigate to it in your web browser to export your existing forum data to the Vanilla 2 import format.',
+                        'Description' => 'Migrate your legacy forum to Vanilla for the first time. Drop this script in your existing site and navigate to it in your web browser to export your legacy forum data.',
                         'Version' => $version,
                         'License' => 'GPLv2',
                         'Path' => $entry['Path']];
@@ -703,6 +703,8 @@ class UpdateModel extends Gdn_Model {
 
                     try {
                         call_user_func([$plugin, 'structure']);
+                    } catch (BadMethodCallException $ex) {
+                        // The structure method could not be called, probably because it wasn't public.
                     } catch (\Exception $ex) {
                         if (debug()) {
                             throw $ex;

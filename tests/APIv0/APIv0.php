@@ -1,12 +1,13 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license Proprietary
  */
 
 namespace VanillaTests\APIv0;
 
+use Garden\Container\Container;
 use Garden\Http\HttpClient;
 use Garden\Http\HttpResponse;
 use Gdn;
@@ -558,7 +559,9 @@ class APIv0 extends HttpClient {
      * Bootstrap some of the internal objects with this connection.
      */
     public function bootstrap() {
-        $dic = Gdn::getContainer();
+        $bootstrap = new \VanillaTests\Bootstrap('http://vanilla.test');
+        $dic = new Container();
+        $bootstrap->run($dic);
 
         // Make the core applications available.
         $adm = new AddonManager(

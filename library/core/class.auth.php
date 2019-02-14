@@ -3,8 +3,8 @@
  * Authentication Manager
  *
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0.10
  */
@@ -55,8 +55,14 @@ class Gdn_Auth extends Gdn_Pluggable {
         if (!c('Garden.Installed', false)) {
             return;
         }
+
+        // This event was created for token based authentication to hook on. See hook for more info.
+        $this->fireEvent('startAuthenticator');
+
         // Start the 'session'
-        Gdn::session()->start(false, false);
+        if (!Gdn::session()->isValid()) {
+            Gdn::session()->start(false, false);
+        }
 
         // Get list of enabled authenticators
         $authenticationSchemes = Gdn::config('Garden.Authenticator.EnabledSchemes', []);

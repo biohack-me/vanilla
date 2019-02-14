@@ -1,15 +1,16 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2\Authenticate;
 
+use Vanilla\Models\AuthenticatorModel;
 use Vanilla\Models\SSOData;
 use VanillaTests\APIv2\AbstractAPIv2Test;
-use VanillaTests\Fixtures\MockSSOAuthenticator;
+use VanillaTests\Fixtures\Authenticator\MockSSOAuthenticator;
 
 /**
  * Test the /api/v2/authenticate endpoints.
@@ -34,15 +35,15 @@ class AutoConnectTest extends AbstractAPIv2Test {
     private $currentUser;
 
     /**
-     * {@inheritdoc}
+     * @inheritdoc
      */
     public static function setupBeforeClass() {
         parent::setupBeforeClass();
-        self::container()
-            ->rule(MockSSOAuthenticator::class)
-            ->setAliasOf('MockSSOAuthenticator');
+        self::container()->rule(MockSSOAuthenticator::class);
 
-        self::$config = self::container()->get('Config');
+        /** @var \Gdn_Configuration $config */
+        self::$config = static::container()->get(\Gdn_Configuration::class);
+        self::$config->set('Feature.'.\AuthenticateApiController::FEATURE_FLAG.'.Enabled', true, true, false);
     }
 
     /**
@@ -51,10 +52,10 @@ class AutoConnectTest extends AbstractAPIv2Test {
     public function setUp() {
         parent::setUp();
 
-        $uniqueID = uniqid('ac_');
+        $uniqueID = self::randomUsername('ac');
         $userData = [
-            'name' => 'Authenticate_'.$uniqueID,
-            'email' => 'authenticate_'.$uniqueID.'@example.com',
+            'name' => $uniqueID,
+            'email' => $uniqueID.'@example.com',
             'password' => 'pwd_'.$uniqueID,
         ];
 
@@ -63,18 +64,35 @@ class AutoConnectTest extends AbstractAPIv2Test {
         $userFragment = $usersAPIController->post($userData)->getData();
         $this->currentUser = array_merge($userFragment, $userData);
 
-        $this->authenticator = new MockSSOAuthenticator($uniqueID, $userData);
+        /** @var \Vanilla\Models\AuthenticatorModel $authenticatorModel */
+        $authenticatorModel = $this->container()->get(AuthenticatorModel::class);
 
-        $this->container()->setInstance('MockSSOAuthenticator', $this->authenticator);
+        $authType = MockSSOAuthenticator::getType();
+        $this->authenticator = $authenticatorModel->createSSOAuthenticatorInstance([
+            'authenticatorID' => $authType,
+            'type' => $authType,
+            'SSOData' => json_decode(json_encode(new SSOData($authType, $authType, $uniqueID, $userData)), true),
+        ]);
 
         $session = $this->container()->get(\Gdn_Session::class);
         $session->end();
     }
 
     /**
+     * @inheritdoc
+     */
+    public function tearDown() {
+        /** @var \Vanilla\Models\AuthenticatorModel $authenticatorModel */
+        $authenticatorModel = $this->container()->get(AuthenticatorModel::class);
+
+        $authenticatorModel->deleteSSOAuthenticatorInstance($this->authenticator);
+    }
+
+    /**
      * Test POST /authenticate with different configuration combination.
      *
      * @param $configurations
+     * @param $authenticatorProperties
      * @param $expectedResults
      *
      * @dataProvider provider
@@ -88,8 +106,10 @@ class AutoConnectTest extends AbstractAPIv2Test {
         }
 
         $postData = [
-            'authenticatorType' => $this->authenticator::getType(),
-            'authenticatorID' => $this->authenticator->getID(),
+            'authenticate' => [
+                'authenticatorType' => $this->authenticator::getType(),
+                'authenticatorID' => $this->authenticator->getID(),
+            ],
         ];
 
         $result = $this->api()->post(
@@ -115,7 +135,7 @@ class AutoConnectTest extends AbstractAPIv2Test {
         $this->api()->setUserID($this->currentUser['userID']);
 
         $result = $this->api()->get(
-            $this->baseUrl.'/'.$this->authenticator::getType().'/'.$this->authenticator->getID()
+            $this->baseUrl.'/authenticators/'.$this->authenticator->getID()
         );
 
         $this->assertEquals(200, $result->getStatusCode());
@@ -123,8 +143,8 @@ class AutoConnectTest extends AbstractAPIv2Test {
         $body = $result->getBody();
 
         $this->assertInternalType('array', $body);
-        $this->assertArrayHasKey('linked', $body);
-        $this->assertEquals($expectedResults['isUserLinked'], $body['linked']);
+        $this->assertArrayHasKey('isUserLinked', $body);
+        $this->assertEquals($expectedResults['isUserLinked'], $body['isUserLinked']);
     }
 
     /**

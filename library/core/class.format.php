@@ -5,8 +5,8 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Lincoln Russell <lincoln@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -19,6 +19,7 @@ use Garden\EventManager;
  * Utility class that helps to format strings, objects, and arrays.
  */
 class Gdn_Format {
+    use \Garden\StaticCacheTranslationTrait;
 
     /**
      * @var bool Flag which allows plugins to decide if the output should include rel="nofollow" on any <a> links.
@@ -37,7 +38,7 @@ class Gdn_Format {
 
     /** @var array  */
     protected static $SanitizedFormats = [
-        'html', 'bbcode', 'wysiwyg', 'text', 'textex', 'markdown'
+        'html', 'bbcode', 'wysiwyg', 'text', 'textex', 'markdown', 'rich'
     ];
 
     /**
@@ -199,21 +200,6 @@ class Gdn_Format {
     }
 
     /**
-     *
-     * @deprecated 9 Nov 2016
-     * @param array $array
-     * @return string
-     */
-    public static function arrayAsAttributes($array) {
-        deprecated('arrayAsAttributes');
-        $return = '';
-        foreach ($array as $property => $value) {
-            $return .= ' '.$property.'="'.$value.'"';
-        }
-        return $return;
-    }
-
-    /**
      * Takes an object and convert's it's properties => values to an associative
      * array of $array[Property] => Value sets.
      *
@@ -271,97 +257,29 @@ class Gdn_Format {
     public static function bbCode($mixed) {
         if (!is_string($mixed)) {
             return self::to($mixed, 'BBCode');
-        } else {
-            // See if there is a custom BBCode formatter.
-            $bBCodeFormatter = Gdn::factory('BBCodeFormatter');
-            if (is_object($bBCodeFormatter)) {
-                // Standard BBCode parsing.
-                $mixed = $bBCodeFormatter->format($mixed);
-
-                // Always filter after basic parsing.
-                // Add htmLawed-compatible specification updates.
-                $options = [
-                    'codeBlockEntities' => false,
-                    'spec' => [
-                        'span' => [
-                            'style' => ['match' => '/^(color:(#[a-f\d]{3}[a-f\d]{3}?|[a-z]+))?;?$/i']
-                        ]
-                    ]
-                ];
-                $sanitized = Gdn_Format::htmlFilter($mixed, $options);
-
-                // Vanilla magic parsing.
-                $sanitized = Gdn_Format::processHTML($sanitized);
-
-                return $sanitized;
-            }
-
-            // Fallback to minimalist BBCode parsing.
-            try {
-                $mixed2 = $mixed;
-                // Deal with edge cases / pre-processing.
-                $mixed2 = str_replace("\r\n", "\n", $mixed2);
-                $mixed2 = preg_replace_callback(
-                    "#\[noparse\](.*?)\[/noparse\]#si",
-                    function($m) {
-                        return str_replace(['[',']',':', "\n"], ['&#91;','&#93;','&#58;', "<br />"], htmlspecialchars($m[1]));
-                    },
-                    $mixed2
-                );
-                $mixed2 = str_ireplace(["[php]", "[mysql]", "[css]"], "[code]", $mixed2);
-                $mixed2 = str_ireplace(["[/php]", "[/mysql]", "[/css]"], "[/code]", $mixed2);
-                $mixed2 = preg_replace_callback(
-                    "#\\n?\[code\](.*?)\[/code\]\\n?#si",
-                    function($m) {
-                        $str = htmlspecialchars(trim($m[1], "\n"));
-                        return '<pre>'.str_replace(['[',']',':', "\n"], ['&#91;','&#93;','&#58;', "<br />"], $str).'</pre>';
-                    },
-                    $mixed2
-                );
-                $mixed2 = str_replace("\n", "<br />", $mixed2);
-
-                // Basic BBCode tags.
-                $mixed2 = preg_replace("#\[b\](.*?)\[/b\]#si", '<b>\\1</b>', $mixed2);
-                $mixed2 = preg_replace("#\[i\](.*?)\[/i\]#si", '<i>\\1</i>', $mixed2);
-                $mixed2 = preg_replace("#\[u\](.*?)\[/u\]#si", '<u>\\1</u>', $mixed2);
-                $mixed2 = preg_replace("#\[s\](.*?)\[/s\]#si", '<s>\\1</s>', $mixed2);
-                $mixed2 = preg_replace("#\[strike\](.*?)\[/strike\]#si", '<s>\\1</s>', $mixed2);
-                $mixed2 = preg_replace("#\[quote=[\"']?([^\]]+)(;[\d]+)?[\"']?\](.*?)\[/quote\]#si", '<blockquote class="Quote" rel="\\1"><div class="QuoteAuthor">'.sprintf(t('%s said:'), '\\1').'</div><div class="QuoteText">\\3</div></blockquote>', $mixed2);
-                $mixed2 = preg_replace("#\[quote\](.*?)\[/quote\]#si", '<blockquote class="Quote"><div class="QuoteText">\\1</div></blockquote>', $mixed2);
-                $mixed2 = preg_replace("#\[cite\](.*?)\[/cite\]#si", '<blockquote class="Quote">\\1</blockquote>', $mixed2);
-                $mixed2 = preg_replace("#\[hide\](.*?)\[/hide\]#si", '\\1', $mixed2);
-                $mixed2 = preg_replace("#\[url\]((https?|ftp):\/\/.*?)\[/url\]#si", '<a rel="nofollow" href="\\1">\\1</a>', $mixed2);
-                $mixed2 = preg_replace("#\[url\](.*?)\[/url\]#si", '\\1', $mixed2);
-                $mixed2 = preg_replace("#\[url=[\"']?((https?|ftp):\/\/.*?)[\"']?\](.*?)\[/url\]#si", '<a rel="nofollow" href="\\1">\\3</a>', $mixed2);
-                $mixed2 = preg_replace("#\[url=[\"']?(.*?)[\"']?\](.*?)\[/url\]#si", '\\2', $mixed2);
-                $mixed2 = preg_replace("#\[img\]((https?|ftp):\/\/.*?)\[/img\]#si", '<img src="\\1" border="0" />', $mixed2);
-                $mixed2 = preg_replace("#\[img\](.*?)\[/img\]#si", '\\1', $mixed2);
-                $mixed2 = preg_replace("#\[img=[\"']?((https?|ftp):\/\/.*?)[\"']?\](.*?)\[/img\]#si", '<img src=\\1" border="0" alt="\\3" />', $mixed2);
-                $mixed2 = preg_replace("#\[img=[\"']?(.*?)[\"']?\](.*?)\[/img\]#si", '\\2', $mixed2);
-                $mixed2 = preg_replace("#\[thread\]([\d]+)\[/thread\]#si", '<a href="/discussion/\\1">/discussion/\\1</a>', $mixed2);
-                $mixed2 = preg_replace("#\[thread=[\"']?([\d]+)[\"']?\](.*?)\[/thread\]#si", '<a href="/discussion/\\1">\\2</a>', $mixed2);
-                $mixed2 = preg_replace("#\[post\]([\d]+)\[/post\]#si", '<a href="/discussion/comment/\\1#Comment_\\1">/discussion/comment/\\1</a>', $mixed2);
-                $mixed2 = preg_replace("#\[post=[\"']?([\d]+)[\"']?\](.*?)\[/post\]#si", '<a href="/discussion/comment/\\1#Comment_\\1">\\2</a>', $mixed2);
-                $mixed2 = preg_replace("#\[size=[\"']?(.*?)[\"']?\]#si", '<font size="\\1">', $mixed2);
-                $mixed2 = preg_replace("#\[font=[\"']?(.*?)[\"']?\]#si", '<font face="\\1">', $mixed2);
-                $mixed2 = preg_replace("#\[color=[\"']?(.*?)[\"']?\]#si", '<font color="\\1">', $mixed2);
-                $mixed2 = str_ireplace(["[/size]", "[/font]", "[/color]"], "</font>", $mixed2);
-                $mixed2 = str_ireplace(['[indent]', '[/indent]'], ['<div class="Indent">', '</div>'], $mixed2);
-                $mixed2 = str_ireplace(["[left]", "[/left]"], '', $mixed2);
-                $mixed2 = preg_replace_callback("#\[list\](.*?)\[/list\]#si", ['Gdn_Format', 'ListCallback'], $mixed2);
-
-                // Always filter after basic parsing.
-                $sanitized = Gdn_Format::htmlFilter($mixed2);
-
-                // Vanilla magic parsing.
-                $sanitized = Gdn_Format::processHTML($sanitized);
-
-                return $sanitized;
-
-            } catch (Exception $ex) {
-                return self::display($mixed);
-            }
         }
+
+        // See if there is a custom BBCode formatter.
+        $bBCodeFormatter = Gdn::getContainer()->get('BBCodeFormatter');
+        // Standard BBCode parsing.
+        $mixed = $bBCodeFormatter->format($mixed);
+
+        // Always filter after basic parsing.
+        // Add htmLawed-compatible specification updates.
+        $options = [
+            'codeBlockEntities' => false,
+            'spec' => [
+                'span' => [
+                    'style' => ['match' => '/^(color:(#[a-f\d]{3}[a-f\d]{3}?|[a-z]+))?;?$/i']
+                ]
+            ]
+        ];
+        $sanitized = Gdn_Format::htmlFilter($mixed, $options);
+
+        // Vanilla magic parsing.
+        $sanitized = Gdn_Format::processHTML($sanitized);
+
+        return $sanitized;
     }
 
     /**
@@ -471,17 +389,17 @@ class Gdn_Format {
         'ŷ' => 'y', 'ž' => 'z', 'ż' => 'z', 'ź' => 'z', 'þ' => 't', 'ß' => 'ss',
         'ſ' => 'ss', 'ый' => 'iy', 'А' => 'A', 'Б' => 'B', 'В' => 'V', 'Г' => 'G',
         'Д' => 'D', 'Е' => 'E', 'Ё' => 'YO', 'Ж' => 'ZH', 'З' => 'Z', 'И' => 'I',
-		'И' => 'I', 'І' => 'I', 'Й' => 'Y', 'К' => 'K', 'Л' => 'L', 'М' => 'M',
-		'Н' => 'N', 'О' => 'O', 'П' => 'P', 'Р' => 'R', 'С' => 'S', 'Т' => 'T',
-		'У' => 'U', 'Ф' => 'F', 'Х' => 'H', 'Ц' => 'C', 'Ч' => 'CH', 'Ш' => 'SH',
-		'Щ' => 'SCH', 'Ъ' => '', 'Ы' => 'Y', 'Ь' => '', 'Э' => 'E', 'Ю' => 'YU',
-		'Я' => 'YA', 'Є' => 'YE', 'Ї' => 'YI', 'а' => 'a', 'б' => 'b', 'в' => 'v',
-		'г' => 'g', 'д' => 'd', 'е' => 'e', 'ё' => 'yo', 'ж' => 'zh', 'з' => 'z',
-		'и' => 'i', 'і' => 'i', 'й' => 'y', 'к' => 'k', 'л' => 'l', 'м' => 'm',
-		'н' => 'n', 'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's', 'т' => 't',
-		'у' => 'u', 'ф' => 'f', 'х' => 'h', 'ц' => 'c', 'ч' => 'ch', 'ш' => 'sh',
-		'щ' => 'sch', 'ъ' => '', 'ы' => 'y', 'ь' => '', 'э' => 'e', 'є' => 'ye',
-		'ю' => 'yu', 'я' => 'ya', 'ї' => 'yi'
+        'И' => 'I', 'І' => 'I', 'Й' => 'Y', 'К' => 'K', 'Л' => 'L', 'М' => 'M',
+        'Н' => 'N', 'О' => 'O', 'П' => 'P', 'Р' => 'R', 'С' => 'S', 'Т' => 'T',
+        'У' => 'U', 'Ф' => 'F', 'Х' => 'H', 'Ц' => 'C', 'Ч' => 'CH', 'Ш' => 'SH',
+        'Щ' => 'SCH', 'Ъ' => '', 'Ы' => 'Y', 'Ь' => '', 'Э' => 'E', 'Ю' => 'YU',
+        'Я' => 'YA', 'Є' => 'YE', 'Ї' => 'YI', 'а' => 'a', 'б' => 'b', 'в' => 'v',
+        'г' => 'g', 'д' => 'd', 'е' => 'e', 'ё' => 'yo', 'ж' => 'zh', 'з' => 'z',
+        'и' => 'i', 'і' => 'i', 'й' => 'y', 'к' => 'k', 'л' => 'l', 'м' => 'm',
+        'н' => 'n', 'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's', 'т' => 't',
+        'у' => 'u', 'ф' => 'f', 'х' => 'h', 'ц' => 'c', 'ч' => 'ch', 'ш' => 'sh',
+        'щ' => 'sch', 'ъ' => '', 'ы' => 'y', 'ь' => '', 'э' => 'e', 'є' => 'ye',
+        'ю' => 'yu', 'я' => 'ya', 'ї' => 'yi'
     ];
 
     /**
@@ -554,20 +472,20 @@ class Gdn_Format {
             // If the timestamp was during the current day
             if (date('Y m d', $timestamp) == date('Y m d', $now)) {
                 // Use the time format
-                $format = t('Date.DefaultTimeFormat', '%l:%M%p');
+                $format = self::t('Date.DefaultTimeFormat', '%l:%M%p');
             } elseif (date('Y', $timestamp) == date('Y', $now)) {
                 // If the timestamp is the same year, show the month and date
-                $format = t('Date.DefaultDayFormat', '%B %e');
+                $format = self::t('Date.DefaultDayFormat', '%B %e');
             } elseif (date('Y', $timestamp) != date('Y', $now)) {
                 // If the timestamp is not the same year, just show the year
-                $format = t('Date.DefaultYearFormat', '%B %Y');
+                $format = self::t('Date.DefaultYearFormat', '%B %Y');
             } else {
                 // Otherwise, use the date format
-                $format = t('Date.DefaultFormat', '%B %e, %Y');
+                $format = self::t('Date.DefaultFormat', '%B %e, %Y');
             }
         }
 
-        $fullFormat = t('Date.DefaultDateTimeFormat', '%c');
+        $fullFormat = self::t('Date.DefaultDateTimeFormat', '%c');
 
         // Emulate %l and %e for Windows.
         if (strpos($format, '%l') !== false) {
@@ -1093,12 +1011,20 @@ class Gdn_Format {
      * @since 2.1
      */
     public static function plainText($body, $format = 'Html', $collapse = false) {
-        $result = Gdn_Format::to($body, $format);
-        $result = Gdn_Format::replaceSpoilers($result);
-        if (strtolower($format) !== 'text') {
-            $result = Gdn_Format::convertCommonHTMLTagsToPlainText($result, $collapse);
+        if (strcasecmp($format, \Vanilla\Formatting\Formats\RichFormat::FORMAT_KEY) === 0) {
+            return self::getRichFormatter()->renderPlainText($body);
         }
-        $result = trim(html_entity_decode($result, ENT_QUOTES, 'UTF-8'));
+
+        if (strcasecmp($format, 'text') === 0) {
+            // for content that is initially content, we can skip a lot of processing.
+            // We still need to filter/sanitize afterwards though.
+            $result = $body;
+        } else {
+            $result = Gdn_Format::to($body, $format);
+            $result = Gdn_Format::replaceSpoilers($result);
+            $result = Gdn_Format::convertCommonHTMLTagsToPlainText($result, $collapse);
+            $result = trim(html_entity_decode($result, ENT_QUOTES, 'UTF-8'));
+        }
 
         // Always filter after basic parsing.
         $sanitized = Gdn_Format::htmlFilter($result);
@@ -1124,6 +1050,9 @@ class Gdn_Format {
      * @since 2.1
      */
     public static function excerpt($body, $format = 'Html', $collapse = false) {
+        if (strcasecmp($format, \Vanilla\Formatting\Formats\RichFormat::FORMAT_KEY) === 0) {
+            return self::getRichFormatter()->renderExcerpt($body);
+        }
         $result = Gdn_Format::to($body, $format);
         $result = Gdn_Format::replaceSpoilers($result);
         $result = Gdn_Format::replaceQuotes($result);
@@ -1149,7 +1078,7 @@ class Gdn_Format {
      * @return string
      */
     public static function rssHtml($text, $format = 'Html') {
-        if (!in_array($text, ['Html', 'Raw'])) {
+        if (!in_array($format, ['Html', 'Raw'])) {
             $text = Gdn_Format::to($text, $format);
         }
 
@@ -1230,9 +1159,10 @@ class Gdn_Format {
      * Formats the anchor tags around the links in text.
      *
      * @param mixed $mixed An object, array, or string to be formatted.
+     * @param bool $isHtml Should $mixed be considered to be a valid HTML string?
      * @return string
      */
-    public static function links($mixed) {
+    public static function links($mixed, bool $isHtml = false) {
         if (!c('Garden.Format.Links', true)) {
             return $mixed;
         }
@@ -1241,7 +1171,7 @@ class Gdn_Format {
             return self::to($mixed, 'Links');
         }
 
-        $linksCallback = function($matches) {
+        $linksCallback = function ($matches) use ($isHtml) {
             static $inTag = 0;
             static $inAnchor = false;
 
@@ -1267,6 +1197,10 @@ class Gdn_Format {
                 $url = $matches[4];
                 $domain = parse_url($url, PHP_URL_HOST);
                 if (!isTrustedDomain($domain)) {
+                    // If this is valid HTMl, the link text's HTML special characters should be encoded. Decode them to their raw state for URL encoding.
+                    if ($isHtml) {
+                        $url = htmlspecialchars_decode($url);
+                    }
                     return url('/home/leaving?target='.urlencode($url)).'" class="Popup';
                 }
             }
@@ -1301,7 +1235,7 @@ class Gdn_Format {
                 $punc .= '&nbsp;';
             }
 
-            if (preg_match('`^(.+)([.?,;:])$`', $url, $matches)) {
+            if (preg_match('`^(.+)([.?,;!:])$`', $url, $matches)) {
                 $url = $matches[1];
                 $punc = $matches[2].$punc;
             }
@@ -1319,6 +1253,10 @@ class Gdn_Format {
                 // This is a plaintext url we're converting into an anchor.
                 $domain = parse_url($url, PHP_URL_HOST);
                 if (!isTrustedDomain($domain)) {
+                    // If this is valid HTMl, the link text's HTML special characters should be encoded. Decode them to their raw state for URL encoding.
+                    if ($isHtml) {
+                        $url = htmlspecialchars_decode($url);
+                    }
                     return '<a href="'.url('/home/leaving?target='.urlencode($url)).'" class="Popup">'.$text.'</a>'.$punc;
                 }
             }
@@ -1427,16 +1365,19 @@ class Gdn_Format {
                 'regex' => ['/https?:\/\/(?:www\.)?instagr(?:\.am|am\.com)\/p\/([\w-]+)/i']
             ],
             'Pinterest' => [
-                'regex' => ['/https?:\/\/(?:www\.)?pinterest\.com\/pin\/([\d]+)/i']
+                'regex' => [
+                    '/https?:\/\/(?:www\.)?pinterest\.com\/pin\/([\d]+)/i',
+                    '/https?:\/\/(?:www\.)?pinterest\.ca\/pin\/([\d]+)/i'
+                ]
             ],
             'Getty' => [
                 'regex' => ['/https?:\/\/embed.gettyimages\.com\/([\w=?&;+-_]*)\/([\d]*)\/([\d]*)/i']
             ],
             'Twitch' => [
-                'regex' => ['/https?:\/\/(?:www\.)?twitch\.tv\/([\w]+)/i']
+                'regex' => ['/https?:\/\/(?:www\.)?twitch\.tv\/([\w]+)$/i']
             ],
-            'Hitbox' => [
-                'regex' => ['/https?:\/\/(?:www\.)?hitbox\.tv\/([\w]+)/i'],
+            'TwitchRecorded' => [
+                'regex' => ['/https?:\/\/(?:www\.)?twitch\.tv\/videos\/(\w+)$/i']
             ],
             'Soundcloud' => [
                 'regex' => ['/https?:(?:www\.)?\/\/soundcloud\.com\/([\w=?&;+-_]*)\/([\w=?&;+-_]*)/i']
@@ -1559,14 +1500,16 @@ EOT;
 
             case 'Twitter':
                 return <<<EOT
-<div class="twitter-card" data-tweeturl="{$matches[0]}" data-tweetid="{$matches[1]}"><a href="{$matches[0]}" class="tweet-url" rel="nofollow">{$matches[0]}</a></div>
+<div class="twitter-card js-twitterCard" data-tweeturl="{$matches[0]}" data-tweetid="{$matches[1]}"><a 
+href="{$matches[0]}" 
+class="tweet-url" rel="nofollow">{$matches[0]}</a></div>
 EOT;
                 break;
 
             case 'Vine':
                 return <<<EOT
 <div class="vine-video VideoWrap">
-   <iframe class="vine-embed" src="https://vine.co/v/{$matches[1]}/embed/simple" width="320" height="320" frameborder="0"></iframe><script async src="https://platform.vine.co/static/scripts/embed.js" charset="utf-8"></script>
+   <iframe class="vine-embed" src="https://vine.co/v/{$matches[1]}/embed/simple" width="320" height="320" frameborder="0"></iframe>
 </div>
 EOT;
                 break;
@@ -1597,9 +1540,9 @@ EOT;
 EOT;
                 break;
 
-            case 'Hitbox':
+            case 'TwitchRecorded':
                 return <<<EOT
-<iframe src="https://hitbox.tv/#!/embed/{$matches[1]}" height="360" width="640" frameborder="0" scrolling="no" allowfullscreen></iframe>
+<iframe src="https://player.twitch.tv/?video={$matches[1]}&autoplay=false" height="360" width="640" frameborder="0" scrolling="no" autoplay="false" allowfullscreen="true"></iframe>
 EOT;
                 break;
 
@@ -1625,95 +1568,6 @@ EOT;
         }
 
         return '';
-    }
-
-    /**
-     * Replaces text or anchor urls with either their embed code, or sanitized and wrapped in an anchor.
-     *
-     * @deprecated
-     * @param $matches
-     * @return string|void The anchor or embed code for the url.
-     */
-    public static function linksCallback($matches) {
-        deprecated('Gdn_Format::linksCallback');
-        static $inTag = 0;
-        static $inAnchor = false;
-
-        $inOut = $matches[1];
-        $tag = strtolower($matches[2]);
-
-        if ($inOut == '<') {
-            $inTag++;
-            if ($tag == 'a') {
-                $inAnchor = true;
-            }
-        } elseif ($inOut == '</') {
-            $inTag++;
-            if ($tag == 'a') {
-                $inAnchor = false;
-            }
-        } elseif ($matches[3]) {
-            $inTag--;
-        }
-
-        if (c('Garden.Format.WarnLeaving', false) && isset($matches[4]) && $inAnchor) {
-            // This is a the href url value in an anchor tag.
-            $url = $matches[4];
-            $domain = parse_url($url, PHP_URL_HOST);
-            if (!isTrustedDomain($domain)) {
-                return url('/home/leaving?target='.urlencode($url)).'" class="Popup';
-            }
-        }
-
-        if (!isset($matches[4]) || $inTag || $inAnchor) {
-            return $matches[0];
-        }
-
-        $url = $matches[4];
-
-        $embeddedResult = self::embedReplacement($url);
-        if ($embeddedResult !== '') {
-            return $embeddedResult;
-        }
-
-        // Unformatted links
-        if (!self::$FormatLinks) {
-            return $url;
-        }
-
-        // Strip punctuation off of the end of the url.
-        $punc = '';
-
-        // Special case where &nbsp; is right after an url and is not part of it!
-        // This can happen in WYSIWYG format if the url is the last text of the body.
-        while (stringEndsWith($url, '&nbsp;')) {
-            $url = substr($url, 0, -6);
-            $punc .= '&nbsp;';
-        }
-
-        if (preg_match('`^(.+)([.?,;:])$`', $url, $matches)) {
-            $url = $matches[1];
-            $punc = $matches[2].$punc;
-        }
-
-        // Get human-readable text from url.
-        $text = $url;
-        if (strpos($text, '%') !== false) {
-            $text = rawurldecode($text);
-            $text = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-        }
-
-        $nofollow = (self::$DisplayNoFollow) ? ' rel="nofollow"' : '';
-
-        if (c('Garden.Format.WarnLeaving', false)) {
-            // This is a plaintext url we're converting into an anchor.
-            $domain = parse_url($url, PHP_URL_HOST);
-            if (!isTrustedDomain($domain)) {
-                return '<a href="'.url('/home/leaving?target='.urlencode($url)).'" class="Popup">'.$text.'</a>'.$punc;
-            }
-        }
-
-        return '<a href="'.$url.'"'.$nofollow.'>'.$text.'</a>'.$punc;
     }
 
     /**
@@ -1841,7 +1695,7 @@ EOT;
         $html = self::getEventManager()->fireFilter('format_filterHtml', $html);
 
         // Embed & auto-links.
-        $html = Gdn_Format::links($html);
+        $html = Gdn_Format::links($html, true);
 
         // Mentions.
         if ($mentions) {
@@ -1935,7 +1789,13 @@ EOT;
                 if (self::$DisplayNoFollow) {
                     $attributes['rel'] = 'nofollow';
                 }
-                $parts[$i] = anchor('@'.$mention, url(str_replace('{name}', rawurlencode($mention), self::$MentionsUrlFormat), true), '', $attributes).$suffix;
+                $parts[$i] =
+                    anchor(
+                        '@' . $mention,
+                        url(str_replace('{name}', rawurlencode($mention), self::$MentionsUrlFormat), true),
+                        '',
+                        $attributes
+                    ) . $suffix;
             } else {
                 $parts[$i] = '@' . $parts[$i];
             }
@@ -1988,11 +1848,11 @@ EOT;
         }
     }
 
-   /**
-    * Reduces multiple whitespaces including line breaks and tabs to one single space character.
-    *
-    * @param string $string The string which should be optimized
-    */
+    /**
+     * Reduces multiple whitespaces including line breaks and tabs to one single space character.
+     *
+     * @param string $string The string which should be optimized
+     */
     public static function reduceWhiteSpaces($string) {
         return trim(preg_replace('/\s+/', ' ', $string));
     }
@@ -2172,6 +2032,10 @@ EOT;
      * @since 2.1
      */
     public static function textEx($str) {
+        if (!is_string($str)) {
+            return self::to($str, 'TextEx');
+        }
+
         // Basic text parsing.
         $str = self::text($str);
 
@@ -2196,10 +2060,6 @@ EOT;
         if (is_string($mixed)) {
             if (in_array(strtolower($formatMethod), self::$SanitizedFormats) && method_exists('Gdn_Format', $formatMethod)) {
                 $mixed = self::$formatMethod($mixed);
-            } elseif (function_exists('format'.$formatMethod)) {
-                deprecated('format'.$formatMethod, 'gdn_formatter_'.$formatMethod, '2015-10-26');
-                $formatMethod = 'format'.$formatMethod;
-                $mixed = $formatMethod($mixed);
             } elseif (function_exists('gdn_formatter_'.$formatMethod)) {
                 $formatMethod = 'gdn_formatter_'.$formatMethod;
                 $mixed = $formatMethod($mixed);
@@ -2446,6 +2306,98 @@ EOT;
             $sanitized = Gdn_Format::processHTML($sanitized);
 
             return $sanitized;
+        }
+    }
+
+    /**
+     * Format text from Rich editor input.
+     *
+     * @param string $deltas A JSON encoded array of Quill deltas.
+     *
+     * @return string - The rendered HTML output.
+     */
+    public static function rich(string $deltas): string {
+        return self::getRichFormatter()->renderHTML($deltas);
+    }
+
+    /**
+     * Generate a quote to embed in a Rich quote for all existing formats.
+     *
+     * @param string|array $body The string or array body content of the post.
+     * @param string $format The initial format of the post.
+     *
+     * @return string
+     */
+    public static function quoteEmbed($body, string $format): string {
+        if (strcasecmp($format, \Vanilla\Formatting\Formats\RichFormat::FORMAT_KEY) === 0) {
+            if (is_array($body)) {
+                $body = json_encode($body);
+            }
+            return self::getRichFormatter()->renderQuote($body);
+        }
+
+        $previousLinksValue = c('Garden.Format.Links');
+        saveToConfig('Garden.Format.Links', false, ['Save' => false]);
+        $value = self::to($body, $format);
+
+        // These breaks make the collapsing behaviour much more difficult in a rich quote.
+        // Replace them with starting and closing p tags.
+        $value = str_replace("<br>", "</p><p>", $value);
+        saveToConfig('Garden.Format.Links', $previousLinksValue, ['Save' => false]);
+        return $value;
+    }
+
+    /**
+     * Sanitize a URL to ensure that it matches a whitelist of approved url schemes. If the url does not match one of these schemes, prepend `unsafe:` before it.
+     * Get the usernames mention in a rich post.
+     *
+     * @param string $body The contents of a post body.
+     *
+     * @return string[]
+     */
+    public static function getRichMentionUsernames(string $body): array {
+        return self::getRichFormatter()->parseMentions($body);
+    }
+
+    /**
+     * Get an instance of the rich post formatter.
+     *
+     * @return \Vanilla\Contracts\Formatting\FormatInterface
+     */
+    private static function getRichFormatter(): \Vanilla\Contracts\Formatting\FormatInterface {
+        /** @var \Vanilla\Formatting\FormatService $formatter */
+        $formatter = Gdn::getContainer()->get(\Vanilla\Formatting\FormatService::class);
+        return $formatter->getFormatter(\Vanilla\Formatting\Formats\RichFormat::FORMAT_KEY);
+    }
+
+    const SAFE_PROTOCOLS = [
+        "http",
+        "https",
+        "tel",
+        "mailto",
+    ];
+
+    /**
+     * Encode special CSS characters as hex.
+     *
+     * Allowed protocols
+     * - "http:",
+     * - "https:",
+     * - "tel:",
+     * - "mailto:",
+     *
+     * @param string $url The url to sanitize.
+     *
+     * @return string
+     */
+    public static function sanitizeUrl(string $url): string {
+        $protocol = parse_url($url, PHP_URL_SCHEME) ?: "";
+        $isSafe = in_array($protocol, self::SAFE_PROTOCOLS, true);
+
+        if ($isSafe) {
+            return $url;
+        } else {
+            return "unsafe:".$url;
         }
     }
 }

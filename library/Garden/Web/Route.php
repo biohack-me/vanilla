@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Garden\Web;
@@ -23,6 +23,11 @@ abstract class Route {
     const MAP_BODY = 0x4; // map to post body
     const MAP_PATH = 0x8; // map to the rest of the path
     const MAP_REQUEST = 0x10; // map to the entire request
+
+    /**
+     * @var callable[] An array of middleware callbacks that will be applied if the route is matched.
+     */
+    private $middlewares = [];
 
     /**
      * Route constructor.
@@ -180,8 +185,23 @@ abstract class Route {
     protected function testConstraint(\ReflectionParameter $parameter, $value, array $meta = []) {
         if ($parameter->isDefaultValueAvailable() && $value === $parameter->getDefaultValue()) {
             return true;
-        } elseif ($this->hasConstraint($parameter)) {
+        }
+
+        /**
+         * Test the value against a type hint.
+         */
+        if ($parameter->hasType() && !$this->validateType($value, $parameter->getType())) {
+            return false;
+        }
+
+        if ($this->hasConstraint($parameter)) {
             $constraint = $this->constraints[strtolower($parameter->getName())];
+
+            // Look for specific rules for the type.
+            $type = $parameter->hasType() ? $parameter->getType()->__toString() : 'notype';
+            if (!empty($constraint["$type"])) {
+                $constraint = $constraint["$type"] + $constraint;
+            }
 
             // Check the meta information.
             foreach ($meta as $metaKey => $metaValue) {
@@ -273,7 +293,51 @@ abstract class Route {
      * Match the route to a request.
      *
      * @param RequestInterface $request The request to match against.
-     * @return mixed Returns match information or **null** if the route doesn't match.
+     * @return callable Returns the action corresponding to the route match or **null** if the route doesn't match.
      */
     abstract public function match(RequestInterface $request);
+
+    /**
+     * Test to see if a value is valid against a type hint.
+     *
+     * @param mixed $value The value to validate.
+     * @param \ReflectionType $type The type to validate against.
+     * @return bool Returns **true** if the type check passes or **false** otherwise.
+     */
+    private function validateType($value, \ReflectionType $type): bool {
+        if (in_array($value, ['', null], true)) {
+            return $type->allowsNull();
+        }
+
+        // Test against the built in types.
+        switch ($type->__toString()) {
+            case 'bool':
+                return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== null;
+            case 'int':
+                return filter_var($value, FILTER_VALIDATE_INT) !== false;
+            case 'float':
+                return filter_var($value, FILTER_VALIDATE_FLOAT) !== false;
+        }
+        return true;
+    }
+
+    /**
+     * Add a middleware callback to the route.
+     *
+     * @param callable $middleware The middleware to add.
+     * @return $this
+     */
+    public function addMiddleware(callable $middleware) {
+        array_unshift($this->middlewares, $middleware);
+        return $this;
+    }
+
+    /**
+     * Get the middlewares that have been added to the route.
+     *
+     * @return callable[] Returns an array of middleware.
+     */
+    public function getMiddlewares() {
+        return $this->middlewares;
+    }
 }

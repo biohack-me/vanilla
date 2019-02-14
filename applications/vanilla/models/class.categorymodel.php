@@ -2,8 +2,8 @@
 /**
  * Category model
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
@@ -191,12 +191,12 @@ class CategoryModel extends Gdn_Model {
      * @param array &$category The category to calculate.
      * @param bool|null $addUserCategory
      */
-    private function calculateUser(&$category, $addUserCategory = null) {
+    private function calculateUser(array &$category, $addUserCategory = null) {
         // Kludge to make sure that the url is absolute when reaching the user's screen (or API).
         $category['Url'] = self::categoryUrl($category, '', true);
 
         if (!isset($category['PhotoUrl'])) {
-            if ($photo = val('Photo', $category)) {
+            if ($photo = ($category['Photo'] ?? false)) {
                 $category['PhotoUrl'] = Gdn_Upload::url($photo);
             }
         }
@@ -211,14 +211,14 @@ class CategoryModel extends Gdn_Model {
         $category['PermsCommentsAdd'] = self::checkPermission($category, 'Vanilla.Comments.Add');
 
         $code = $category['UrlCode'];
-        $category['Name'] = translateContent("Categories.".$code.".Name", $category['Name']);
-        $category['Description'] = translateContent("Categories.".$code.".Description", $category['Description']);
+        $category['Name'] = Gdn::translate("Categories.".$code.".Name", $category['Name']);
+        $category['Description'] = Gdn::translate("Categories.".$code.".Description", $category['Description']);
 
         if ($addUserCategory || ($addUserCategory === null && $this->joinUserCategory())) {
             $userCategories = $this->getUserCategories();
 
-            $dateMarkedRead = val('DateMarkedRead', $category);
-            $userData = val($category['CategoryID'], $userCategories);
+            $dateMarkedRead = ($category['DateMarkedRead'] ?? false );
+            $userData = ($userCategories[$category['CategoryID']] ?? false);
             if ($userData) {
                 $userDateMarkedRead = $userData['DateMarkedRead'];
 
@@ -235,7 +235,7 @@ class CategoryModel extends Gdn_Model {
             }
 
             // Calculate the following field.
-            $following = !((bool)val('Archived', $category) || (bool)val('Unfollow', $userData, false));
+            $following = !((bool)($category['Archived'] ?? false) || (bool)($userData['Unfollow'] ?? false));
             $category['Following'] = $following;
 
             $category['Followed'] = boolval($userData['Followed']);
@@ -244,8 +244,8 @@ class CategoryModel extends Gdn_Model {
             if (strcasecmp($category['DisplayAs'], 'heading') === 0) {
                 $category['Read'] = false;
             } elseif ($dateMarkedRead) {
-                if (val('LastDateInserted', $category)) {
-                    $category['Read'] = Gdn_Format::toTimestamp($dateMarkedRead) >= Gdn_Format::toTimestamp($category['LastDateInserted']);
+                if ($lastDateInserted = ($category['LastDateInserted'] ?? false)) {
+                    $category['Read'] = Gdn_Format::toTimestamp($dateMarkedRead) >= Gdn_Format::toTimestamp($lastDateInserted);
                 } else {
                     $category['Read'] = true;
                 }
@@ -455,7 +455,7 @@ class CategoryModel extends Gdn_Model {
         $filterHideDiscussions = $options['filterHideDiscussions'] ?? false;
 
         foreach ($categories as $categoryID => $category) {
-            if ($filterHideDiscussions && val('HideAllDiscussions', $category)) {
+            if ($filterHideDiscussions && ($category['HideAllDiscussions'] ?? false)) {
                 $unfiltered = false;
                 continue;
             }
@@ -597,18 +597,18 @@ class CategoryModel extends Gdn_Model {
      *
      * @param array &$category The category to calculate.
      */
-    private static function calculate(&$category) {
+    private static function calculate(array &$category) {
         $category['Url'] = self::categoryUrl($category, false, '/');
 
-        if (val('Photo', $category)) {
-            $category['PhotoUrl'] = Gdn_Upload::url($category['Photo']);
+        if ($photo = ($category['Photo'] ?? false)) {
+            $category['PhotoUrl'] = Gdn_Upload::url($photo);
         } else {
             $category['PhotoUrl'] = '';
         }
 
         self::calculateDisplayAs($category);
 
-        if (!val('CssClass', $category)) {
+        if (!($category['CssClass'] ?? false)) {
             $category['CssClass'] = 'Category-'.$category['UrlCode'];
         }
 
@@ -830,6 +830,39 @@ class CategoryModel extends Gdn_Model {
     }
 
     /**
+     * Add multi-dimensional category data to an array.
+     *
+     * @param array $rows Results we need to associate category data with.
+     */
+    public function expandCategories(array &$rows) {
+        if (count($rows) === 0) {
+            // Nothing to do here.
+            return;
+        }
+
+        reset($rows);
+        $single = is_string(key($rows));
+
+        $populate = function(array &$row) {
+            if (array_key_exists('CategoryID', $row)) {
+                $category = self::categories($row['CategoryID']);
+                if ($category) {
+                    setValue('Category', $row, $category);
+                }
+            }
+        };
+
+        // Inject those categories.
+        if ($single) {
+            $populate($rows);
+        } else {
+            foreach ($rows as &$row) {
+                $populate($row);
+            }
+        }
+    }
+
+    /**
      * Remove categories that a user does not have permission to view.
      *
      * @param array $categoryIDs An array of categories to filter.
@@ -859,11 +892,16 @@ class CategoryModel extends Gdn_Model {
         if (is_numeric($category)) {
             $category = static::categories($category);
         }
-
-        $permissionCategoryID = val('PermissionCategoryID', $category, -1);
+        if (is_array($category)) {
+            $permissionCategoryID = ($category['PermissionCategoryID'] ?? -1);
+            $categoryID = ($category['CategoryID'] ?? false);
+        } else {
+            $permissionCategoryID = ($category->PermissionCategoryID ?? -1);
+            $categoryID = ($category->CategoryID ?? false);
+        }
 
         $result = Gdn::session()->checkPermission($permission, $fullMatch, 'Category', $permissionCategoryID)
-            || Gdn::session()->checkPermission($permission, $fullMatch, 'Category', val('CategoryID', $category));
+            || Gdn::session()->checkPermission($permission, $fullMatch, 'Category', $categoryID);
 
         return $result;
     }
@@ -1698,7 +1736,8 @@ class CategoryModel extends Gdn_Model {
      * @param bool $addUserCategory
      */
     public static function joinUserData(&$categories, $addUserCategory = true) {
-        $iDs = array_keys($categories);
+        $iDs = array_column($categories, 'CategoryID', 'CategoryID');
+        $categories = array_combine($iDs, $categories);
 
         if ($addUserCategory) {
             $userData = self::instance()->getUserCategories();
@@ -1706,8 +1745,8 @@ class CategoryModel extends Gdn_Model {
             foreach ($iDs as $iD) {
                 $category = $categories[$iD];
 
-                $dateMarkedRead = val('DateMarkedRead', $category);
-                $row = val($iD, $userData);
+                $dateMarkedRead = ($category['DateMarkedRead'] ?? false);
+                $row = ($userData[$iD] ?? false);
                 if ($row) {
                     $userDateMarkedRead = $row['DateMarkedRead'];
 
@@ -1722,7 +1761,7 @@ class CategoryModel extends Gdn_Model {
                 }
 
                 // Calculate the following field.
-                $following = !((bool)val('Archived', $category) || (bool)val('Unfollow', $row, false));
+                $following = !((bool)($category['Archived'] ?? false) || (bool)($row['Unfollow'] ?? false));
                 $categories[$iD]['Following'] = $following;
 
                 $categories[$iD]['Followed'] = boolval($row['Followed']);
@@ -1731,8 +1770,8 @@ class CategoryModel extends Gdn_Model {
                 if ($category['DisplayAs'] == 'Heading') {
                     $categories[$iD]['Read'] = false;
                 } elseif ($dateMarkedRead) {
-                    if (val('LastDateInserted', $category)) {
-                        $categories[$iD]['Read'] = Gdn_Format::toTimestamp($dateMarkedRead) >= Gdn_Format::toTimestamp($category['LastDateInserted']);
+                    if ($lastDateInserted = ($category['LastDateInserted'] ?? false)) {
+                        $categories[$iD]['Read'] = Gdn_Format::toTimestamp($dateMarkedRead) >= Gdn_Format::toTimestamp($lastDateInserted);
                     } else {
                         $categories[$iD]['Read'] = true;
                     }
@@ -2006,12 +2045,7 @@ class CategoryModel extends Gdn_Model {
      * Get list of categories (disregarding user permission for admins).
      *
      * @since 2.0.0
-     * @access public
      *
-     * @param string $OrderFields Ignored.
-     * @param string $OrderDirection Ignored.
-     * @param int $Limit Ignored.
-     * @param int $Offset Ignored.
      * @return object SQL results.
      */
     public function getAll() {
@@ -2851,7 +2885,7 @@ class CategoryModel extends Gdn_Model {
         $CategoryID = val('CategoryID', $FormPostValues);
         $NewName = val('Name', $FormPostValues, '');
         $UrlCode = val('UrlCode', $FormPostValues, '');
-        $AllowDiscussions = val('AllowDiscussions', $FormPostValues, '');
+        $AllowDiscussions = val('AllowDiscussions', $FormPostValues, 1);
         $CustomPermissions = (bool)val('CustomPermissions', $FormPostValues) || is_array(val('Permissions', $FormPostValues));
         $CustomPoints = val('CustomPoints', $FormPostValues, null);
 
@@ -2911,11 +2945,11 @@ class CategoryModel extends Gdn_Model {
             $Fields = $this->Validation->schemaValidationFields();
             $Fields = $this->coerceData($Fields);
             unset($Fields['CategoryID']);
-            $Fields['AllowDiscussions'] = (bool)val('AllowDiscussions', $Fields);
+            $Fields['AllowDiscussions'] = isset($Fields['AllowDiscussions']) ? (bool)$Fields['AllowDiscussions'] : (bool)$AllowDiscussions;
 
             if ($Insert === false) {
                 $OldCategory = $this->getID($CategoryID, DATASET_TYPE_ARRAY);
-                if (null === val('AllowDiscussions', $FormPostValues, null)) {
+                if (null === $AllowDiscussions) {
                     $AllowDiscussions = $OldCategory['AllowDiscussions']; // Force the allowdiscussions property
                 }
                 $Fields['AllowDiscussions'] = (bool)$AllowDiscussions;
@@ -2971,7 +3005,14 @@ class CategoryModel extends Gdn_Model {
                         // The permissions were posted in the web format provided by settings/addcategory and settings/editcategory
                         $permissions = $permissionModel->pivotPermissions(val('Permission', $FormPostValues, []), ['JunctionID' => $CategoryID]);
                     }
-                    $permissionModel->saveAll($permissions, ['JunctionID' => $CategoryID, 'JunctionTable' => 'Category']);
+
+                    if ($Settings['overWrite'] ?? empty($Settings)) {
+                        $permissionModel->saveAll($permissions, ['JunctionID' => $CategoryID, 'JunctionTable' => 'Category']);
+                    } else {
+                        foreach ($permissions as $perm) {
+                            $permissionModel->save($perm);
+                        }
+                    }
 
                     if (!$Insert) {
                         // Figure out my last permission and tree info.
@@ -3445,8 +3486,12 @@ SQL;
      * @param int $categoryID
      * @param string $type
      * @param int $offset A value, positive or negative, to offset a category's current aggregate post counts.
+     * @param bool $cache This param was implemented just for particular patch
+     *        check details https://github.com/vanilla/vanilla/issues/7105
+     *        and https://github.com/vanilla/vanilla/pull/7843
+     *        please avoid of using it.
      */
-    private static function adjustAggregateCounts($categoryID, $type, $offset) {
+    private static function adjustAggregateCounts($categoryID, $type, $offset, bool $cache = true) {
         $offset = intval($offset);
 
         if (empty($categoryID)) {
@@ -3476,15 +3521,17 @@ SQL;
         }
 
         // Update the cache.
-        $categoriesToUpdate = self::instance()->getWhere(['CategoryID' => $updatedCategories]);
-        foreach ($categoriesToUpdate as $current) {
-            $currentID = val('CategoryID', $current);
-            $countAllDiscussions = val('CountAllDiscussions', $current);
-            $countAllComments = val('CountAllComments', $current);
-            self::setCache(
-                $currentID,
-                ['CountAllDiscussions' => $countAllDiscussions, 'CountAllComments' => $countAllComments]
-            );
+        if ($cache) {
+            $categoriesToUpdate = self::instance()->getWhere(['CategoryID' => $updatedCategories]);
+            foreach ($categoriesToUpdate as $current) {
+                $currentID = val('CategoryID', $current);
+                $countAllDiscussions = val('CountAllDiscussions', $current);
+                $countAllComments = val('CountAllComments', $current);
+                self::setCache(
+                    $currentID,
+                    ['CountAllDiscussions' => $countAllDiscussions, 'CountAllComments' => $countAllComments]
+                );
+            }
         }
     }
 
@@ -3494,11 +3541,15 @@ SQL;
      * @param int $categoryID A valid category ID.
      * @param string $type One of the CategoryModel::AGGREGATE_* constants.
      * @param int $offset The value to increment the aggregate counts by.
+     * @param bool $cache This param was implemented just for particular patch
+     *        check details https://github.com/vanilla/vanilla/issues/7105
+     *        and https://github.com/vanilla/vanilla/pull/7843
+     *        please avoid of using it.
      */
-    public static function incrementAggregateCount($categoryID, $type, $offset = 1) {
+    public static function incrementAggregateCount($categoryID, $type, $offset = 1, bool $cache = true) {
         // Make sure we're dealing with a positive offset.
         $offset = abs($offset);
-        self::adjustAggregateCounts($categoryID, $type, $offset);
+        self::adjustAggregateCounts($categoryID, $type, $offset, $cache);
     }
 
     /**
@@ -3507,11 +3558,15 @@ SQL;
      * @param int $categoryID A valid category ID.
      * @param string $type One of the CategoryModel::AGGREGATE_* constants.
      * @param int $offset The value to increment the aggregate counts by.
+     * @param bool $cache This param was implemented just for particular patch
+     *        check details https://github.com/vanilla/vanilla/issues/7105
+     *        and https://github.com/vanilla/vanilla/pull/7843
+     *        please avoid of using it.
      */
-    public static function decrementAggregateCount($categoryID, $type, $offset = 1) {
+    public static function decrementAggregateCount($categoryID, $type, $offset = 1, bool $cache = true) {
         // Make sure we're dealing with a negative offset.
         $offset = (-1 * abs($offset));
-        self::adjustAggregateCounts($categoryID, $type, $offset);
+        self::adjustAggregateCounts($categoryID, $type, $offset, $cache);
     }
 
     /**

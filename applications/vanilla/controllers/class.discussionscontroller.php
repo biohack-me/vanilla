@@ -2,8 +2,8 @@
 /**
  * Discussions controller
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
@@ -125,12 +125,13 @@ class DiscussionsController extends VanillaController {
         $categoryModel = new CategoryModel();
         $followingEnabled = $categoryModel->followingEnabled();
         if ($followingEnabled) {
+            $saveFollowing = Gdn::request()->get('save') && Gdn::session()->validateTransientKey(Gdn::request()->get('TransientKey', ''));
             $followed = paramPreference(
                 'followed',
                 'FollowedDiscussions',
                 'Vanilla.SaveFollowingPreference',
                 null,
-                Gdn::request()->get('save')
+                $saveFollowing
             );
             if ($this->SelfUrl === "discussions") {
                 $this->enableFollowingFilter = true;

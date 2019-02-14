@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
@@ -14,6 +14,7 @@ use DiscussionModel;
  * Test the /api/v2/discussions endpoints.
  */
 class DiscussionsTest extends AbstractResourceTest {
+    use TestPutFieldTrait;
 
     /** @var array */
     private static $categoryIDs = [];
@@ -148,7 +149,8 @@ class DiscussionsTest extends AbstractResourceTest {
     public function testPatchSparse($field) {
         // pinLocation doesn't do anything on its own, it requires pinned. It's not a good candidate for a single-field sparse PATCH.
         if ($field == 'pinLocation') {
-            $this->markTestSkipped('pinLocation cannot be used alone in PATCH.');
+            $this->assertTrue(true);
+            return;
         }
 
         parent::testPatchSparse($field);

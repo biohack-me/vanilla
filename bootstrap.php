@@ -4,13 +4,16 @@ use Garden\Container\Container;
 use Garden\Container\Reference;
 use Vanilla\Addon;
 use Vanilla\InjectableInterface;
+use Vanilla\Contracts;
+use Vanilla\Utility\ContainerUtils;
+use \Vanilla\Formatting\Formats;
 
 if (!defined('APPLICATION')) exit();
 /**
  * Bootstrap.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -33,6 +36,10 @@ $dic->setInstance('Garden\Container\Container', $dic)
     ->rule(InjectableInterface::class)
     ->addCall('setDependencies')
 
+    ->rule(DateTimeInterface::class)
+    ->setAliasOf(DateTimeImmutable::class)
+    ->setConstructorArgs([null, null])
+
     // Cache
     ->rule('Gdn_Cache')
     ->setShared(true)
@@ -43,6 +50,7 @@ $dic->setInstance('Garden\Container\Container', $dic)
     ->rule('Gdn_Configuration')
     ->setShared(true)
     ->addAlias('Config')
+    ->addAlias(Contracts\ConfigurationInterface::class)
 
     // AddonManager
     ->rule(Vanilla\AddonManager::class)
@@ -56,6 +64,7 @@ $dic->setInstance('Garden\Container\Container', $dic)
         PATH_CACHE
     ])
     ->addAlias('AddonManager')
+    ->addAlias(Contracts\AddonProviderInterface::class)
     ->addCall('registerAutoloader')
 
     // ApplicationManager
@@ -144,6 +153,22 @@ $dic->setInstance('Garden\Container\Container', $dic)
     ->setShared(true)
     ->addAlias(Gdn::AliasDispatcher)
 
+    ->rule(\Vanilla\Web\Asset\DeploymentCacheBuster::class)
+    ->setConstructorArgs([
+        'deploymentTime' => ContainerUtils::config('Garden.Deployed')
+    ])
+
+    ->rule(\Vanilla\Web\Asset\WebpackAssetProvider::class)
+    ->addCall('setHotReloadEnabled', [
+        ContainerUtils::config('HotReload.Enabled'),
+        ContainerUtils::config('HotReload.IP'),
+    ])
+    ->addCall('setLocaleKey', [ContainerUtils::currentLocale()])
+    ->addCall('setCacheBusterKey', [ContainerUtils::cacheBuster()])
+
+    ->rule(\Vanilla\Web\Asset\LegacyAssetModel::class)
+    ->setConstructorArgs([ContainerUtils::cacheBuster()])
+
     ->rule(\Garden\Web\Dispatcher::class)
     ->setShared(true)
     ->addCall('addRoute', ['route' => new Reference('@api-v2-route'), 'api-v2'])
@@ -151,6 +176,25 @@ $dic->setInstance('Garden\Container\Container', $dic)
         return new \Garden\Web\PreflightRoute('/api/v2', true);
     })])
     ->addCall('setAllowedOrigins', ['isTrustedDomain'])
+    ->addCall('addMiddleware', [new Reference('@smart-id-middleware')])
+    ->addCall('addMiddleware', [new Reference(\Vanilla\Web\CacheControlMiddleware::class)])
+
+    ->rule('@smart-id-middleware')
+    ->setClass(\Vanilla\Web\SmartIDMiddleware::class)
+    ->setConstructorArgs(['/api/v2/'])
+    ->addCall('addSmartID', ['CategoryID', 'categories', ['name', 'urlcode'], 'Category'])
+    ->addCall('addSmartID', ['RoleID', 'roles', ['name'], 'Role'])
+    ->addCall('addSmartID', ['UserID', 'users', '*', new Reference('@user-smart-id-resolver')])
+
+    ->rule('@user-smart-id-resolver')
+    ->setFactory(function (Container $dic) {
+        /* @var \Vanilla\Web\UserSmartIDResolver $uid */
+        $uid = $dic->get(\Vanilla\Web\UserSmartIDResolver::class);
+        $uid->setEmailEnabled(!$dic->get(Gdn_Configuration::class)->get('Garden.Registration.NoEmail'))
+            ->setViewEmail($dic->get(\Gdn_Session::class)->checkPermission('Garden.PersonalInfo.View'));
+
+        return $uid;
+    })
 
     ->rule('@api-v2-route')
     ->setClass(\Garden\Web\ResourceRoute::class)
@@ -165,6 +209,16 @@ $dic->setInstance('Garden\Container\Container', $dic)
     ->setClass(\Vanilla\VanillaClassLocator::class)
 
     ->rule('Gdn_Model')
+    ->setShared(true)
+
+    ->rule(Gdn_Validation::class)
+    ->addCall('addRule', ['BodyFormat', new Reference(\Vanilla\BodyFormatValidator::class)])
+
+    ->rule(\Vanilla\Models\AuthenticatorModel::class)
+    ->setShared(true)
+    ->addCall('registerAuthenticatorClass', [\Vanilla\Authenticator\PasswordAuthenticator::class])
+
+    ->rule(SearchModel::class)
     ->setShared(true)
 
     ->rule('Gdn_IPlugin')
@@ -191,7 +245,13 @@ $dic->setInstance('Garden\Container\Container', $dic)
 
     ->rule('HtmlFormatter')
     ->setClass(VanillaHtmlFormatter::class)
-    ->addAlias(VanillaHtmlFormatter::class)
+    ->setShared(true)
+
+    ->rule(\Vanilla\Formatting\Quill\Renderer::class)
+    ->setShared(true)
+
+    ->rule(\Vanilla\Formatting\Quill\Parser::class)
+    ->addCall('addCoreBlotsAndFormats')
     ->setShared(true)
 
     ->rule('Smarty')
@@ -205,8 +265,25 @@ $dic->setInstance('Garden\Container\Container', $dic)
     ->setClass('Gdn_Smarty')
     ->setShared(true)
 
+    ->rule('ViewHandler.twig')
+    ->setClass(\Vanilla\Web\LegacyTwigViewHandler::class)
+    ->setShared(true)
+
     ->rule('Gdn_Form')
     ->addAlias('Form')
+
+    ->rule(Vanilla\Formatting\Embeds\EmbedManager::class)
+    ->addCall('addCoreEmbeds')
+    ->setShared(true)
+
+    ->rule(Vanilla\PageScraper::class)
+    ->addCall('registerMetadataParser', [new Reference(Vanilla\Metadata\Parser\OpenGraphParser::class)])
+    ->addCall('registerMetadataParser', [new Reference(Vanilla\Metadata\Parser\JsonLDParser::class)])
+    ->setShared(true)
+
+    ->rule(Vanilla\Formatting\FormatService::class)
+    ->addCall('registerFormat', [Formats\RichFormat::FORMAT_KEY, Formats\RichFormat::class])
+    ->setShared(true)
 ;
 
 // Run through the bootstrap with dependencies.
@@ -250,7 +327,6 @@ $dic->call(function (
         safeHeader('Location: '.$request->url('dashboard/setup', true));
         exit();
     }
-
 
     /**
      * Extension Managers
@@ -324,7 +400,7 @@ $dic->call(function (
 });
 
 // Send out cookie headers.
-register_shutdown_function(function() use ($dic) {
+register_shutdown_function(function () use ($dic) {
     $dic->call(function(Garden\Web\Cookie $cookie) {
         $cookie->flush();
     });

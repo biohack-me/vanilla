@@ -1,12 +1,12 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Models;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use CommentModel;
 use DiscussionModel;
 use VanillaTests\SiteTestTrait;
@@ -14,7 +14,7 @@ use VanillaTests\SiteTestTrait;
 /**
  * Test {@link CommentModel}.
  */
-class CommentModelTest extends TestCase {
+class CommentModelTest extends SharedBootstrapTestCase {
     use SiteTestTrait {
         setupBeforeClass as baseSetupBeforeClass;
     }

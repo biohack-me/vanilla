@@ -1,12 +1,11 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
-
 
 abstract class AbstractResourceTest extends AbstractAPIv2Test {
 
@@ -133,33 +132,6 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     }
 
     /**
-     * Test updating a field with PUT.
-     *
-     * @param string $action
-     * @param mixed $val
-     * @param string|null $col
-     * @throws \Exception if the new record already has its field set to the target value.
-     * @dataProvider providePutFields
-     */
-    public function testPutField($action, $val, $col = null) {
-        if ($col === null) {
-            $col = $action;
-        }
-        $row = $this->testPost();
-
-        $before = $this->api()->get("{$this->baseUrl}/{$row[$this->pk]}");
-        if ($before[$col] === $val) {
-            $printVal = var_export($val, true);
-            throw new \Exception("Unable to test PUT for {$this->singular} field: {$col} is already {$printVal}");
-        }
-        $urlAction = urlencode($action);
-        $this->api()->put("{$this->baseUrl}/{$row[$this->pk]}/{$urlAction}", [$col => $val]);
-        $after = $this->api()->get("{$this->baseUrl}/{$row[$this->pk]}");
-
-        $this->assertEquals($val, $after[$col]);
-    }
-
-    /**
      * Test GET /resource/<id>/edit.
      *
      * @param array|null $record A record to use for comparison.
@@ -168,7 +140,7 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     public function testGetEdit($record = null) {
         if ($record === null) {
             $record = $this->record();
-            $row = $this->testPost();
+            $row = $this->testPost($record);
         } else {
             $row = $record;
         }
@@ -270,9 +242,8 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     public function testDelete() {
         $row = $this->testPost();
 
-        $r = $this->api()->delete(
-            "{$this->baseUrl}/{$row[$this->pk]}"
-        );
+        // GardenHTTP does not allow a call to its delete method with a body. This long form is required for delete requests with a body.
+        $r = $this->api()->request(\Garden\Http\HttpRequest::METHOD_DELETE, "{$this->baseUrl}/{$row[$this->pk]}", []);
 
         $this->assertEquals(204, $r->getStatusCode());
 
@@ -355,14 +326,5 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
             $r[$field] = [$field];
         }
         return $r;
-    }
-
-    /**
-     * Provide fields for PUT operations in a format that is compatible with a data provider.
-     *
-     * @return array
-     */
-    public function providePutFields() {
-        return [];
     }
 }

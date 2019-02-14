@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla\Dashboard\Models;
@@ -137,11 +137,10 @@ class ReflectionAction {
 
         if (strcasecmp($httpMethod, 'index') === 0) {
             $httpMethod = 'GET';
-            $subpath = '';
         }
 
         // Check against the controller pattern.
-        if (preg_match("`(?:^|\\\\)$resourceRegex$`i", $controller, $m)) {
+        if (preg_match("`$resourceRegex$`i", $controller, $m)) {
             $resource = $m[1];
         } else {
             throw new \InvalidArgumentException("The controller is not an API controller.", 500);
@@ -162,7 +161,35 @@ class ReflectionAction {
             }
 
             // Default the call args.
-            $this->args[$param->getName()] = $param->isDefaultValueAvailable() ? $param->getDefaultValue() : ($param->isArray() ? [] : null);
+            if ($param->isDefaultValueAvailable()) {
+                $arg = $param->getDefaultValue();
+            } elseif ($param->isArray()) {
+                $arg = [];
+            } elseif ($param->hasType()) {
+                $type = $param->getType();
+                switch (strtolower($type->__toString())) {
+                    case 'bool':
+                        $arg = false;
+                        $schemaType = 'boolean';
+                        break;
+                    case 'int':
+                        $arg = 0;
+                        $schemaType = 'integer';
+                        break;
+                    case 'float':
+                        $arg = 0.0;
+                        $schemaType = 'float';
+                        break;
+                    case 'string':
+                        $arg = '';
+                        break;
+                    default:
+                        $arg = null;
+                }
+            } else {
+                $arg = null;
+            }
+            $this->args[$param->getName()] = $arg;
 
             $p = null;
             if ($this->route->isMapped($param, Route::MAP_BODY)) {
@@ -170,6 +197,9 @@ class ReflectionAction {
                 $p = ['name' => $param->getName(), 'in' => 'body', 'required' => true];
             } elseif (!$param->getClass() && !$this->route->isMapped($param)) {
                 $p = ['name' => $param->getName(), 'in' => 'path', 'required' => true];
+                if (isset($schemaType)) {
+                    $p['type'] = $schemaType;
+                }
 
                 $constraint = (array)$this->route->getConstraint($param->getName()) + ['position' => '*'];
 
@@ -223,6 +253,8 @@ class ReflectionAction {
 
         // Set up an event handler that will capture the schemas.
         $fn  = function ($controller, Schema $schema, $type) use (&$in, &$out, &$allIn) {
+            $this->massageSchema($schema);
+
             switch ($type) {
                 case 'in':
                     if (empty($this->bodyParam)) {
@@ -249,7 +281,7 @@ class ReflectionAction {
 
         } catch (ShortCircuitException $ex) {
             // We should have everything we need now.
-        } catch (\Exception $ex) {
+        } catch (\Throwable $ex) {
             $other['deprecated'] = true;
             // We shouldn't get here, but let's allow it.
             $summary = "Something happened before the output schema was found. The endpoint most likely didn't define its output properly.";
@@ -263,7 +295,7 @@ class ReflectionAction {
             if (empty($summary) && $allIn instanceof Schema) {
                 $summary = $allIn->getDescription();
             }
-            $inArr = $in->jsonSerialize();
+            $inArr = $this->jsonSerializeSchema($in);
             $allInArr = $allIn !== null ? $allIn->jsonSerialize() : [];
             unset($inArr['description']);
 
@@ -297,7 +329,7 @@ class ReflectionAction {
 
                     if (isset($allInArr['required']) && in_array($name, $allInArr['required'])) {
                         $param['required'] = true;
-                    } else if (isset($param['required'])) {
+                    } elseif (isset($param['required'])) {
                         unset($param['required']);
                     }
                 }
@@ -308,6 +340,12 @@ class ReflectionAction {
         foreach ($this->params as $name => &$param) {
             if ($param['in'] === 'path') {
                 $param += ['type' => $name === $this->idParam ? 'integer' : 'string'];
+                $param['required'] = true;
+            }
+
+            if (array_key_exists('default', $param) && $param['default'] === null) {
+                $param['x-default'] = null;
+                unset($param['default']);
             }
         }
 
@@ -317,14 +355,14 @@ class ReflectionAction {
             $status = $this->httpMethod === 'POST' && empty($this->idParam) ? '201' : '200';
 
             $responses[$status]['description'] = $out->getDescription() ?: 'Success';
-            $responses[$status]['schema'] = $out->jsonSerialize();
+            $responses[$status]['schema'] = $this->jsonSerializeSchema($out);
         } else {
             $status = $this->httpMethod === 'POST' && empty($this->idParam) ? '201' : '204';
             $responses[$status]['description'] = 'Success';
         }
 
         $r = [
-            'tags' => [ucfirst($this->resource)],
+            'tags' => [$this->getNiceResourceName()],
             'summary' => $summary,
             'parameters' => array_values($this->params),
             'responses' => $responses
@@ -385,5 +423,112 @@ class ReflectionAction {
      */
     public function getSubpath() {
         return $this->subpath;
+    }
+
+    /**
+     * Massage a schema for documentation display.
+     *
+     * @param Schema $schema The schema to massage.
+     */
+    private function massageSchema(Schema $schema) {
+        $arr = $schema->getSchemaArray();
+        $this->walkSchemas($arr, function (&$sch, $key, $parent) {
+            if (is_array($sch['type'])) {
+                // Check for a null type.
+                if (count($sch['type']) === 2 && in_array('null', $sch['type'])) {
+                    $sch['x-nullable'] = true;
+                    $sch['type'] = array_pop(array_filter($sch['type'], function ($v) {
+                        return $v !== 'null';
+                    }));
+                }
+
+                // Remove the boolean type from expand.
+                if ($key === 'expand' && count($sch['type']) === 2 && in_array('boolean', $sch['type'])) {
+                    $sch['type'] = 'array';
+                    if (isset($sch['default'])) {
+                        if ($sch['default'] === false) {
+                            unset($sch['default']);
+                        } elseif ($sch['default'] === 'true') {
+                            $sch['default'] = [\Vanilla\ApiUtils::EXPAND_ALL];
+                        }
+                    }
+                }
+            }
+
+            if ($sch['style'] ?? '' === 'form') {
+                $sch['collectionFormat'] = 'csv';
+                unset($sch['style']);
+            }
+        });
+
+        $schema->setField([], $arr);
+    }
+
+    /**
+     * Walk schemas recursively in a schema array.
+     *
+     * @param array &$array The schema array.
+     * @param callable $callback The callback to execute on each schema array.
+     * @param int $depth The current depth.
+     */
+    private function walkSchemas(array &$array, callable $callback, $depth = 0, array &$seen = null) {
+        if ($seen === null) {
+            $seen = [];
+        }
+
+        foreach ($array as $key => &$value) {
+            if (is_array($value)) {
+                if (isset($value['type']) && $key !== 'properties') {
+                    $callback($value, $key, $array);
+                }
+                $this->walkSchemas($value, $callback, $depth + 1, $seen);
+            } elseif ($value instanceof Schema) {
+                $key = spl_object_hash($value);
+
+                if (!isset($seen[$key])) {
+                    $arr = $value->getSchemaArray();
+                    $seen[$key] = $arr['id'] ?? true;
+                    if (isset($value['type']) && $key !== 'properties') {
+                        $callback($arr, $key, $array);
+                    }
+                    $this->walkSchemas($arr, $callback, $depth + 1, $seen);
+                    $value->setField([], $arr);
+                } else {
+                    $foo = 'bar';
+                }
+            }
+        }
+    }
+
+    /**
+     * Serialize a schema accounting for recursive schemas.
+     *
+     * @param Schema $schema The schema to serialize.
+     * @return mixed Returns a JSON serializable value.
+     */
+    private function jsonSerializeSchema(Schema $schema) {
+        // Fix recursive schemas.
+        $arr = $schema->getSchemaArray();
+
+        array_walk_recursive($arr, function (&$value, $key) use ($schema) {
+            if ($value === $schema) {
+                $value = ['$ref' => '#/definitions/'.$schema->getID()];
+            } elseif ($value instanceof Schema) {
+                $value = $this->jsonSerializeSchema($value);
+            }
+        });
+        $schema2 = new Schema($arr);
+
+        $jsonData = $schema2->jsonSerialize();
+        return $jsonData;
+    }
+
+    /**
+     * Generate  nice resource name from a dash-cased resource name.
+     *
+     * @return string Returns a resource name.
+     */
+    private function getNiceResourceName(): string {
+        return implode(' ', array_map('ucfirst', explode('-', $this->resource)));
     }
 }

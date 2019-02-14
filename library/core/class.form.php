@@ -4,8 +4,8 @@
  *
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Lincoln Russell <lincoln@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -2381,7 +2381,7 @@ PASSWORDMETER;
      * Returns the provided fieldname with improper characters stripped.
      *
      * PHP doesn't allow "." in variable names from external sources such as a
-     * HTML form. Some Vanilla components however rely on variable names such
+     * HTML form. Some Vanilla Components however rely on variable names such
      * as "a.b.c". So we need to escape them for backwards compatibility.
      *
      * Replaces e.g. "\" with "\\", "-dot-" with "\\-dot-" and "." with "-dot-".
@@ -2968,7 +2968,7 @@ PASSWORDMETER;
 
             touchValue('Control', $row, 'TextBox');
 
-            if (strtolower($row['Control']) == 'callback') {
+            if (strtolower($row['Control']) == 'callback' || strtolower($row['Control']) == 'imageuploadpreview') {
                 $itemWrap = '';
             } else {
                 $defaultWrap = ['<li class="'.$this->getStyle('form-group')."\">\n", "\n</li>\n"];
@@ -3033,6 +3033,9 @@ PASSWORDMETER;
                 case 'imageupload':
                     $result .= $labelWrap
                         .$this->imageUploadWrap($row['Name'], $row['Options']);
+                    break;
+                case 'imageuploadpreview':
+                    $result .= $this->imageUploadPreview($row['Name'], $labelCode, $description, $row['RemoveUrl'] ?? '', $row['Options']);
                     break;
                 case 'textbox':
                     $row['Options']['Wrap'] = true;

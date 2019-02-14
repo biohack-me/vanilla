@@ -13,8 +13,8 @@
  * are: (string) Name, (bool) PrimaryKey, (string) Type, (bool) AllowNull,
  * (string) Default, (int) Length, (array) Enum.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -454,11 +454,19 @@ if (!function_exists('validateTime')) {
      * Validate that a value can be converted into a time string.
      *
      * @param mixed $value The value to validate.
-     * @return bool Returns true if the value validates or false otherwise.
+     * @return string|\Vanilla\Invalid Returns a filtered value on success or **Invalid** on failure.
      */
     function validateTime($value) {
-        // TODO: VALIDATE AS HH:MM:SS OR HH:MM
-        return false;
+        if (preg_match('`^(\d\d?):(\d\d)(?::(\d\d))?$`', $value, $match)) {
+            $h = (int)$match[1];
+            $m = (int)$match[2];
+            $s = (int)($match[3] ?? 0);
+
+            if (0 <= $h && $h < 24 && 0 <= $m && $m < 60 && 0 <= $s && $s < 60) {
+                return sprintf('%d:%02d:%02d', $h, $m, $s);
+            }
+        }
+        return \Vanilla\Invalid::emptyMessage();
     }
 }
 

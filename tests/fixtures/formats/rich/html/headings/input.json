@@ -1,0 +1,35 @@
+[
+    {
+        "insert": "h2"
+    },
+    {
+        "attributes": {
+            "header": 2
+        },
+        "insert": "\n"
+    },
+    {
+        "insert": "h2 with ref"
+    },
+    {
+        "attributes": {
+            "header": {
+                "level": "2",
+                "ref": "h2-with-ref"
+            }
+        },
+        "insert": "\n"
+    },
+    {
+        "insert": "h3"
+    },
+    {
+        "attributes": {
+            "header": 3
+        },
+        "insert": "\n"
+    },
+    {
+        "insert": "normal\n"
+    }
+]

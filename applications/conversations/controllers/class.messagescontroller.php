@@ -2,8 +2,8 @@
 /**
  * Messages controller.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Conversations
  * @since 2.0
  */
@@ -171,8 +171,8 @@ class MessagesController extends ConversationsController {
             $conversationID = $this->Form->getFormValue('ConversationID', '');
 
             // Make sure the user posting to the conversation is actually
-            // a member of it, or is allowed, like an admin.
-            if (!checkPermission('Garden.Moderation.Manage')) {
+            // a member of it, or is allowed, with the proper permissions.
+            if (!checkPermission('Conversations.Moderation.Manage') || c('Conversations.Moderation.Allow') !== true) {
                 $userID = Gdn::session()->UserID;
                 $validConversationMember = $this->ConversationModel->validConversationMember($conversationID, $userID);
                 if (!$validConversationMember) {
@@ -367,13 +367,14 @@ class MessagesController extends ConversationsController {
         }
 
         $this->Conversation = $this->ConversationModel->getID($conversationID);
-        $this->Conversation->Participants = $this->ConversationModel->getRecipients($conversationID);
-        $this->setData('Conversation', $this->Conversation);
-
         // Bad conversation? Redirect
         if ($this->Conversation === false) {
             throw notFoundException('Conversation');
         }
+        $this->Conversation->Participants = $this->ConversationModel->getRecipients($conversationID);
+        $this->setData('Conversation', $this->Conversation);
+
+
 
         // Get limit
         if ($limit == '' || !is_numeric($limit) || $limit < 0) {

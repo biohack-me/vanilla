@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 use Garden\Schema\Schema;
@@ -15,14 +15,27 @@ use Vanilla\DateFilterSchema;
 use Vanilla\ImageResizer;
 use Vanilla\UploadedFile;
 use Vanilla\UploadedFileSchema;
+use Vanilla\PermissionsTranslationTrait;
+use Vanilla\Utility\CamelCaseScheme;
+use Vanilla\Utility\DelimitedScheme;
 
 /**
  * API Controller for the `/users` resource.
  */
 class UsersApiController extends AbstractApiController {
 
+    use PermissionsTranslationTrait;
+
+    const ME_ACTION_CONSTANT = "@@users/GET_ME_RESPONSE";
+
+    /** @var ActivityModel */
+    private $activityModel;
+
     /** @var Gdn_Configuration */
     private $configuration;
+
+    /** @var array */
+    private $guestFragment;
 
     /** @var Schema */
     private $idParamSchema;
@@ -46,27 +59,40 @@ class UsersApiController extends AbstractApiController {
     public function __construct(
         UserModel $userModel,
         Gdn_Configuration $configuration,
-        ImageResizer $imageResizer
+        ImageResizer $imageResizer,
+        ActivityModel $activityModel
     ) {
         $this->configuration = $configuration;
         $this->userModel = $userModel;
         $this->imageResizer = $imageResizer;
+        $this->nameScheme =  new DelimitedScheme('.', new CamelCaseScheme());
+        $this->activityModel = $activityModel;
     }
 
     /**
      * Delete a user.
      *
      * @param int $id The ID of the user.
+     * @param array $body The request body.
      * @throws NotFoundException if the user could not be found.
      */
-    public function delete($id) {
+    public function delete($id, array $body) {
         $this->permission('Garden.Users.Delete');
 
-        $in = $this->idParamSchema()->setDescription('Delete a user.');
+        $this->idParamSchema()->setDescription('Delete a user.');
+
+        $in = $this->schema([
+            'deleteMethod:s?' => [
+                'description' => 'The deletion method / strategy.',
+                'enum' => ['keep', 'wipe', 'delete'],
+                'default' => 'delete',
+            ]
+        ], 'in');
         $out = $this->schema([], 'out');
+        $body = $in->validate($body);
 
         $this->userByID($id);
-        $this->userModel->deleteID($id);
+        $this->userModel->deleteID($id, ['DeleteMethod' => $body['deleteMethod']]);
     }
 
     /**
@@ -109,7 +135,7 @@ class UsersApiController extends AbstractApiController {
             'password:s' => 'Password of the user.',
             'hashMethod:s' => 'Hash method for the password.',
             'email:s' => [
-                'Email address of the user.',
+                'description' => 'Email address of the user.',
                 'minLength' => 0,
             ],
             'photo:s|n' => [
@@ -125,11 +151,12 @@ class UsersApiController extends AbstractApiController {
             'bypassSpam:b' => 'Should submissions from this user bypass SPAM checks?',
             'banned:i' => 'Is the user banned?',
             'dateInserted:dt' => 'When the user was created.',
+            'dateLastActive:dt|n' => 'Time the user was last active.',
             'dateUpdated:dt|n' => 'When the user was last updated.',
             'roles:a?' => $this->schema([
                 'roleID:i' => 'ID of the role.',
                 'name:s' => 'Name of the role.'
-            ], 'RoleFragment')
+            ], 'RoleFragment'),
         ]);
         return $schema;
     }
@@ -184,13 +211,50 @@ class UsersApiController extends AbstractApiController {
     }
 
     /**
+     * Get global permissions available to the current user.
+     *
+     * @return array
+     */
+    private function globalPermissions(): array {
+        $result = [];
+
+        foreach ($this->getSession()->getPermissionsArray() as $permission) {
+            if (!is_string($permission)) {
+                continue;
+            }
+            $result[] = $this->renamePermission($permission);
+        }
+
+        sort($result);
+        return $result;
+    }
+
+    /**
+     * Get a user fragment representing a guest.
+     *
+     * @return array
+     */
+    public function getGuestFragment() {
+        if ($this->guestFragment === null) {
+            $this->guestFragment = [
+                "userID" => 0,
+                "name" => t("Guest"),
+                "photoUrl" => UserModel::getDefaultAvatarUrl(),
+                "dateLastActive" => null,
+                "isAdmin" => false,
+            ];
+        }
+        return $this->guestFragment;
+    }
+
+    /**
      * Get a list of users, filtered by username.
      *
      * @param array $query
-     * @return array
+     * @return Data
      */
-    public function get_byNames(array $query) {
-        $this->permission('Garden.SignIn.Allow');
+    public function index_byNames(array $query) {
+        $this->permission();
 
         $in = $this->schema([
             'name:s' => 'Filter for username. Supports full or partial matching with appended wildcard (e.g. User*).',
@@ -212,7 +276,7 @@ class UsersApiController extends AbstractApiController {
             ]
         ], 'in')->setDescription('Search for users by full or partial name matching.');
         $out = $this->schema([
-            ':a' => Schema::parse(['userID', 'name', 'photoUrl'])->add($this->userSchema())
+            ':a' => $this->getUserFragmentSchema(),
         ], 'out');
 
         $query = $in->validate($query);
@@ -245,6 +309,55 @@ class UsersApiController extends AbstractApiController {
         $paging = ApiUtils::morePagerInfo($result, '/api/v2/users/names', $query, $in);
 
         return new Data($result, ['paging' => $paging]);
+    }
+
+    /**
+     * Get a fragment representing the current user.
+     *
+     * @param array $query
+     * @return array
+     * @throws ValidationException If output validation fails.
+     * @throws \Garden\Web\Exception\HttpException If a ban has been applied on the permission(s) for this session.
+     * @throws \Vanilla\Exception\PermissionException If the user does not have valid permission to access this action.
+     */
+    public function get_me(array $query) {
+        $this->permission();
+
+        $in = $this->schema([], "in")->setDescription("Get information about the current user.");
+        $out = $this->schema(Schema::parse([
+            "userID",
+            "name",
+            "photoUrl",
+            "dateLastActive",
+            "isAdmin:b",
+            "countUnreadNotifications" => [
+                "description" => "Total number of unread notifications for the current user.",
+                "type" => "integer",
+            ],
+            "permissions" => [
+                "description" => "Global permissions available to the current user.",
+                "items" => [
+                    "type" => "string",
+                ],
+                "type" => "array",
+            ],
+        ])->add($this->getUserFragmentSchema()), "out");
+
+        $query = $in->validate($query);
+
+        if (is_object($this->getSession()->User)) {
+            $user = (array)$this->getSession()->User;
+            $user = $this->normalizeOutput($user);
+        } else {
+            $user = $this->getGuestFragment();
+        }
+
+        // Expand permissions for the current user.
+        $user["permissions"] = $this->globalPermissions();
+        $user["countUnreadNotifications"] = $this->activityModel->getUserTotalUnread($this->getSession()->UserID);
+
+        $result = $out->validate($user);
+        return $result;
     }
 
     /**
@@ -372,6 +485,11 @@ class UsersApiController extends AbstractApiController {
             $dbRecord['emailConfirmed'] = $dbRecord['Confirmed'];
             unset($dbRecord['Confirmed']);
         }
+        if (array_key_exists('Admin', $dbRecord)) {
+            // The site creator is 1, System is 2.
+            $dbRecord['isAdmin'] = in_array($dbRecord['Admin'], [1, 2]);
+            unset($dbRecord['Admin']);
+        }
 
         $schemaRecord = ApiUtils::convertOutputKeys($dbRecord);
         return $schemaRecord;
@@ -397,7 +515,7 @@ class UsersApiController extends AbstractApiController {
         $this->userByID($id);
         $userData = $this->normalizeInput($body);
         $userData['UserID'] = $id;
-        $settings = [];
+        $settings = ['ValidateName' => false];
         if (!empty($userData['RoleID'])) {
             $settings['SaveRoles'] = true;
         }
@@ -426,12 +544,10 @@ class UsersApiController extends AbstractApiController {
         $body = $in->validate($body);
 
         $userData = $this->normalizeInput($body);
-        if (!array_key_exists('RoleID', $userData)) {
-            $userData['RoleID'] = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
-        }
         $settings = [
             'NoConfirmEmail' => true,
-            'SaveRoles' => true
+            'SaveRoles' => array_key_exists('RoleID', $userData),
+            'ValidateName' => false
         ];
         $id = $this->userModel->save($userData, $settings);
         $this->validateModel($this->userModel);
@@ -524,7 +640,10 @@ class UsersApiController extends AbstractApiController {
         }
 
         $in = $this->schema($inputProperties, 'in')->setDescription('Submit a new user registration.');
-        $out = $this->schema(['userID', 'name', 'email'], 'out')->add($this->fullSchema());
+        $out = $this->schema(
+            Schema::parse(['userID', 'name', 'email'])->add($this->fullSchema()),
+            'out'
+        );
 
         $in->validate($body);
 
@@ -581,6 +700,57 @@ class UsersApiController extends AbstractApiController {
 
         $result = $this->userByID($id);
         return $out->validate($result);
+    }
+
+    /**
+     * Send a password reset email.
+     *
+     * @param array $body The POST body.
+     * @throws Exception Throws all exceptions to the dispatcher.
+     */
+    public function post_requestPassword(array $body) {
+        $this->permission();
+
+        $in = $this->schema([
+            'email:s' => 'The email/username of the user.',
+        ]);
+        $out = $this->schema([], 'out');
+
+        $body = $in->validate($body);
+
+        $this->userModel->passwordRequest($body['email']);
+        $this->validateModel($this->userModel, true);
+    }
+    /**
+     * Confirm a user email address after registration.
+     *
+     * @param int $id The ID of the user.
+     * @param array $body The POST body.
+     * @throws ClientException if email has been confirmed.
+     * @throws Exception if confirmationCode doesn't match.
+     * @throws NotFoundException if unable to find the user.
+     * @return array the response body.
+     */
+    public function post_confirmEmail($id, array $body) {
+        $this->permission(\Vanilla\Permissions::BAN_CSRF);
+
+        $this->idParamSchema('in');
+        $in = $this->schema([
+            'confirmationCode:s' => 'Email confirmation code'
+        ], 'in')->setDescription('Confirm a users current email address by using a confirmation code');
+        $out = $this->schema(['userID:i', 'email:s', 'emailConfirmed:b'], 'out');
+
+        $row = $this->userByID($id);
+        if ($row['Confirmed']) {
+            throw new ClientException('This email has already been confirmed');
+        }
+
+        $body = $in->validate($body);
+        $this->userModel->confirmEmail($row, $body['confirmationCode']);
+        $this->validateModel($this->userModel);
+
+        $result = $out->validate($this->userByID($id));
+        return $result;
     }
 
     /**
@@ -747,7 +917,7 @@ class UsersApiController extends AbstractApiController {
     public function userSchema($type = '') {
         if ($this->userSchema === null) {
             $schema = Schema::parse(['userID', 'name', 'email', 'photoUrl', 'emailConfirmed',
-                'showEmail', 'bypassSpam', 'banned', 'dateInserted', 'dateUpdated', 'roles?']);
+                'showEmail', 'bypassSpam', 'banned', 'dateInserted', 'dateLastActive', 'dateUpdated', 'roles?']);
             $schema = $schema->add($this->fullSchema());
             $this->userSchema = $this->schema($schema, 'User');
         }

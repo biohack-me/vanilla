@@ -1,12 +1,13 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2\Authenticate;
 
+use Exception;
 use VanillaTests\APIv2\AbstractAPIv2Test;
 
 /**
@@ -16,6 +17,16 @@ class InvalidAuthenticatorTest extends AbstractAPIv2Test {
 
     private $baseUrl = '/authenticate';
 
+    /**
+     * @inheritdoc
+     */
+    public static function setupBeforeClass() {
+        parent::setupBeforeClass();
+        /** @var \Gdn_Configuration $config */
+        $config = static::container()->get(\Gdn_Configuration::class);
+        $config->set('Feature.'.\AuthenticateApiController::FEATURE_FLAG.'.Enabled', true, true, false);
+    }
+
     public function setUp() {
         $this->startSessionOnSetup(false);
         parent::setUp();
@@ -24,13 +35,15 @@ class InvalidAuthenticatorTest extends AbstractAPIv2Test {
     /**
      * Test POST /authenticate with an invalid authenticator
      *
-     * @expectedException \Exception
-     * @expectedExceptionMessage invalidAuthenticator not found.
+     * @expectedException Exception
+     * @expectedExceptionMessage Authenticator not found.
      */
     public function testAuthenticate() {
         $postData = [
-            'authenticatorType' => 'invalid',
-            'authenticatorID' => '',
+            'authenticate' => [
+                'authenticatorType' => 'invalid',
+                'authenticatorID' => 'invalid',
+            ],
         ];
 
         $this->api()->post(

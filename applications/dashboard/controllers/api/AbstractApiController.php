@@ -1,13 +1,16 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 use Garden\Schema\Schema;
 
 abstract class AbstractApiController extends \Vanilla\Web\Controller {
+
+    /** @var Schema */
+    private $categoryFragmentSchema;
 
     /** @var Schema */
     private $userFragmentSchema;
@@ -46,6 +49,22 @@ abstract class AbstractApiController extends \Vanilla\Web\Controller {
     }
 
     /**
+     * Get the schema for categories joined to records.
+     *
+     * @return Schema Returns a schema.
+     */
+    public function getCategoryFragmentSchema() {
+        if ($this->categoryFragmentSchema === null) {
+            $this->categoryFragmentSchema = $this->schema([
+                'categoryID:i' => 'The ID of the category.',
+                'name:s' => 'The name of the category.',
+                'url:s' => 'Full URL to the category.',
+            ], 'CategoryFragment');
+        }
+        return $this->categoryFragmentSchema;
+    }
+
+    /**
      * Get the schema for users joined to records.
      *
      * @return Schema Returns a schema.
@@ -55,7 +74,8 @@ abstract class AbstractApiController extends \Vanilla\Web\Controller {
             $this->userFragmentSchema = $this->schema([
                 'userID:i' => 'The ID of the user.',
                 'name:s' => 'The username of the user.',
-                'photoUrl:s' => 'The URL of the user\'s avatar picture.'
+                'photoUrl:s' => 'The URL of the user\'s avatar picture.',
+                'dateLastActive:dt|n' => 'Time the user was last active.',
             ], 'UserFragment');
         }
         return $this->userFragmentSchema;
@@ -96,7 +116,7 @@ abstract class AbstractApiController extends \Vanilla\Web\Controller {
             // A boolean true allows everything.
             $result = true;
         } elseif (is_array($expand)) {
-            $result = in_array($field, $expand);
+            $result = !empty(array_intersect([\Vanilla\ApiUtils::EXPAND_ALL, 'true', '1', $field], $expand));
         }
         return $result;
     }
@@ -111,7 +131,7 @@ abstract class AbstractApiController extends \Vanilla\Web\Controller {
      * @param array $request An array representing request data.
      * @param array $map An array of short-to-full field names (e.g. insertUser => InsertUserID).
      * @param string $field The name of the field where the expand fields can be found.
-     * @return array
+     * @return array Returns an array of field names that were expanded from the `$map` argument.
      */
     protected function resolveExpandFields(array $request, array $map, $field = 'expand') {
         $result = [];

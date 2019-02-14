@@ -4,8 +4,8 @@
  *
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -19,6 +19,11 @@ class Gdn_UploadImage extends Gdn_Upload {
      * Compression level (0-9) for PNGs.
      */
     const PNG_COMPRESSION = 9;
+
+    /**
+     * Maximum allowed crop size.
+     */
+    const MAX_CROP_SIZE = 10000;
 
     /**
      * Check that we have the necessary tools to allow image uploading.
@@ -113,12 +118,19 @@ class Gdn_UploadImage extends Gdn_Upload {
      *  - <b>ImageQuality</b>: An integer value representing the qualityof the saved image. Ranging from 0 (worst quality, smaller file) to 100 (best quality, biggest file).
      *  - <b>SourceX, SourceY</b>: If you want to create a thumbnail that is a crop of the image these are the coordinates of the thumbnail.
      *  - <b>SourceHeight. SourceWidth</b>: If you want to create a thumbnail that is a crop of the image these are it's dimensions.
+     * @throws Exception If the crop size is over the maximum allowed size.
      */
     public static function saveImageAs($source, $target, $height = '', $width = '', $options = []) {
         $crop = false;
         $outputType = '';
         $imageQuality = c('Garden.UploadImage.Quality', 100);
+        $imageDimension = ['SourceX', 'SourceY', 'SourceWidth', 'SourceHeight'];
 
+        foreach ($options as $key => $value) {
+            if (in_array($key, $imageDimension) && $value > self::MAX_CROP_SIZE) {
+                throw new Exception($key . ' value of ' . $value . ' is greater than the allowed size');
+            }
+        }
         // Make function work like it used to.
         $args = func_get_args();
         $saveGif = false;

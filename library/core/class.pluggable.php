@@ -3,8 +3,8 @@
  * Gdn_Pluggable
  *
  * @author Mark O'Sullivan <markm@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -99,10 +99,7 @@ abstract class Gdn_Pluggable {
         if (!is_array($options)) {
             $options = ['FireClass' => $options];
         }
-
-        if (array_key_exists('FireClass', $options)) {
-            $this->FireAs = val('FireClass', $options);
-        }
+        $this->FireAs = $options['FireClass'] ?? $this->FireAs;
 
         return $this;
     }
@@ -130,7 +127,15 @@ abstract class Gdn_Pluggable {
         }
 
         // Look to the PluginManager to see if there are related event handlers and call them
-        return Gdn::pluginManager()->callEventHandlers($this, $fireClass, $eventName);
+        try {
+            return Gdn::pluginManager()->callEventHandlers($this, $fireClass, $eventName);
+        } catch (ArgumentCountError $ex) {
+            if (debug()) {
+                throw $ex;
+            }
+            Logger::event('arg_error', Logger::CRITICAL, $ex->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -181,48 +186,68 @@ abstract class Gdn_Pluggable {
             $referenceMethodName = $methodName; // No x prefix
         }
 
+        $className = \Garden\EventManager::classBasename($this->ClassName ?: get_called_class());
+
         // Make sure that $ActualMethodName exists before continuing:
         if (!method_exists($this, $actualMethodName)) {
             // Make sure that a plugin is not handling the call
-            if (!Gdn::pluginManager()->hasNewMethod($this->ClassName, $referenceMethodName)) {
-                trigger_error(errorMessage('The "'.$this->ClassName.'" object does not have a "'.$actualMethodName.'" method.', $this->ClassName, $actualMethodName), E_USER_ERROR);
+            if (!Gdn::pluginManager()->hasNewMethod($className, $referenceMethodName)) {
+                throw new \BadMethodCallException(
+                    "The \"$className\" object does not have a \"$actualMethodName\" method.",
+                    501
+                );
             }
         }
 
         // Make sure the arguments get passed in the same way whether firing a custom event or a magic one.
         $this->EventArguments = $arguments;
 
-        // Call the "Before" event handlers
-        Gdn::pluginManager()->callEventHandlers($this, $this->ClassName, $referenceMethodName, 'Before');
-
-        // Call this object's method
-        if (Gdn::pluginManager()->hasMethodOverride($this->ClassName, $referenceMethodName)) {
-            // The method has been overridden
-            $this->HandlerType = HANDLER_TYPE_OVERRIDE;
-            $return = Gdn::pluginManager()->callMethodOverride($this, $this->ClassName, $referenceMethodName);
-        } elseif (Gdn::pluginManager()->hasNewMethod($this->ClassName, $referenceMethodName)) {
-            $this->HandlerType = HANDLER_TYPE_NEW;
-            $return = Gdn::pluginManager()->callNewMethod($this, $this->ClassName, $referenceMethodName);
-        } else {
-            // The method has not been overridden
-            $count = count($arguments);
-            if ($count == 0) {
-                $return = $this->$actualMethodName();
-            } elseif ($count == 1) {
-                $return = $this->$actualMethodName($arguments[0]);
-            } elseif ($count == 2) {
-                $return = $this->$actualMethodName($arguments[0], $arguments[1]);
-            } elseif ($count == 3) {
-                $return = $this->$actualMethodName($arguments[0], $arguments[1], $arguments[2]);
-            } elseif ($count == 4) {
-                $return = $this->$actualMethodName($arguments[0], $arguments[1], $arguments[2], $arguments[3]);
-            } else {
-                $return = $this->$actualMethodName($arguments[0], $arguments[1], $arguments[2], $arguments[3], $arguments[4]);
+        // Call the "Before" event handlers.
+        try {
+            Gdn::pluginManager()->callEventHandlers($this, $className, $referenceMethodName, 'Before');
+        } catch (ArgumentCountError $ex) {
+            if (debug()) {
+                throw $ex;
             }
+            Logger::event('arg_error', Logger::CRITICAL, $ex->getMessage());
         }
 
-        // Call the "After" event handlers
-        Gdn::pluginManager()->callEventHandlers($this, $this->ClassName, $referenceMethodName, 'After');
+        // Call this object's method
+        if (Gdn::pluginManager()->hasMethodOverride($className, $referenceMethodName)) {
+            // The method has been overridden
+            $this->HandlerType = HANDLER_TYPE_OVERRIDE;
+            try {
+                $return = Gdn::pluginManager()->callMethodOverride($this, $this->ClassName, $referenceMethodName);
+            } catch (ArgumentCountError $ex) {
+                if (debug()) {
+                    throw $ex;
+                }
+                Logger::event('arg_error', Logger::CRITICAL, $ex->getMessage());
+            }
+        } elseif (Gdn::pluginManager()->hasNewMethod($className, $referenceMethodName)) {
+            $this->HandlerType = HANDLER_TYPE_NEW;
+            try {
+                $return = Gdn::pluginManager()->callNewMethod($this, $className, $referenceMethodName);
+            } catch (ArgumentCountError $ex) {
+                if (debug()) {
+                    throw $ex;
+                }
+                Logger::event('arg_error', Logger::CRITICAL, $ex->getMessage());
+            }
+        } else {
+            // The method has not been overridden.
+            $return = call_user_func_array([$this, $actualMethodName], $arguments);
+        }
+
+        // Call the "After" event handlers.
+        try {
+            Gdn::pluginManager()->callEventHandlers($this, $className, $referenceMethodName, 'After');
+        } catch (ArgumentCountError $ex) {
+            if (debug()) {
+                throw $ex;
+            }
+            Logger::event('arg_error', Logger::CRITICAL, $ex->getMessage());
+        }
 
         return $return;
     }

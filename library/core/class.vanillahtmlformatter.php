@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 use \Garden\EventManager;
@@ -19,7 +19,10 @@ class VanillaHtmlFormatter {
         'bbcode_center',
         'bbcode_left',
         'bbcode_right',
+        'code',
+        'codeBlock',
         'CodeBlock',
+        'codeInline',
         'CodeInline',
         'P',
         'post-clear-both',
@@ -95,7 +98,8 @@ class VanillaHtmlFormatter {
         'SpoilerText',
         'SpoilerTitle',
         'UserQuote',
-        'UserSpoiler'
+        'UserSpoiler',
+        "js-twitterCard",
     ];
 
     /** @var array HTML elements allowed to have classes in user generated content. */
@@ -164,7 +168,7 @@ class VanillaHtmlFormatter {
             'direct_list_nest' => 1,
             'elements' => '*-applet-button-embed-fieldset-form-iframe-input-legend-link-object-optgroup-option-script-select-style-textarea',
             'keep_bad' => 0,
-            'schemes' => 'classid:clsid; href: aim, feed, file, ftp, gopher, http, https, irc, mailto, news, nntp, sftp, ssh, telnet; style: nil; *:file, http, https', // clsid allowed in class
+            'schemes' => 'classid:clsid; href: aim, feed, file, ftp, gopher, http, https, irc, mailto, news, nntp, rapidminer, sftp, ssh, telnet; style: nil; *:file, http, https', // clsid allowed in class
             'unique_ids' => 1,
             'valid_xhtml' => 0
         ];

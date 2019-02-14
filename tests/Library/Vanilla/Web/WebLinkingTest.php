@@ -1,16 +1,16 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license https://opensource.org/licenses/GPL-2.0 GPL-2.0
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Vanilla\Utility;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Vanilla\Web\WebLinking;
 
-class WebLinkingTest extends TestCase {
+class WebLinkingTest extends SharedBootstrapTestCase {
 
     /** @var WebLinking */
     private $webLinking;

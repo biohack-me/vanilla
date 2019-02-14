@@ -1,20 +1,20 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Vanilla\Utility;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Vanilla\Utility\CamelCaseScheme;
 use Vanilla\Utility\DelimitedScheme;
 
 /**
  * Tests for Vanilla\Utility\NameScheme classes.
  */
-class NameSchemeTest extends TestCase {
+class NameSchemeTest extends SharedBootstrapTestCase {
     /**
      * Test some camel case scheme cases.
      *

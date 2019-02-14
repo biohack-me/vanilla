@@ -6,8 +6,8 @@
  * caching.
  *
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0.10
  * @abstract
@@ -410,15 +410,14 @@ abstract class Gdn_Cache {
      */
     abstract public function add($key, $value, $options = []);
 
-    public function stripKey($key, $options) {
-        $usePrefix = !val(Gdn_Cache::FEATURE_NOPREFIX, $options, false);
-        $forcePrefix = val(Gdn_Cache::FEATURE_FORCEPREFIX, $options, null);
+    public function stripKey($key, array $options) {
+        $usePrefix = !($options[Gdn_Cache::FEATURE_NOPREFIX] ?? false);
 
         if ($usePrefix) {
+            $forcePrefix = ($options[Gdn_Cache::FEATURE_FORCEPREFIX] ?? null);
             $key = substr($key, strlen($this->getPrefix($forcePrefix)) + 1);
         }
         return $key;
-
     }
 
     /**
@@ -642,12 +641,12 @@ abstract class Gdn_Cache {
         return true;
     }
 
-    public function makeKey($key, $options) {
-        $usePrefix = !val(Gdn_Cache::FEATURE_NOPREFIX, $options, false);
-        $forcePrefix = val(Gdn_Cache::FEATURE_FORCEPREFIX, $options, null);
+    public function makeKey($key, array $options) {
+        $usePrefix = !($options[Gdn_Cache::FEATURE_NOPREFIX] ?? false);
 
         $prefix = '';
         if ($usePrefix) {
+            $forcePrefix = ($options[Gdn_Cache::FEATURE_FORCEPREFIX] ?? null);
             $prefix = $this->getPrefix($forcePrefix).'!';
         }
 

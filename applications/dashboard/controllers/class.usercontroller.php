@@ -2,8 +2,8 @@
 /**
  * Manage users.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -194,7 +194,7 @@ class UserController extends DashboardController {
                     $this->Form->setFormValue('HashMethod', 'Random');
                 }
 
-                $newUserID = $this->Form->save(['SaveRoles' => true, 'NoConfirmEmail' => true]);
+                $newUserID = $this->Form->save(['SaveRoles' => true, 'NoConfirmEmail' => true, 'ValidateName' => false]);
                 if ($newUserID !== false) {
                     $this->setData('UserID', $newUserID);
                     if ($noPassword) {
@@ -202,8 +202,9 @@ class UserController extends DashboardController {
                     } else {
                         $password = $this->Form->getValue('Password', '');
                     }
-
-                    $userModel->sendWelcomeEmail($newUserID, $password, 'Add');
+                    if ($this->Form->getFormValue('Email', false)) {
+                        $userModel->sendWelcomeEmail($newUserID, $password, 'Add');
+                    }
                     $this->informMessage(t('The user has been created successfully'));
                     $this->setRedirectTo('dashboard/user');
                 } elseif ($noPassword) {
@@ -737,7 +738,7 @@ class UserController extends DashboardController {
                     $this->Form->setFormValue('Banned', $user['Banned'] | BanModel::BAN_MANUAL);
                 }
 
-                if ($this->Form->save(['SaveRoles' => true]) !== false) {
+                if ($this->Form->save(['SaveRoles' => true, 'ValidateName' => false]) !== false) {
                     if ($this->Form->getValue('ResetPassword', '') == 'Auto') {
                         $userModel->passwordRequest($user['Email']);
                         $userModel->setField($userID, 'HashMethod', 'Reset');

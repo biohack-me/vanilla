@@ -3,8 +3,8 @@
  * Bare minimum setup of the environment to use Vanilla's classes.
  *
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 if (PHP_VERSION_ID < 70000) {
@@ -16,7 +16,7 @@ if (!defined('APPLICATION')) {
     define('APPLICATION', 'Vanilla');
 }
 if (!defined('APPLICATION_VERSION')) {
-    define('APPLICATION_VERSION', '2.6.4');
+    define('APPLICATION_VERSION', '2.8');
 }
 if (!defined('DS')) {
     define('DS', DIRECTORY_SEPARATOR);
@@ -66,6 +66,7 @@ if (function_exists('mb_internal_encoding')) {
 }
 
 // Include the core autoloader.
-if (!include_once __DIR__.'/vendor/autoload.php') {
-    die("Could not find the autoloader. Did you forget to run 'composer install' in '".__DIR__."' ?\n");
+if (!include_once PATH_ROOT.'/vendor/autoload.php') {
+    die("Could not find the autoloader. Did you forget to run 'composer install' in '".PATH_ROOT."' ?\n");
 }
+spl_autoload_register([Vanilla\AliasLoader::class, 'autoload']);

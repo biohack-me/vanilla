@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla\Setup;
@@ -14,6 +14,12 @@ use Composer\Factory;
  * Contains helper methods for Vanilla's composer integration.
  */
 class ComposerHelper {
+
+    const NODE_ARGS_ENV = "VANILLA_BUILD_NODE_ARGS";
+    const DISABLE_VALIDATION_ENV = "VANILLA_BUILD_DISABLE_CODE_VALIDATION";
+    const LOW_MEMORY_ENV = "VANILLA_BUILD_LOW_MEMORY";
+    const DISABLE_AUTO_BUILD = "VANILLA_BUILD_DISABLE_AUTO_BUILD";
+
     /**
      * Clear the addon manager cache.
      */
@@ -30,6 +36,65 @@ class ComposerHelper {
             if (file_exists($path)) {
                 unlink($path);
             }
+        }
+    }
+
+    /**
+     * Trigger builds of frontend assets after a composer install.
+     *
+     * - Installs node_modules
+     * - Builds frontend assets
+     *
+     * There are some environmental variables that can alter the way this command run.
+     *
+     * - VANILLA_BUILD_NODE_ARGS - Arguments to pass to the node process.
+     * "--max-old-space-size" in particular can be used to set a memory limit.
+     * - VANILLA_BUILD_DISABLE_CODE_VALIDATION - Disables type-checking and linting. This speeds up the build and
+     * reduces memory usage.
+     * - VANILLA_BUILD_DISABLE_AUTO_BUILD - Prevent the build from running on composer install.
+     */
+    public static function postUpdate() {
+        $skipBuild = getenv(self::DISABLE_AUTO_BUILD) ? true : false;
+        if ($skipBuild) {
+            printf("\nSkipping automatic JS build because " . self::DISABLE_AUTO_BUILD . " env variable is set.\n");
+            return;
+        }
+
+        printf("\nInstalling core node_modules\n");
+        passthru('yarn install --pure-lockfile', $installReturn);
+
+        if ($installReturn !== 0) {
+            printf("Installing core node_modules failed\n");
+            exit($installReturn);
+        }
+
+        $vanillaRoot = realpath(__DIR__ . "/../../");
+        $buildScript = realpath($vanillaRoot . "/build/scripts/build.ts");
+        $tsNodeRegister = realpath($vanillaRoot . "/node_modules/ts-node/register");
+        $tsConfig = realpath($vanillaRoot . "/build/tsconfig.json");
+
+
+        // Build bootstrap can be used to configure this build if env variables are not available.
+        $buildBootstrap = realpath($vanillaRoot . "/conf/build-bootstrap.php");
+        if (file_exists($buildBootstrap)) {
+            include $buildBootstrap;
+        }
+
+        $nodeArgs = getenv(self::NODE_ARGS_ENV) ?: "";
+
+        // The disable validation flag was used to enable low memory optimizations.
+        // The build no longer does any validation, however, so a new env variable has been added.
+        // So, we check for both.
+        $lowMemoryFlag = getenv(self::DISABLE_VALIDATION_ENV) || getenv(self::LOW_MEMORY_ENV) ? "--low-memory" : "";
+        $buildCommand = "TS_NODE_PROJECT=$tsConfig node $nodeArgs -r $tsNodeRegister $buildScript -i $lowMemoryFlag";
+
+        printf("\nBuilding frontend assets\n");
+        printf("\n$buildCommand\n");
+        passthru($buildCommand, $buildResult);
+
+        if ($buildResult !== 0) {
+            printf("The build failed with code $buildResult");
+            exit($buildResult);
         }
     }
 

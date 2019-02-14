@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Vanilla\SwaggerUI;
@@ -11,19 +11,28 @@ use AssetModel;
 use Gdn_Plugin;
 use SettingsController;
 use Vanilla\Addon;
+use Vanilla\Web\Asset\LegacyAssetModel;
 
 /**
  * Handles the swagger UI menu options.
  */
 class SwaggerUIPlugin extends Gdn_Plugin {
     /**
-     * Adds "API v2" menu option to the Forum menu on the dashboard.
+     * Add the APIv2 menu item.
      *
-     * @param \Gdn_Controller $sender The settings controller.
+     * @param \DashboardNavModule $nav The menu to add the module to.
      */
-    public function base_getAppSettingsMenuItems_handler($sender) {
-        $menu = $sender->EventArguments['SideMenu'];
-        $menu->addLink('Site Settings', t('API v2', 'API <span class="nav-pill">v2</span>'), '/settings/swagger', 'Garden.Settings.Manage', ['class' => 'nav-swagger']);
+    public function dashboardNavModule_init_handler(\DashboardNavModule $nav) {
+        $nav->addLinkToSectionIf(
+            \gdn::session()->checkPermission('Garden.Settings.Manage'),
+            'settings',
+            t('API'),
+            '/settings/swagger',
+            'site-settings.swagger-ui',
+            'nav-swagger-ui',
+            ['after' => 'security'],
+            ['badge' => 'v2']
+        );
     }
 
     /**
@@ -35,20 +44,6 @@ class SwaggerUIPlugin extends Gdn_Plugin {
         $sender->permission('Garden.Settings.Manage');
 
         $folder = 'plugins/'.$this->getAddon()->getKey();
-
-        $relScripts = ['js/custom.js'];
-        $js = [];
-        foreach ($relScripts as $path) {
-            $search = AssetModel::jsPath($path, $folder);
-            if (!$search) {
-                continue;
-            }
-            list($path, $url) = $search;
-            $js[] = asset($url, false, true);
-        }
-        $sender->setData('js', $js);
-
-        $sender->addCssFile('swagger-ui.css', $folder);
 
         $sender->title(t('Vanilla API v2'));
         $sender->render('swagger', 'settings', $folder);

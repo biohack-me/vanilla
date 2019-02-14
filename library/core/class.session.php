@@ -4,8 +4,8 @@
  *
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -16,6 +16,7 @@ use Vanilla\Permissions;
  * Handles user information throughout a session. This class is a singleton.
  */
 class Gdn_Session {
+    use \Garden\StaticCacheConfigTrait;
 
     /**
      * Parameter name for incoming CSRF tokens.
@@ -127,7 +128,7 @@ class Gdn_Session {
      */
     public function checkPermission($permission, $fullMatch = true, $junctionTable = '', $junctionID = '') {
         if ($junctionID === 'any' || $junctionID === '' || empty($junctionTable) ||
-            c("Garden.Permissions.Disabled.{$junctionTable}")) {
+            self::c("Garden.Permissions.Disabled.{$junctionTable}")) {
             $junctionID = null;
         }
 

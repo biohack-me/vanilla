@@ -1,53 +1,46 @@
 <?php
 /**
  * @author Alexandre (DaazKu) Chouinard <alexandre.c@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
+use Garden\Web\Data;
 use Garden\Web\RequestInterface;
+use Vanilla\Models\AuthenticatorModel;
 use Vanilla\Models\SSOModel;
-use Vanilla\Models\SSOData;
 
 /**
  * Create /authenticate endpoint.
  */
 class AuthenticateController extends Gdn_Controller {
 
-    /**
-     * @var AuthenticateApiController
-     */
+    /** @var AuthenticateApiController */
     private $authenticateApiController;
 
-    /**
-     * @var Gdn_Form
-     */
+    /** @var AuthenticatorModel */
+    private $authenticatorModel;
+
+    /** @var Gdn_Form */
     private $form;
 
-    /**
-     * @var RequestInterface
-     */
+    /** @var RequestInterface */
     private $request;
 
-    /**
-     * @var SessionModel
-     */
+    /** @var SessionModel */
     private $sessionModel;
 
-    /**
-     * @var SSOModel
-     */
+    /** @var SSOModel */
     private $ssoModel;
 
-    /**
-     * @var UserModel
-     */
+    /** @var UserModel */
     private $userModel;
 
     /**
      * AuthenticateController constructor.
      *
      * @param AuthenticateApiController $authenticateApiController
+     * @param AuthenticatorModel $authenticatorModel
      * @param RequestInterface $request
      * @param SessionModel $sessionModel
      * @param SSOModel $ssoModel
@@ -55,19 +48,24 @@ class AuthenticateController extends Gdn_Controller {
      */
     public function __construct(
         AuthenticateApiController $authenticateApiController,
+        AuthenticatorModel $authenticatorModel,
         RequestInterface $request,
         SessionModel $sessionModel,
         SSOModel $ssoModel,
         UserModel $userModel
     ) {
+        \Vanilla\FeatureFlagHelper::ensureFeature(AuthenticateApiController::FEATURE_FLAG);
         parent::__construct();
 
         $this->authenticateApiController = $authenticateApiController;
+        $this->authenticatorModel = $authenticatorModel;
         $this->form = new Gdn_Form();
         $this->request = $request;
         $this->sessionModel = $sessionModel;
         $this->ssoModel = $ssoModel;
         $this->userModel = $userModel;
+
+        $this->setHeader('Cache-Control', \Vanilla\Web\CacheControlMiddleware::NO_CACHE);
     }
 
     /**
@@ -83,22 +81,18 @@ class AuthenticateController extends Gdn_Controller {
      * {@inheritdoc}
      */
     public function initialize() {
+        Gdn::session()->ensureTransientKey();
+
         // Set up head
         $this->Head = new HeadModule($this);
 
         $this->addJsFile('jquery.js');
-        $this->addJsFile('jquery.form.js');
         $this->addJsFile('jquery.popup.js');
         $this->addJsFile('jquery.popin.js');
-        $this->addJsFile('jquery.gardenhandleajaxform.js');
-        $this->addJsFile('jquery.atwho.js');
         $this->addJsFile('global.js');
-
-        $this->addJsFile('authenticate.js');
 
         $this->addCssFile('style.css');
         $this->addCssFile('vanillicon.css', 'static');
-        $this->addCssFile('authenticate.css');
 
         parent::initialize();
     }
@@ -106,24 +100,33 @@ class AuthenticateController extends Gdn_Controller {
     /**
      * Do an authentication using the specified authenticator.
      *
-     * @param string $authenticator The authenticator's name.
+     * @param string $authenticatorType The authenticator's type.
      * @param string $authenticatorID The authenticator's instance ID.
-     * @throws Exception
+     * @throws Exception Connect user feature is not implemented.
      */
-    public function index($authenticator = '', $authenticatorID = '') {
+    public function index($authenticatorType = '', $authenticatorID = '') {
+        if ($authenticatorType === '') {
+            redirectTo('authenticate/signin');
+        }
+        $persist = $this->request->getBody()['persist'] ?? ($this->request->getQuery()['persist'] ?? false);
+
         $response = $this->authenticateApiController->post([
-            'authenticator' => $authenticator,
-            'authenticatorID' => $authenticatorID,
+            'authenticate' => [
+                'authenticatorType' => $authenticatorType,
+                'authenticatorID' => $authenticatorID,
+            ],
+            'persist' => $persist,
         ]);
 
         if ($response['authenticationStep'] === 'authenticated') {
             $redirectURL = (val('target', $this->request->getQuery(), '/'));
         } else {
-            $target = val('target', $this->request->getQuery());
-            if ($target) {
-                $target = '&target='.$target;
-            }
-            $redirectURL = "/authenticate/connectuser?authSessionID={$response['authSessionID']}{$target}";
+            throw new Exception('Connect user feature is not implemented.', 500);
+//            $target = val('target', $this->request->getQuery());
+//            if ($target) {
+//                $target = '&target='.$target;
+//            }
+//            $redirectURL = "/authenticate/connectuser?authSessionID={$response['authSessionID']}{$target}";
         }
 
         if ($this->deliveryMethod() === DELIVERY_METHOD_JSON) {
@@ -134,143 +137,43 @@ class AuthenticateController extends Gdn_Controller {
     }
 
     /**
-     * Create a connection between a provider and a vanilla user.
      *
-     * @param $authSessionID The authentication session ID.
-     * @throws Gdn_UserException
      */
-    public function connectUser($authSessionID) {
-        $session = $this->authenticateApiController->get_session($authSessionID, ['expand' => true]);
-        if (!isset($session['attributes']['linkUser'])) {
-            throw new Gdn_UserException('Invalid session.');
-        }
-
-        if (isset($session['attributes']['linkUser']['existingUsers'])) {
-            $this->setData('existingUsers', $session['attributes']['linkUser']['existingUsers']);
-        }
-
-        $ssoData = SSOData::fromArray($session['attributes']['ssoData']);
-        $this->setData('ssoData', $ssoData);
-
-        $connectSuccess = false;
-        if ($this->form->isPostBack()) {
-            $connectUserID = false;
-            $this->form->validateRule('connectOption', 'ValidateRequired');
-
-            if ($this->form->errorCount() === 0) {
-                $connectOption = $this->form->getFormValue('connectOption');
-                if ($connectOption === 'linkuser') {
-                    $connectUserID = $this->linkUser($authSessionID);
-                } else if ($connectOption === 'createuser') {
-                    $connectUserID = $this->createUser($ssoData, $authSessionID);
-                } else {
-                    $this->form->addError(t('Invalid connectOption.'));
-                }
-
-                // Set connect option so that the SSOModel knows how to properly sync the user's roles.
-                $ssoData->setExtraValue('connectOption', $connectOption);
-
-                if ($connectUserID) {
-                    // This will effectively sync the user info / roles if there is a need for it.
-                    $connectSuccess = (bool)$this->ssoModel->sso($ssoData);
-                } else {
-                    $this->form->addError(t('Unable to connect user.'));
-                }
-            }
-
-        } else {
-            $this->form->setValue('createUserName', $ssoData->getUserValue('name'));
-            $this->form->setValue('createUserEmail', $ssoData->getUserValue('email'));
-        }
-
-        if ($connectSuccess) {
-            redirectTo(val('Target', $this->request->getQuery(), '/'));
-        }
-
-        $this->render();
+    public function recoverPassword() {
+        $this->renderReact();
     }
 
     /**
-     * Validate "linkuser" connect form fields.
+     * Sign In Page
      *
-     * @param string $authSessionID
-     * @return int|false
+     * @param string $authenticatorType
+     * @param string $authenticatorID
+     *
+     * @throws \Garden\Web\Exception\ClientException
+     * @throws \Garden\Web\Exception\NotFoundException
+     * @throws \Garden\Web\Exception\ServerException
      */
-    private function linkUser($authSessionID) {
-        $this->form->validateRule('linkUserID', 'ValidateRequired');
-        $this->form->validateRule('linkUserID', 'ValidateInteger');
-        $this->form->validateRule('linkUserPassword', 'ValidateRequired', t('Password is required'));
-
-        $userID = false;
-
-        $body = [
-            'authSessionID' => $authSessionID,
-        ];
-        if ($this->form->errorCount() === 0) {
-            $body['password'] = $this->form->getFormValue('linkUserPassword');
-
-            $linkUserID = $this->form->getFormValue('linkUserID');
-
-            if ($linkUserID === '-1') {
-                $this->form->validateRule('linkUserName', 'ValidateRequired', t('Username is required.'));
-                $this->form->validateRule('linkUserEmail', 'ValidateRequired', t('Email is required'));
-
-                if ($this->form->errorCount() === 0) {
-                    $body['name'] = $this->form->getFormValue('linkUserName');
-                    $body['email'] = $this->form->getFormValue('linkUserEmail');
-                }
-            } else {
-                $body['userID'] = $this->form->getFormValue('linkUserID');
+    public function signin($authenticatorType = '', $authenticatorID = '') {
+        if ($authenticatorType && $authenticatorID) {
+            $authenticator = $this->authenticatorModel->getAuthenticator($authenticatorType, $authenticatorID);
+            if (is_a($authenticator, \Vanilla\Authenticator\SSOAuthenticator::class)) {
+                $authenticator->initiateAuthentication();
+                return;
             }
         }
 
-        if (!empty($body)) {
-            try {
-                $userFragment = $this->authenticateApiController->post_linkUser($body);
-                $userID = $userFragment['userID'];
-            } catch(Exception $e) {
-                $this->form->addError($e->getMessage());
-            }
-        }
+        $this->addClientApiAction(
+            'GET_USER_AUTHENTICATORS_SUCCESS',
+            Data::box($this->authenticateApiController->index_authenticators())
+        );
 
-        return $userID;
+        $this->renderReact();
     }
 
     /**
-     * Create a new user using the "createuser" connect form fields.
-     *
-     * @param SSOData $ssoData
-     * @param string $authSessionID
-     * @return int|false
+     * Password Page
      */
-    private function createUser(SSOData $ssoData, $authSessionID) {
-        $userID = false;
-
-        $this->form->validateRule('createUserName', 'ValidateRequired', t('Username is required.'));
-        $this->form->validateRule('createUserName', 'ValidateUsername'); // Default message is perfect.
-        $this->form->validateRule('createUserEmail', 'ValidateRequired', t('Email is required'));
-        $this->form->validateRule('createUserEmail', 'ValidateEmail', t('Email is invalid.'));
-
-        if ($this->form->errorCount() === 0) {
-            $ssoData->setUserValue('name', $this->form->getFormValue('createUserName'));
-            $ssoData->setUserValue('email', $this->form->getFormValue('createUserEmail'));
-            $user = $this->ssoModel->createUser($ssoData);
-
-            if ($user) {
-                $userID = $user['UserID'];
-
-                $this->userModel->saveAuthentication([
-                    'UserID' => $userID,
-                    'Provider' => $ssoData->getAuthenticatorID(),
-                    'UniqueID' => $ssoData->getUniqueID(),
-                ]);
-                // Clean the session.
-                $this->sessionModel->deleteID($authSessionID);
-            } else {
-                $this->form->setValidationResults($this->ssoModel->getValidationResults());
-            }
-        }
-
-        return $userID;
+    public function password() {
+        $this->renderReact();
     }
 }

@@ -5,8 +5,8 @@
  * These functions are copies of existing functions but with new and improved
  * names. Parent functions will be deprecated in a future release.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.2
  */
@@ -404,6 +404,8 @@ if (!function_exists('val')) {
      * @param mixed $collection The array or object to search.
      * @param mixed $default The value to return if the key does not exist.
      * @return mixed The value from the array or object.
+     *
+     * @deprecated After 5000+ uses, it's time to say goodbye to our dear friend because we suspect it's wasting memory. We'll miss you, `val()`. Alternatives: `isset()`, `property_exists()`, `??`, and `:?`.
      */
     function val($key, $collection, $default = false) {
         if (is_array($collection)) {

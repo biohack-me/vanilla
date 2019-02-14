@@ -1,18 +1,18 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 
 /**
  * Tests for the **arrayReplaceConfig** function.
  */
-class ArrayReplaceConfigTest extends TestCase {
+class ArrayReplaceConfigTest extends SharedBootstrapTestCase {
 
     /**
      * An empty default should return the override.

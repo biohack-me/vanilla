@@ -5,12 +5,14 @@
  * @author Mark O'Sullivan <markm@vanillaforums.com>
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  * @abstract
  */
+
+use \Vanilla\Web\Asset\LegacyAssetModel;
 
 /**
  * Controller base class.
@@ -20,6 +22,7 @@
  * @method void render($view = '', $controllerName = false, $applicationFolder = false, $assetName = 'Content') Render the controller's view.
  */
 class Gdn_Controller extends Gdn_Pluggable {
+    use \Garden\MetaTrait, \Vanilla\Browser\ReduxTrait;
 
     /** Seconds before reauthentication is required for protected operations. */
     const REAUTH_TIMEOUT = 1200; // 20 minutes
@@ -253,11 +256,13 @@ class Gdn_Controller extends Gdn_Pluggable {
 //         'Last-Modified' => gmdate('D, d M Y H:i:s') . ' GMT', // PREVENT PAGE CACHING: always modified (this can be overridden by specific controllers)
         ];
 
-        if (Gdn::session()->isValid()) {
+        if (Gdn::session()->isValid() || Gdn::request()->getMethod() !== 'GET') {
             $this->_Headers = array_merge($this->_Headers, [
-                'Cache-Control' => 'private, no-cache, max-age=0, must-revalidate', // PREVENT PAGE CACHING: HTTP/1.1
-                'Expires' => 'Sat, 01 Jan 2000 00:00:00 GMT', // Make sure the client always checks at the server before using it's cached copy.
-                'Pragma' => 'no-cache', // PREVENT PAGE CACHING: HTTP/1.0
+                'Cache-Control' => \Vanilla\Web\CacheControlMiddleware::NO_CACHE, // PREVENT PAGE CACHING: HTTP/1.1
+            ]);
+        } else {
+            $this->_Headers = array_merge($this->_Headers, [
+                'Cache-Control' => \Vanilla\Web\CacheControlMiddleware::PUBLIC_CACHE,
             ]);
         }
 
@@ -359,6 +364,17 @@ class Gdn_Controller extends Gdn_Pluggable {
     }
 
     /**
+     * Mapping of how certain legacy javascript files have been split up.
+     *
+     * If you include the key, all of the files in it's value will be included as well.
+     */
+    const SPLIT_JS_MAPPINGS = [
+        'global.js' => [
+            'flyouts.js',
+        ],
+    ];
+
+    /**
      * Adds a JS file to search for in the application or global js folder(s).
      *
      * @param string $fileName The js file to search for.
@@ -378,6 +394,13 @@ class Gdn_Controller extends Gdn_Pluggable {
         }
 
         $this->_JsFiles[] = $jsInfo;
+
+        if ($appFolder === '' && array_key_exists($fileName, self::SPLIT_JS_MAPPINGS)) {
+            $items = self::SPLIT_JS_MAPPINGS[$fileName];
+            foreach ($items as $item) {
+                $this->addJsFile($item, $appFolder, $options);
+            }
+        }
     }
 
     /**
@@ -616,17 +639,34 @@ class Gdn_Controller extends Gdn_Pluggable {
             $this->_Definitions['Search'] = t('Search');
         }
 
-        $this->_Definitions['basePath'] = $this->_Definitions['basePath'] ?? rtrim('/'.trim(Gdn::request()->webRoot(), '/'), '/');
-        $this->_Definitions['assetPath'] = $this->_Definitions['assetPath'] ?? rtrim('/'.trim(Gdn::request()->assetRoot(), '/'), '/');
-        $this->_Definitions['title'] = $this->_Definitions['title'] ?? c('Garden.Title');
-
         if (debug()) {
             $this->_Definitions['debug'] = true;
         }
 
+        // These items are added in a controlled matter for newer client-side apps so are nested.
+        $this->_Definitions += [
+            'ui' => []
+        ];
+
+        /** @var \Vanilla\Models\SiteMeta $siteMeta */
+        $siteMeta = Gdn::getContainer()->get(\Vanilla\Models\SiteMeta::class);
+        $this->_Definitions += $siteMeta->value();
+
+        $this->_Definitions['useNewFlyouts'] = \Vanilla\FeatureFlagHelper::featureEnabled('NewFlyouts');
+
+        $this->_Definitions['ui'] += [
+            'siteName' => c('Garden.Title'),
+            'siteTitle' => c('Garden.HomepageTitle', c('Garden.Title')),
+            'locale' => Gdn::locale()->current(),
+            'inputFormat' => strtolower(c('Garden.InputFormatter')),
+        ];
+
         // Output a JavaScript object with all the definitions.
         $result = 'gdn=window.gdn||{};'.
-            'gdn.meta='.json_encode($this->_Definitions).';';
+            'gdn.meta='.json_encode($this->_Definitions).";\n".
+            'gdn.permissions='.json_encode(Gdn::session()->getPermissions()).";\n".
+            $this->renderClientState()
+            ;
 
         if ($wrap) {
             $result = "<script>$result</script>";
@@ -926,6 +966,15 @@ class Gdn_Controller extends Gdn_Pluggable {
             $result->Items = $assets;
             return $result;
         }
+    }
+
+    /**
+     * Get the current Head.
+     *
+     * @return mixed
+     */
+    public function getHead() {
+        return $this->Head;
     }
 
     /**
@@ -1426,6 +1475,7 @@ class Gdn_Controller extends Gdn_Pluggable {
             $originHost = parse_url($origin, PHP_URL_HOST);
             if ($originHost && isTrustedDomain($originHost)) {
                 $this->setHeader('Access-Control-Allow-Origin', $origin);
+                $this->setHeader("Access-Control-Allow-Credentials", "true");
             }
         }
     }
@@ -1500,14 +1550,10 @@ class Gdn_Controller extends Gdn_Pluggable {
                 $Remove[] = 'LastIPAddress';
                 $Remove[] = 'AllIPAddresses';
                 $Remove[] = 'Fingerprint';
-                if (c('Api.Clean.Email', true)) {
-                    $Remove[] = 'Email';
-                }
                 $Remove[] = 'DateOfBirth';
                 $Remove[] = 'Preferences';
                 $Remove[] = 'Banned';
                 $Remove[] = 'Admin';
-                $Remove[] = 'Confirmed';
                 $Remove[] = 'Verified';
                 $Remove[] = 'DiscoveryText';
                 $Remove[] = 'InviteUserID';
@@ -1516,10 +1562,18 @@ class Gdn_Controller extends Gdn_Pluggable {
                 $Remove[] = 'CountNotifications';
                 $Remove[] = 'CountBookmarks';
                 $Remove[] = 'CountDrafts';
-                $Remove[] = 'HourOffset';
-                $Remove[] = 'Gender';
                 $Remove[] = 'Punished';
                 $Remove[] = 'Troll';
+
+
+                if (empty($Data['UserID']) || $Data['UserID'] != Gdn::session()->UserID) {
+                    if (c('Api.Clean.Email', true)) {
+                        $Remove[] = 'Email';
+                    }
+                    $Remove[] = 'Confirmed';
+                    $Remove[] = 'HourOffset';
+                    $Remove[] = 'Gender';
+                }
             }
             $Data = removeKeysFromNestedArray($Data, $Remove);
         }
@@ -1774,18 +1828,18 @@ class Gdn_Controller extends Gdn_Pluggable {
         if (in_array($this->_DeliveryType, [DELIVERY_TYPE_ALL])) {
             $this->MasterView = $this->masterView();
 
-            // Only get css & ui components if this is NOT a syndication request
+            // Only get css & ui Components if this is NOT a syndication request
             if ($this->SyndicationMethod == SYNDICATION_NONE && is_object($this->Head)) {
 
-                $CssAnchors = AssetModel::getAnchors();
+                $CssAnchors = LegacyAssetModel::getAnchors();
 
                 $this->EventArguments['CssFiles'] = &$this->_CssFiles;
                 $this->fireEvent('BeforeAddCss');
 
-                $ETag = AssetModel::eTag();
+                $ETag = LegacyAssetModel::eTag();
                 $ThemeType = isMobile() ? 'mobile' : 'desktop';
-                /* @var \AssetModel $AssetModel */
-                $AssetModel = Gdn::getContainer()->get(\AssetModel::class);
+                /* @var LegacyAssetModel $AssetModel */
+                $AssetModel = Gdn::getContainer()->get(LegacyAssetModel::class);
 
                 // And now search for/add all css files.
                 foreach ($this->_CssFiles as $CssInfo) {
@@ -1798,7 +1852,7 @@ class Gdn_Controller extends Gdn_Pluggable {
                     // style.css and admin.css deserve some custom processing.
                     if (in_array($CssFile, $CssAnchors)) {
                         // Grab all of the css files from the asset model.
-                        $CssFiles = $AssetModel->getCssFiles($ThemeType, ucfirst(substr($CssFile, 0, -4)), $ETag);
+                        $CssFiles = $AssetModel->getCssFiles($ThemeType, ucfirst(substr($CssFile, 0, -4)), $ETag, $_, $this->Theme);
                         foreach ($CssFiles as $Info) {
                             $this->Head->addCss($Info[1], 'all', true, $CssInfo);
                         }
@@ -1807,7 +1861,7 @@ class Gdn_Controller extends Gdn_Pluggable {
 
                     $AppFolder = $CssInfo['AppFolder'];
                     $LookupFolder = !empty($AppFolder) ? $AppFolder : $this->ApplicationFolder;
-                    $Search = AssetModel::cssPath($CssFile, $LookupFolder, $ThemeType);
+                    $Search = LegacyAssetModel::cssPath($CssFile, $LookupFolder, $ThemeType);
                     if (!$Search) {
                         continue;
                     }
@@ -1846,6 +1900,26 @@ class Gdn_Controller extends Gdn_Pluggable {
 
                 $this->Head->addScript('', 'text/javascript', false, ['content' => $this->definitionList(false)]);
 
+                // Webpack based scripts
+                /** @var \Vanilla\Web\Asset\WebpackAssetProvider $webpackAssetProvider */
+                $webpackAssetProvider = Gdn::getContainer()->get(\Vanilla\Web\Asset\WebpackAssetProvider::class);
+
+                $polyfillContent = $webpackAssetProvider->getInlinePolyfillContents();
+                $this->Head->addScript(null, null, false, ["content" => $polyfillContent]);
+
+                // Add the built webpack javascript files.
+                $section = $this->MasterView === 'admin' ? 'admin' : 'forum';
+                $jsAssets = $webpackAssetProvider->getScripts($section);
+                foreach ($jsAssets as $asset) {
+                    $this->Head->addScript($asset->getWebPath(), 'text/javascript', false, ['defer' => 'true']);
+                }
+
+                // The the built stylesheets
+                $styleAssets = $webpackAssetProvider->getStylesheets($section);
+                foreach ($styleAssets as $asset) {
+                    $this->Head->addCss($asset->getWebPath(), null, false);
+                }
+
                 foreach ($this->_JsFiles as $Index => $JsInfo) {
                     $JsFile = $JsInfo['FileName'];
                     if (!is_array($JsInfo['Options'])) {
@@ -1859,7 +1933,7 @@ class Gdn_Controller extends Gdn_Pluggable {
 
                     $AppFolder = $JsInfo['AppFolder'];
                     $LookupFolder = !empty($AppFolder) ? $AppFolder : $this->ApplicationFolder;
-                    $Search = AssetModel::jsPath($JsFile, $LookupFolder, $ThemeType);
+                    $Search = LegacyAssetModel::jsPath($JsFile, $LookupFolder, $ThemeType);
                     if (!$Search) {
                         continue;
                     }
@@ -1967,13 +2041,19 @@ class Gdn_Controller extends Gdn_Pluggable {
     public function sendHeaders() {
         // TODO: ALWAYS RENDER OR REDIRECT FROM THE CONTROLLER OR HEADERS WILL NOT BE SENT!! PUT THIS IN DOCS!!!
         foreach ($this->_Headers as $name => $value) {
-            if ($name != 'Status') {
-                safeHeader($name.': '.$value, true);
+            if ($name !== 'Status') {
+                safeHeader("$name: $value", true);
             } else {
                 $code = array_shift($shift = explode(' ', $value));
-                safeHeader($name.': '.$value, true, $code);
+                safeHeader("$name: $value", true, $code);
             }
         }
+        if (!empty($this->_Headers['Cache-Control'])) {
+            foreach (\Vanilla\Web\CacheControlMiddleware::getHttp10Headers($this->_Headers['Cache-Control']) as $key => $value) {
+                safeHeader("$key: $value", true);
+            }
+        }
+
         // Empty the collection after sending
         $this->_Headers = [];
     }

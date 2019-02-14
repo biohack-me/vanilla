@@ -4,8 +4,8 @@
  *
  * @author Todd Burry <todd@vanillaforums.com>
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -100,15 +100,36 @@ class Gdn_Request implements RequestInterface {
      *
      * @param string? $assetRoot An asset root to set.
      * @return string Returns the current asset root.
+     *
+     * @deprecated 2.8 Use the explicit asset functions instead.
      */
     public function assetRoot($assetRoot = null) {
         if ($assetRoot !== null) {
-            $result = $this->_parsedRequestElement('AssetRoot', rtrim('/'.trim($assetRoot, '/'), '/'));
+            deprecated(__FUNCTION__, "setAssetRoot");
+            $this->setAssetRoot($assetRoot);
+            return $assetRoot;
         } else {
-            $result = $this->_parsedRequestElement('AssetRoot');
+            deprecated(__FUNCTION__, "addAssetRoot");
+            $result = $this->getAssetRoot();
         }
         return $result;
     }
+
+    /**
+     * @inheritdoc
+     */
+    public function getAssetRoot() {
+        return $this->_parsedRequestElement('AssetRoot');
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function setAssetRoot(string $assetRoot) {
+        $this->_parsedRequestElement('AssetRoot', rtrim('/' . trim($assetRoot, '/'), '/'));
+        return $this;
+    }
+
 
     /**
      * Generic chainable object creation method.
@@ -353,6 +374,14 @@ class Gdn_Request implements RequestInterface {
      */
     public function getHeader($header) {
         return $this->getValueFrom(self::INPUT_SERVER, $this->headerKey($header), '');
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function setHeader($header, $value) {
+        $this->setValueOn(self::INPUT_SERVER, $this->headerKey($header), $value);
+        return $this;
     }
 
     /**
@@ -647,8 +676,20 @@ class Gdn_Request implements RequestInterface {
             return false;
         }
 
-        $transientKey = $this->post('TransientKey', $this->post('transientKey', $this->getHeader('X-Transient-Key')));
-        $result = Gdn::session()->validateTransientKey($transientKey, false);
+        if (
+            // https://www.owasp.org/index.php/Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet#Protecting_REST_Services:_Use_of_Custom_Request_Headers
+            $this->hasHeader('X-Requested-With') &&
+            // https://www.owasp.org/index.php/Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet#Identifying_Source_Origin
+            $this->getHost() === parse_url($this->getHeader('Referer'), PHP_URL_HOST) &&
+            (!$this->hasHeader('Origin') || $this->getHost() === parse_url($this->getHeader('Origin'), PHP_URL_HOST))
+        ) {
+            // Check Origin, Referer, and X-Requested-With.
+            $result = true;
+        } else {
+            // Check a submitted transient key.
+            $transientKey = $this->post('TransientKey', $this->post('transientKey', $this->getHeader('X-Transient-Key')));
+            $result = Gdn::session()->validateTransientKey($transientKey, false);
+        }
 
         if (!$result && $throw) {
             throw new Gdn_UserException(t('Invalid CSRF token.', 'Invalid CSRF token. Please try again.'), 403);
@@ -754,7 +795,6 @@ class Gdn_Request implements RequestInterface {
             }
         }
 
-        $ip = forceIPv4($ip);
         $this->_environmentElement('ADDRESS', $ip);
 
         // Request Scheme
@@ -942,7 +982,7 @@ class Gdn_Request implements RequestInterface {
 
         $parsedWebRoot = trim($webRoot, '/');
         $this->webRoot($parsedWebRoot);
-        $this->assetRoot($parsedWebRoot);
+        $this->setAssetRoot($parsedWebRoot);
 
         /**
          * Resolve Domain
@@ -1279,10 +1319,10 @@ class Gdn_Request implements RequestInterface {
     /**
      * Set the POST body for the request.
      *
-     * @param array $body
+     * @param $body
      * @return self
      */
-    public function setBody(array $body) {
+    public function setBody($body) {
         $this->setRequestArguments(self::INPUT_POST, $body);
         return $this;
     }
@@ -1456,7 +1496,7 @@ class Gdn_Request implements RequestInterface {
      * @return Gdn_Request
      */
     public function setUrl($url) {
-        // Parse a url and set its components.
+        // Parse a url and set its Components.
         $components = parse_url($url);
 
         if ($components === false) {
@@ -1539,7 +1579,11 @@ class Gdn_Request implements RequestInterface {
         }
         static $rewrite = null;
         if ($rewrite === null) {
-            // Garden.RewriteUrls is maintained for compatibility but X_REWRITE is what really need to be used.
+            /**
+             * X_REWRITE is used to determine whether rewriting URLs is supported by the server. The Garden.RewriteUrls
+             * config is only supported for backwards compatibility. This value should not be true by default, because
+             * rewriting may be unavailable (e.g. during installation when .htaccess.dist has not yet been renamed).
+             */
             $rewrite = val('X_REWRITE', $_SERVER, c('Garden.RewriteUrls', false));
         }
 

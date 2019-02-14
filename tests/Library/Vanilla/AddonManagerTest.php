@@ -1,13 +1,13 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Vanilla;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Test\OldApplication\Controllers\Api\NewApiController;
 use Test\OldApplication\Controllers\ArchiveController;
 use Test\OldApplication\Controllers\HiddenController;
@@ -17,7 +17,7 @@ use Vanilla\Addon;
 use VanillaTests\Fixtures\TestAddonManager;
 
 
-class AddonManagerTest extends TestCase {
+class AddonManagerTest extends SharedBootstrapTestCase {
 
     private static $types = [Addon::TYPE_ADDON, Addon::TYPE_THEME, Addon::TYPE_LOCALE];
 
@@ -197,7 +197,7 @@ class AddonManagerTest extends TestCase {
         $path = $addon->path($subpath);
         $fileContents = file_get_contents($path);
         if (preg_match('`function userPhoto`i', $fileContents)) {
-            $this->markTestSkipped("We can't test classes that redeclare userPhoto(). $path");
+            $this->markTestIncomplete("We can't test classes that redeclare userPhoto(). $path");
             return;
         }
 
@@ -814,6 +814,43 @@ class AddonManagerTest extends TestCase {
         $this->assertNull($addon);
         $addon = $am->lookupLocale('');
         $this->assertNull($addon);
+    }
+
+    /**
+     * Add-ons with bad keys should not be indexed.
+     *
+     * @param string $type
+     * @dataProvider provideBadAddonKeyTypes
+     */
+    public function testBadAddonKeyScan($type) {
+        $err = error_reporting(E_ALL & ~E_USER_NOTICE & ~E_USER_WARNING);
+
+        try {
+            $am = new AddonManager(
+                [
+                    Addon::TYPE_ADDON => "/tests/fixtures/bad-addons",
+                    Addon::TYPE_THEME => "/tests/fixtures/bad-themes",
+                ],
+                PATH_ROOT.'/tests/cache/am/bad-manager'
+            );
+
+            $addons = $am->lookupAllByType($type);
+            $this->assertEmpty($addons);
+        } finally {
+            error_reporting($err);
+        }
+    }
+
+    /**
+     * Provide data for `testBadAddonKeyScan`.
+     *
+     * @return array Returns a data provider.
+     */
+    public function provideBadAddonKeyTypes() {
+        return [
+            Addon::TYPE_ADDON => [Addon::TYPE_ADDON],
+            Addon::TYPE_THEME => [Addon::TYPE_THEME],
+        ];
     }
 
     /**

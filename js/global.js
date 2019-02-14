@@ -1,8 +1,20 @@
-// This file contains javascript that is global to the entire Garden application
-
+/**
+ * Vanilla's legacy javascript core.
+ *
+ * @copyright 2009-2018 Vanilla Forums Inc.
+ * @license GPL-2.0-only
+ */
 
 // Global vanilla library function.
 (function(window, $) {
+
+    // Prevent auto-execution of scripts when no explicit dataType was provided
+    // See https://github.com/jquery/jquery/issues/2432#issuecomment-403761229
+    jQuery.ajaxPrefilter(function(s) {
+        if (s.crossDomain) {
+            s.contents.script = false;
+        }
+    });
 
     var Vanilla = function() {
     };
@@ -194,7 +206,8 @@
         });
     });
 
-    $(document).on("contentLoad", function(e) {
+    $(document).on("contentLoad", function (e) {
+        
         // Setup AJAX filtering for flat category module.
         // Find each flat category module container, if any.
         $(".BoxFlatCategory", e.target).each(function(index, value){
@@ -243,9 +256,6 @@
             event.initCustomEvent('X-DOMContentReady', true, false, {});
             e.target.dispatchEvent(event);
         });
-
-        // Set up accessible flyouts
-        $('.ToggleFlyout, .editor-dropdown, .ButtonGroup').accessibleFlyoutsInit();
     });
 })(window, jQuery);
 
@@ -754,18 +764,6 @@ jQuery(document).ready(function($) {
         });
     }
 
-//   var searchText = gdn.definition('Search', 'Search');
-//   if (!$('div.Search input.InputBox').val())
-//      $('div.Search input.InputBox').val(searchText);
-//   $('div.Search input.InputBox').blur(function() {
-//      if (typeof $(this).val() == 'undefined' || $(this).val() == '')
-//         $(this).val(searchText);
-//   });
-//   $('div.Search input.InputBox').focus(function() {
-//      if ($(this).val() == searchText)
-//         $(this).val('');
-//   });
-
     $.fn.popin = function(options) {
         var settings = $.extend({}, options);
 
@@ -792,156 +790,6 @@ jQuery(document).ready(function($) {
     // Make poplist items with a rel attribute clickable.
     $(document).on('click', '.PopList .Item[rel]', function() {
         window.location.href = $(this).attr('rel');
-    });
-
-    var hijackClick = function(e) {
-        var $elem = $(this);
-        var $parent = $(this).closest('.Item');
-        var $toggleFlyout = $elem.closest('.ToggleFlyout');
-        var href = $elem.attr('href');
-        var progressClass = $elem.hasClass('Bookmark') ? 'Bookmarking' : 'InProgress';
-
-        // If empty, or starts with a fragment identifier, do not send
-        // an async request.
-        if (!href || href.trim().indexOf('#') === 0)
-            return;
-        gdn.disable(this, progressClass);
-        e.stopPropagation();
-
-        $.ajax({
-            type: "POST",
-            url: href,
-            data: {DeliveryType: 'VIEW', DeliveryMethod: 'JSON', TransientKey: gdn.definition('TransientKey')},
-            dataType: 'json',
-            complete: function() {
-                gdn.enable($elem.get(0));
-                $elem.removeClass(progressClass);
-                $elem.attr('href', href);
-
-                // If we are in a flyout, close it.
-                $toggleFlyout
-                    .removeClass('Open')
-                    .find('.Flyout')
-                    .hide()
-                    .setFlyoutAttributes();
-            },
-            error: function(xhr) {
-                gdn.informError(xhr);
-            },
-            success: function(json) {
-                if (json === null) json = {};
-
-                var informed = gdn.inform(json);
-                gdn.processTargets(json.Targets, $elem, $parent);
-                // If there is a redirect url, go to it.
-                if (json.RedirectTo) {
-                    setTimeout(function() {
-                            window.location.replace(json.RedirectTo);
-                        },
-                        informed ? 3000 : 0);
-                }
-            }
-        });
-
-        return false;
-    };
-    $(document).delegate('.Hijack, .js-hijack', 'click', hijackClick);
-
-
-    // Activate ToggleFlyout and ButtonGroup menus
-    $(document).delegate('.ButtonGroup > .Handle', 'click', function() {
-        var $buttonGroup = $(this).closest('.ButtonGroup');
-        if (!$buttonGroup.hasClass('Open')) {
-            $('.ButtonGroup')
-                .removeClass('Open')
-                .setFlyoutAttributes();
-
-            // Open this one
-            $buttonGroup
-                .addClass('Open')
-                .setFlyoutAttributes();
-        } else {
-            $('.ButtonGroup')
-                .removeClass('Open')
-                .setFlyoutAttributes();
-        }
-        return false;
-    });
-
-    var lastOpen = null;
-
-    $(document).delegate('.ToggleFlyout', 'click', function(e) {
-        var $toggleFlyout = $(this);
-        var $flyout = $('.Flyout', this);
-        var isHandle = false;
-
-        if ($(e.target).closest('.Flyout').length === 0) {
-            e.stopPropagation();
-            isHandle = true;
-        } else if ($(e.target).hasClass('Hijack') || $(e.target).closest('a').hasClass('Hijack')) {
-            return;
-        }
-        e.stopPropagation();
-
-        // Dynamically fill the flyout.
-        var rel = $(this).attr('rel');
-        if (rel) {
-            $(this).attr('rel', '');
-            $flyout.html('<div class="InProgress" style="height: 30px"></div>');
-
-            $.ajax({
-                url: gdn.url(rel),
-                data: {DeliveryType: 'VIEW'},
-                success: function(data) {
-                    $flyout.html(data);
-                },
-                error: function(xhr) {
-                    $flyout.html('');
-                    gdn.informError(xhr, true);
-                }
-            });
-        }
-
-        if ($flyout.css('display') == 'none') {
-            if (lastOpen !== null) {
-                $('.Flyout', lastOpen).hide();
-                $(lastOpen).removeClass('Open').closest('.Item').removeClass('Open');
-                $toggleFlyout.setFlyoutAttributes();
-            }
-
-            $(this).addClass('Open').closest('.Item').addClass('Open');
-            $flyout.show();
-            lastOpen = this;
-            $toggleFlyout.setFlyoutAttributes();
-        } else {
-            $flyout.hide();
-            $(this).removeClass('Open').closest('.Item').removeClass('Open');
-            $toggleFlyout.setFlyoutAttributes();
-        }
-
-        if (isHandle)
-            return false;
-    });
-
-    // Close ToggleFlyout menu even if their links are hijacked
-    $(document).delegate('.ToggleFlyout a', 'mouseup', function() {
-        if ($(this).hasClass('FlyoutButton'))
-            return;
-
-        $('.ToggleFlyout').removeClass('Open').closest('.Item').removeClass('Open');
-        $('.Flyout').hide();
-        $(this).closest('.ToggleFlyout').setFlyoutAttributes();
-    });
-
-    $(document).delegate(document, 'click', function() {
-        if (lastOpen) {
-            $('.Flyout', lastOpen).hide();
-            $(lastOpen).removeClass('Open').closest('.Item').removeClass('Open');
-        }
-
-        $('.ButtonGroup')
-            .removeClass('Open')
-            .setFlyoutAttributes();
     });
 
     // Add a spinner onclick of buttons with this class
@@ -1453,108 +1301,6 @@ jQuery(document).ready(function($) {
         return Youtube($container);
     });
 
-
-    /**
-     * Twitter card embedding.
-     *
-     * IIFE named just for clarity. Note: loading the Twitter widget JS
-     * asynchronously, and tying it into a promise, which will guarantee the
-     * script and its code is excuted before attempting to run the specific
-     * Twitter code. There used to be conflicts if another Twitter widget was
-     * included in the page, or if the connection was slow, resulting in
-     * `window.twttr` being undefined. The promise guarantees this won't happen.
-     */
-    var twitterCardEmbed = (function() {
-        'use strict';
-
-        // Call to transform all tweet URLs into embedded cards. Expose to global
-        // scope for backwards compatibility, as it might be being used elsewhere.
-        window.tweets = function() {
-            $('.twitter-card').each(function(i, el) {
-                if (!$(el).hasClass('twitter-card-loaded')) {
-                    var card = $(el),
-                        tweetUrl = card.attr('data-tweeturl'),
-                        tweetID = card.attr('data-tweetid'),
-                        cardref = card.get(0);
-
-                    // Candidate found, prepare transition.
-                    card.addClass('twitter-card-preload');
-
-                    window.twttr.widgets.createTweet(tweetID, cardref, function(iframe) {
-                        card.find('.tweet-url').remove();
-                        // Fade it in.
-                        card.addClass('twitter-card-loaded');
-                    }, {
-                        conversation: 'none'
-                    });
-                }
-            });
-        };
-
-        // Check for the existence of any Twitter card candidates.
-        if ($('div.twitter-card').length) {
-            $.when(
-                $.getScript('//platform.twitter.com/widgets.js')
-            ).done(function() {
-                    // The promise returned successfully (script loaded and executed),
-                    // so convert tweets already on page.
-                    window.twttr.ready(window.tweets);
-
-                    // Attach event for embed whenever new comments are posted, so they
-                    // are automatically loaded. Currently works for new comments,
-                    // and new private messages.
-                    var newPostTriggers = [
-                        'CommentAdded',
-                        'MessageAdded'
-                    ];
-
-                    $(document).on(newPostTriggers.join(' '), function(e, data) {
-                        window.twttr.ready(window.tweets);
-                    });
-                });
-        }
-    }());
-
-
-    /**
-     * GitHub commit embedding
-     *
-     */
-
-// @tim : 2013-08-24
-// Experiment on hold.
-//   if ($('div.github-commit').length) {
-//      // Github embed library
-//      window.GitHubCommit = (function (d,s,id) {
-//         var t, js, fjs = d.getElementsByTagName(s)[0];
-//         if (d.getElementById(id)) return; js=d.createElement(s); js.id=id;
-//         js.src=gdn.url('js/library/github.embed.js'); fjs.parentNode.insertBefore(js, fjs);
-//         return window.GitHubCommit || (t = { _e: [], ready: function(f){ t._e.push(f) } });
-//      }(document, "script", "github-embd"));
-//
-//      GitHubCommit.ready(function(GitHubCommit){
-//         setTimeout(commits, 300);
-//      });
-//   }
-//
-//   function commits(GitHubCommit) {
-//      $('div.github-commit').each(function(i, el){
-//         var commit = $(el);
-//         var commiturl = commit.attr('data-commiturl');
-//         var commituser = commit.attr('data-commituser');
-//         var commitrepo = commit.attr('data-commitrepo');
-//         var commithash = commit.attr('data-commithash');
-//         console.log(el);
-//      });
-//   }
-
-    /**
-     * Vine image embedding
-     *
-     */
-
-    // Automatic, requires no JS
-
     /**
      * Pintrest pin embedding
      *
@@ -1648,468 +1394,22 @@ jQuery(document).ready(function($) {
         });
     }());
 
-
-    /**
-     * Uses highly modified jquery.atwho.js library. See the note in that
-     * file for details about the modifications.
-     *
-     * This allows @mentions and :emoji: autocomplete. It's also possible to
-     * add other types of suggestions.
-     *
-     * @param node editorElement Pass the textarea or the body within iframe
-     * @param node iframe If there's an iframe body getting passed in the
-     *                    first param, also pass just the iframe node itself.
-     *                    If there's no iframe, pass a blank string or false.
-     *
-     * @author Dane MacMillan
-     */
-    gdn.atCompleteInit = function(editorElement, iframe) {
-
-        if (!jQuery.fn.atwho) {
-            //console.warn('Editor missing atwho dependency.');
-            return false;
-        }
-
-        // Added cache results to global, so all instances share the same data
-        // and can build the cache together.
-
-        // Cache non-empty server requests
-        gdn.atcache = gdn.atcache || {};
-
-        // Cache empty server requests to prevent similarly-started requests
-        // from being sent.
-        gdn.atempty = gdn.atempty || {};
-
-        // Set minimum characters to type for @mentions to fire
-        var min_characters = gdn.getMeta('mentionMinChars', 2);
-
-        // Max suggestions to show in dropdown.
-        var max_suggestions = gdn.getMeta('mentionSuggestionCount', 5);
-
-        // Server response limit. This should match the limit set in
-        // *UserController->TagSearch* and UserModel->TagSearch
-        var server_limit = 30;
-
-        // Emoji, set in definition list in foot, by Emoji class. Make sure
-        // that class is getting instantiated, otherwise emoji will be empty.
-        var emoji = gdn.getMeta('emoji', []);
-        var emojiList = $.map(emoji.emoji || [], function(value, i) {
-            var parts = value.split('.');
-
-            return {'name': i, 'filename': value, 'basename': parts[0], 'ext': '.' + parts[1]};
-        });
-        var emojiTemplate = (emoji.format || '')
-            .replace(/{(.+?)}/g, '$${$1}')
-            .replace('%1$s', '${src}')
-            .replace('%2$s', '${name}')
-            .replace('${src}', emoji.assetPath + '/${filename}')
-            .replace('${dir}', emoji.assetPath);
-        emojiTemplate = '<li data-value=":${name}:" class="at-suggest-emoji"><span class="emoji-wrap">' + emojiTemplate + '</span> <span class="emoji-name">${name}</span></li>';
-
-        // Handle iframe situation
-        var iframe_window = (iframe) ? iframe.contentWindow : '';
-
-        $(editorElement)
-            .atwho({
-                at: '@',
-                tpl: '<li data-value="@${name}" data-id="${id}">${name}</li>',
-                limit: max_suggestions,
-                callbacks: {
-
-                    // Custom data source.
-                    remote_filter: function(query, callback) {
-                        // Do this because of undefined when adding spaces to
-                        // matcher callback, as it will be monitoring changes.
-                        query = query || '';
-
-                        // Only all query strings greater than min_characters
-                        if (query.length >= min_characters) {
-
-                            // If the cache array contains less than LIMIT 30
-                            // (according to server logic), then there's no
-                            // point sending another request to server, as there
-                            // won't be any more results, as this is the maximum.
-                            var filter_more = true;
-
-                            // Remove last character so that the string can be
-                            // found in the cache, if exists, then check if its
-                            // matching array has less than the server limit of
-                            // matches, which means there are no more, so save the
-                            // additional server request from being sent.
-                            var filter_string = '';
-
-                            // Loop through string and find first closest match in
-                            // the cache, and if a match, check if more filtering
-                            // is required.
-                            for (var i = 0, l = query.length; i < l; i++) {
-                                filter_string = query.slice(0, -i);
-
-                                if (gdn.atcache[filter_string]
-                                    && gdn.atcache[filter_string].length < server_limit) {
-                                    //console.log('no more filtering for "'+ query + '" as its parent filter array, "'+ filter_string +'" is not maxed out.');
-
-                                    // Add this other query to empty array, so that it
-                                    // will not fire off another request.
-                                    gdn.atempty[query] = query;
-
-                                    // Do not filter more, meaning, do not send
-                                    // another server request, as all the necessary
-                                    // data is already in memory.
-                                    filter_more = false;
-                                    break;
-                                }
-                            }
-
-                            // Check if query would be empty, based on previously
-                            // cached empty results. Compare against the start of
-                            // the latest query string.
-                            var empty_query = false;
-
-                            // Loop through cache of empty query strings.
-                            for (var key in gdn.atempty) {
-                                if (gdn.atempty.hasOwnProperty(key)) {
-                                    // See if cached empty results match the start
-                                    // of the latest query. If so, then no point
-                                    // sending new request, as it will return empty.
-                                    if (query.match(new RegExp('^' + key + '+')) !== null) {
-                                        empty_query = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Produce the suggestions based on data either
-                            // cached or retrieved.
-                            if (filter_more && !empty_query && !gdn.atcache[query]) {
-                                $.getJSON(gdn.url('/user/tagsearch'), {
-                                    "q": query,
-                                    "limit": server_limit
-                                }, function(data) {
-                                    if (Array.isArray(data)) {
-                                        data.forEach(function(result) {
-                                            if (typeof result === "object" && typeof result.name === "string") {
-                                                // Convert special characters to safely insert into template.
-                                                result.name = result.name.replace(/&/g, "&amp;")
-                                                    .replace(/</g, "&lt;")
-                                                    .replace(/>/g, "&gt;")
-                                                    .replace(/"/g, "&quot;")
-                                                    .replace(/'/g, "&apos;");
-                                            }
-                                        });
-                                    }
-
-                                    callback(data);
-
-                                    // If data is empty, cache the results to prevent
-                                    // other requests against similarly-started
-                                    // query strings.
-                                    if (data.length) {
-                                        gdn.atcache[query] = data;
-                                    } else {
-                                        gdn.atempty[query] = query;
-                                    }
-                                });
-                            } else {
-                                // If no point filtering more as the parent filter
-                                // has not been maxed out with responses, use the
-                                // closest parent filter instead of the latest
-                                // query string.
-                                if (!filter_more) {
-                                    callback(gdn.atcache[filter_string]);
-                                } else {
-                                    callback(gdn.atcache[query]);
-                                }
-                            }
-                        }
-                    },
-
-                    // Note, in contenteditable mode (iframe for us), the value
-                    // is surrounded by span tags.
-                    before_insert: function(value, $li) {
-                        // It's better to use the value provided, as it may have
-                        // html tags around it, depending on mode. Using the
-                        // regular expression avoids the need to check what mode
-                        // the suggestion is made in, and then constructing
-                        // it based on that. Optional assignment for undefined
-                        // matcher callback results.
-                        var username = $li.data('value') || '';
-                        // Pop off the flag--usually @ or :
-                        username = username.slice(1, username.length);
-
-                        // Check if there are any whitespaces, and if so, add
-                        // quotation marks around the whole name.
-                        var requires_quotation = /[^\w-]/.test(username);
-
-                        // Check if there are already quotation marks around
-                        // the string--double or single.
-                        var has_quotation = /(\"|\')(.+)(\"|\')/g.test(username);
-
-                        var insert = username;
-
-                        if (requires_quotation && !has_quotation) {
-                            // Do not even need to have value wrapped in
-                            // any tags at all. It will be done automatically.
-                            //insert = value.replace(/(.*\>?)@([\w\d\s\-\+\_]+)(\<?.*)/, '$1@"$2"$3');
-                            insert = '"' + username + '"';
-                        }
-
-                        // This is needed for checking quotation mark directly
-                        // after at character, and preventing another at character
-                        // from being inserted into the page.
-                        var raw_at_match = this.raw_at_match || '';
-
-                        var at_quote = /.?@(\"|\')/.test(raw_at_match);
-
-                        // If at_quote is false, then insert the at character,
-                        // otherwise it means the user typed a quotation mark
-                        // directly after the at character, which, would get
-                        // inserted again if not checked. at_quote would
-                        // be false most of the time; the exception is when
-                        // it's true.
-                        if (!at_quote) {
-                            insert = this.at + insert;
-                        }
-
-                        // Keep for reference, but also, spaces add complexity,
-                        // so use zero-width non-joiner delimiting those advanced
-                        // username mentions.
-                        var hidden_unicode_chars = {
-                            zws: '\u200b',
-                            zwnj: '\u200C',
-                            nbsp: '\u00A0' // \xA0
-                        };
-
-                        // The last character prevents the matcher from trigger
-                        // on nearly everything.
-                        return insert;
-                    },
-
-                    // Custom highlighting to accept spaces in names. This is
-                    // almost a copy of the default in the library, with tweaks
-                    // in the regex.
-                    highlighter: function(li, query) {
-                        var regexp;
-                        if (!query) {
-                            return li;
-                        }
-                        regexp = new RegExp(">\\s*(\\w*)(" + query.replace("+", "\\+") + ")(\\w*)\\s*(\\s+.+)?<", 'ig');
-                        // Capture group 4 for possible spaces
-                        return li.replace(regexp, function(str, $1, $2, $3, $4) {
-                            // Weird Chrome behaviour, so check for undefined, then
-                            // set to empty string if so.
-                            if (typeof $3 == 'undefined') {
-                                $3 = '';
-                            }
-                            if (typeof $4 == 'undefined') {
-                                $4 = '';
-                            }
-
-                            return '> ' + $1 + '<strong>' + $2 + '</strong>' + $3 + $4 + ' <';
-                        });
-                    },
-
-                    // Custom matching to allow quotation marks in the matching
-                    // string as well as spaces. Spaces make things more
-                    // complicated.
-                    matcher: function(flag, subtext, should_start_with_space) {
-
-                        // Split the string at the lines to allow for a simpler regex.
-                        var lines = subtext.split("\n");
-                        var lastLine = lines[lines.length - 1];
-
-                        // If you change this you MUST change the regex in src/scripts/__tests__/legacy.test.js !!!
-                        /**
-                         * Put together the non-excluded characters.
-                         *
-                         * @param {boolean} excludeWhiteSpace - Whether or not to exclude whitespace characters.
-                         *
-                         * @returns {string} A Regex string.
-                         */
-                        function nonExcludedCharacters(excludeWhiteSpace) {
-                            var excluded = '[^' +
-                                '"' + // Quote character
-                                '\\u0000-\\u001f\\u007f-\\u009f' + // Control characters
-                                '\\u2028';// Line terminator
-
-                            if (excludeWhiteSpace) {
-                                excluded += '\\s';
-                            }
-
-                            excluded += "]";
-                            return excluded;
-                        }
-
-                        var regexStr =
-                            '@' + // @ Symbol triggers the match
-                            '(' +
-                            // One or more non-greedy characters that aren't excluded. White is allowed, but a starting quote is required.
-                            '"(' + nonExcludedCharacters(false) + '+?)"?' +
-
-                                '|' + // Or
-                            // One or more non-greedy characters that aren't exluded. Whitespace is excluded.
-                            '(' + nonExcludedCharacters(true) + '+?)"?' +
-
-                            ')' +
-                            '(?:\\n|$)'; // Newline terminates.
-
-                        // Determined by at.who library
-                        if (should_start_with_space) {
-                            regexStr = '(?:^|\\s)' + regexStr;
-                        }
-                        var regex = new RegExp(regexStr, 'gi');
-                        var match = regex.exec(lastLine);
-                        if (match) {
-                            this.raw_at_match = match[0];
-
-                            // Return either of the matching groups (quoted or unquoted).
-                            return match[2] ||  match[1];
-                        } else {
-
-                            // No match
-                            return null;
-                        }
-                    }
-                },
-                cWindow: iframe_window
-            })
-            .atwho({
-                at: ':',
-                tpl: emojiTemplate,
-                insert_tpl: "${atwho-data-value}",
-                callbacks: {
-                    /**
-                     * Default routine from At.js with more tolerant pattern matching.
-                     * @param {string} flag The character sequence used to trigger this match (e.g. :).
-                     * @param {string} subtext The string to be tested.
-                     * @param {bool} should_start_with_space Should the pattern include a test for a whitespace prefix?
-                     * @returns {string|null} String on successful match.  Null on failure to match.
-                     */
-                    matcher: function(flag, subtext, should_start_with_space) {
-                        var match, regexp;
-                        flag = flag.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
-                        if (should_start_with_space) {
-                            flag = '(?:^|\\s)' + flag;
-                        }
-
-                        // Some browsers append a linefeed to the end of subtext.  We need to allow for it.
-                        regexp = new RegExp(flag + '([A-Za-z0-9_\+\-]*|[^\\x00-\\xff]*)(?:\\n)?$', 'gi');
-                        match = regexp.exec(subtext);
-
-                        if (match) {
-                            return match[2] || match[1];
-                        } else {
-                            return null;
-                        }
-                    },
-
-                    tplEval: function(tpl, map) {
-                        console.log(map);
-                    }
-                },
-                limit: max_suggestions,
-                data: emojiList,
-                cWindow: iframe_window
-            });
-
-        // http://stackoverflow.com/questions/118241/calculate-text-width-with-javascript
-        String.prototype.width = function(font) {
-            var f = font || "15px 'lucida grande','Lucida Sans Unicode',tahoma,sans-serif'",
-                o = $('<div>' + this + '</div>')
-                    .css({
-                        'position': 'absolute',
-                        'float': 'left',
-                        'white-space': 'nowrap',
-                        'visibility': 'hidden',
-                        'font': f
-                    })
-                    .appendTo($('body')),
-                w = o.width();
-            o.remove();
-            return w;
-        };
-
-        // Only necessary for iframe.
-        // Based on work here: https://github.com/ichord/At.js/issues/124
-        if (iframe_window) {
-            // This hook is triggered when atWho places a selection list in the
-            // window. The context is passed implicitly when triggered by at.js.
-            $(iframe_window).on("reposition.atwho", function(e, offset, context) {
-
-                // Actual suggestion box that will appear.
-                var suggest_el = context.view.$el;
-
-                // The area where text will be typed (contenteditable body).
-                var $inputor = context.$inputor;
-
-                // Display it below the text.
-                var line_height = parseInt($inputor.css('line-height'));
-
-                // offset contains the top left values of the offset to the iframe
-                // we need to convert that to main window coordinates
-                var oIframe = $(iframe).offset(),
-                    iLeft = oIframe.left + offset.left,
-                    iTop = oIframe.top,
-                    select_height = 0;
-
-                // In wysiwyg mode, the suggestbox follows the typing, which
-                // does not happen in regular mode, so adjust it.
-                // Either @ or : for now.
-                var at = context.at;
-                var text = context.query.text;
-                var font_mirror = $('.BodyBox,.js-bodybox');
-                var font = font_mirror.css('font-size') + ' ' + font_mirror.css('font-family');
-
-                // Get font width
-                var font_width = (at + text).width(font) - 2;
-
-                if (at == '@') {
-                    iLeft -= font_width;
-                }
-
-                if (at == ':') {
-                    iLeft -= 2;
-                }
-
-                // atWho adds 3 select areas, presumably for differnet positing on screen (above below etc)
-                // This finds the active one and gets the container height
-                $(suggest_el).each(function(i, el) {
-                    if ($(this).outerHeight() > 0) {
-                        select_height += $(this).height() + line_height;
-                    }
-                });
-
-                // Now should we show the selection box above or below?
-                var iWindowHeight = $(window).height(),
-                    iDocViewTop = $(window).scrollTop(),
-                    iSelectionPosition = iTop + offset.top - $(window).scrollTop(),
-                    iAvailableSpace = iWindowHeight - (iSelectionPosition - iDocViewTop);
-
-                if (iAvailableSpace >= select_height) {
-                    // Enough space below
-                    iTop = iTop + offset.top + select_height - $(window).scrollTop();
-                }
-                else {
-                    // Place it above instead
-                    // @todo should check if this is more space than below
-                    iTop = iTop + offset.top - $(window).scrollTop();
-                }
-
-                // Move the select box
-                offset = {left: iLeft, top: iTop};
-                $(suggest_el).offset(offset);
-            });
-        }
+    // http://stackoverflow.com/questions/118241/calculate-text-width-with-javascript
+    String.prototype.width = function(font) {
+        var f = font || "15px 'lucida grande','Lucida Sans Unicode',tahoma,sans-serif'",
+            o = $('<div>' + this + '</div>')
+                .css({
+                    'position': 'absolute',
+                    'float': 'left',
+                    'white-space': 'nowrap',
+                    'visibility': 'hidden',
+                    'font': f
+                })
+                .appendTo($('body')),
+            w = o.width();
+        o.remove();
+        return w;
     };
-    // Now call atCompleteInit on all .BodyBox elements. The advanced editor
-    // calls this function directly when in wysiwyg format, as it needs to
-    // handle an iframe, and the editor instance needs to be referenced.
-    if ($.fn.atwho && gdn.atCompleteInit) {
-        $(document).on('contentLoad', function() {
-            gdn.atCompleteInit('.BodyBox,.js-bodybox', '');
-        });
-        gdn.atCompleteInit('.BodyBox,.js-bodybox', '');
-    }
-
 
     /**
      * Running magnific-popup. Image tag or text must be wrapped with an anchor
@@ -2197,13 +1497,17 @@ jQuery(window).load(function() {
         }
     }(jQuery));
 
-    jQuery('div.Message img').not(jQuery('div.Message a > img')).each(function(i, img) {
-        img = jQuery(img);
-        var container = img.closest('div.Message');
-        if (img.naturalWidth() > container.width() && container.width() > 0) {
-            img.wrap('<a href="' + jQuery(img).attr('src') + '" target="_blank"></a>');
-        }
-    });
+    jQuery('div.Message img')
+        .not(jQuery('div.Message a > img'))
+        .not(jQuery('.js-embed img'))
+        .not(jQuery('.embedImage-img'))
+        .each(function (i, img){
+            img = jQuery(img);
+            var container = img.closest('div.Message');
+            if (img.naturalWidth() > container.width() && container.width() > 0) {
+                img.wrap('<a href="' + jQuery(img).attr('src') + '" target="_blank" rel="nofollow noopener"></a>');
+            }
+        });
 
     // Let the world know we're done here
     jQuery(window).trigger('ImagesResized');
@@ -2216,8 +1520,7 @@ if (typeof String.prototype.trim !== 'function') {
 }
 
 (function ($) {
-
-$.fn.extend({
+    $.fn.extend({
     // jQuery UI .effect() replacement using CSS classes.
     effect: function(name) {
         var that = this;
@@ -2229,49 +1532,6 @@ $.fn.extend({
                 that.removeClass(name);
             });
     },
-
-    accessibleFlyoutHandle: function (isOpen) {
-        $(this).attr('aria-expanded', isOpen.toString());
-    },
-
-    accessibleFlyout: function (isOpen) {
-        $(this).attr('aria-hidden', (!isOpen).toString());
-    },
-
-    setFlyoutAttributes: function () {
-        $(this).each(function(){
-            var $handle = $(this).find('.FlyoutButton, .Handle, .editor-action:not(.editor-action-separator)');
-            var $flyout = $(this).find('.Flyout, .Dropdown');
-            var isOpen = $flyout.is(':visible');
-
-            $handle.accessibleFlyoutHandle(isOpen);
-            $flyout.accessibleFlyout(isOpen);
-        });
-    },
-
-    accessibleFlyoutsInit: function () {
-        var $context = $(this);
-
-        $context.each(function(){
-
-            $context.find('.FlyoutButton, .Handle, .editor-action:not(.editor-action-separator)').each(function (){
-                $(this)
-                    .attr('tabindex', '0')
-                    .attr('role', 'button')
-                    .attr('aria-haspopup', 'true');
-
-                $(this).accessibleFlyoutHandle(false);
-            });
-
-            $context.find('.Flyout, .Dropdown').each(function (){
-                $(this).accessibleFlyout(false);
-
-                $(this).find('a').each(function() {
-                    $(this).attr('tabindex', '0');
-                });
-            });
-        });
-    }
 });
 
 })(jQuery);

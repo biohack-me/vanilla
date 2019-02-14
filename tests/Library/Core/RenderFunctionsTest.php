@@ -1,18 +1,18 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 
 /**
  * Test some of the functions in functions.render.php.
  */
-class RenderFunctionsTest extends TestCase {
+class RenderFunctionsTest extends SharedBootstrapTestCase {
     /**
      * Make sure the render functions are included.
      */

@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\APIv2;
@@ -12,6 +12,7 @@ use VanillaTests\Fixtures\Uploader;
  * Test the /api/v2/users endpoints.
  */
 class UsersTest extends AbstractResourceTest {
+    use TestPutFieldTrait;
 
     /** @var int A value to ensure new records are unique. */
     protected static $recordCounter = 1;
@@ -33,6 +34,17 @@ class UsersTest extends AbstractResourceTest {
         ];
 
         parent::__construct($name, $data, $dataName);
+    }
+
+    /**
+     * Disable email before running tests.
+     */
+    public function setUp() {
+        parent::setUp();
+
+        /** @var \Gdn_Configuration $configuration */
+        $configuration = static::container()->get('Config');
+        $configuration->set('Garden.Email.Disabled', true);
     }
 
     /**
@@ -58,7 +70,7 @@ class UsersTest extends AbstractResourceTest {
     private function registrationFields(array $extra = []) {
         static $inc = 0;
 
-        $name = 'vanilla-'.$inc++;
+        $name = 'vanilla_'.$inc++;
         $fields = [
             'email' => "{$name}@example.com",
             'name' => $name,
@@ -75,6 +87,9 @@ class UsersTest extends AbstractResourceTest {
      */
     protected function modifyRow(array $row) {
         $row = parent::modifyRow($row);
+        if (array_key_exists('name', $row)) {
+            $row['name'] = substr(md5($row['name']), 0, 20);
+        }
         foreach ($this->patchFields as $key) {
             $value = $row[$key];
             switch ($key) {
@@ -118,12 +133,132 @@ class UsersTest extends AbstractResourceTest {
     }
 
     /**
+     * Test confirm email is successful.
+     */
+    public function testConfirmEmailSucceed() {
+        /** @var \UserModel $userModel */
+        $userModel = self::container()->get('UserModel');
+
+        $emailKey = ['confirmationCode' =>'test123'];
+
+        $user = $this->testPost();
+        $userModel->saveAttribute($user['userID'], 'EmailKey', $emailKey['confirmationCode']);
+
+        $response = $this->api()->post("{$this->baseUrl}/{$user['userID']}/confirm-email", $emailKey);
+
+        $user = $userModel->getID($user['userID']);
+        $this->assertEquals(1, $user->Confirmed);
+    }
+
+    /**
+     * Test confirm email fails.
+     *
+     * @expectedException \Exception
+     * @expectedExceptionMessage We couldn't confirm your email.
+     * Check the link in the email we sent you or try sending another confirmation email.
+     */
+    public function testConfirmEmailFail() {
+        /** @var \UserModel $userModel */
+        $userModel = self::container()->get('UserModel');
+
+        $emailKey = ['confirmationCode' =>'test123'];;
+        $user = $this->testPost();
+        $userModel->saveAttribute($user['userID'], 'EmailKey', '123Test');
+
+        $this->api()->post("{$this->baseUrl}/{$user['userID']}/confirm-email", $emailKey);
+    }
+
+    /**
      * {@inheritdoc}
      */
     public function testGetEdit($record = null) {
         $row = $this->testPost();
         $result = parent::testGetEdit($row);
         return $result;
+    }
+
+    /**
+     * Test getting current user info when the user is a guest.
+     */
+    public function testMeGuest() {
+        $this->api()->setUserID(0);
+
+        $response = $this->api()->get("{$this->baseUrl}/me");
+        $this->assertSame(200, $response->getStatusCode());
+
+        $expected = [
+            "userID" => 0,
+            "name" => "Guest",
+            "photoUrl" => \UserModel::getDefaultAvatarUrl(),
+            "dateLastActive" => null,
+            "isAdmin" => false,
+            "countUnreadNotifications" => 0,
+            "permissions" => [
+                "activity.view",
+                "discussions.view",
+                "profiles.view",
+            ],
+        ];
+        $actual = $response->getBody();
+
+        $this->assertEquals($expected, $actual);
+    }
+
+    /**
+     * Test getting current user info when the user is a valid member.
+     */
+    public function testMeMember() {
+        /** @var \UserModel $userModel */
+        $userModel = self::container()->get('UserModel');
+        $userID = $this->api()->getUserID();
+        $user = $userModel->getID($userID, DATASET_TYPE_ARRAY);
+        $dateLastActive = $user["DateLastActive"] ? date("c", strtotime($user["DateLastActive"])) : null;
+
+        $response = $this->api()->get("{$this->baseUrl}/me");
+        $this->assertSame(200, $response->getStatusCode());
+
+        $expected = [
+            "userID" => $userID,
+            "name" => $user["Name"],
+            "photoUrl" => userPhotoUrl($user),
+            "dateLastActive" => $dateLastActive,
+            "isAdmin" => true,
+            "countUnreadNotifications" => 0,
+            "permissions" => [
+                "activity.delete",
+                "activity.view",
+                "advancedNotifications.allow",
+                "applicants.manage",
+                "comments.add",
+                "comments.delete",
+                "comments.edit",
+                "community.manage",
+                "community.moderate",
+                "conversations.add",
+                "curation.manage",
+                "discussions.add",
+                "discussions.announce",
+                "discussions.close",
+                "discussions.delete",
+                "discussions.edit",
+                "discussions.sink",
+                "discussions.view",
+                "email.view",
+                "personalInfo.view",
+                "profiles.edit",
+                "profiles.view",
+                "settings.view",
+                "signIn.allow",
+                "site.manage",
+                "uploads.add",
+                "users.add",
+                "users.delete",
+                "users.edit",
+            ],
+        ];
+        $actual = $response->getBody();
+
+        $this->assertEquals($expected, $actual);
     }
 
     /**
@@ -315,6 +450,36 @@ class UsersTest extends AbstractResourceTest {
         $invitation = $this->api()->post('/invites', ['email' => $fields['email']])->getBody();
         $fields['invitationCode'] = $invitation['code'];
         $this->verifyRegistration($fields);
+    }
+
+    public function testRequestPassword() {
+        // Create a user first.
+        $user = $this->api()->post('/users', [
+            'name' => 'testRequestPassword',
+            'email' => 'userstest@example.com',
+            'password' => '123Test234Test',
+        ])->getBody();
+
+        $r = $this->api()->post('/users/request-password', ['email' => $user['email']]);
+
+        $this->assertLog(['event' => 'password_reset_skipped', 'email' => $user['email']]);
+
+        try {
+            $this->logger->clear();
+            $r = $this->api()->post('/users/request-password', ['email' => $user['name']]);
+            $this->fail('You shouldn\'t be able to reset a password with a username.');
+        } catch (\Exception $ex) {
+            $this->assertEquals(400, $ex->getCode());
+        }
+
+        /* @var \Gdn_Configuration $config */
+        $config = $this->container()->get(\Gdn_Configuration::class);
+        $config->set('Garden.Registration.NameUnique', true);
+        $config->set('Garden.Registration.EmailUnique', false);
+
+        $this->logger->clear();
+        $r = $this->api()->post('/users/request-password', ['email' => $user['name']]);
+        $this->assertLog(['event' => 'password_reset_skipped', 'email' => $user['email']]);
     }
 
     /**

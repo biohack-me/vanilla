@@ -2,8 +2,8 @@
 /**
  * Manages individual user profiles.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -12,6 +12,8 @@
  * Handles /profile endpoint.
  */
 class ProfileController extends Gdn_Controller {
+
+    use \Vanilla\FloodControlTrait;
 
     const AVATAR_FOLDER = 'userpics';
 
@@ -62,6 +64,11 @@ class ProfileController extends Gdn_Controller {
         $this->CurrentTab = 'Activity';
         $this->ProfileTabs = [];
         $this->editMode(true);
+
+        touchConfig('Vanilla.Password.SpamCount', 2);
+        touchConfig('Vanilla.Password.SpamTime', 1);
+        touchConfig('Vanilla.Password.SpamLock', 120);
+
         parent::__construct();
     }
 
@@ -169,11 +176,7 @@ class ProfileController extends Gdn_Controller {
         }
 
         // Set the canonical Url.
-        if (is_numeric($this->User->Name) || Gdn_Format::url($this->User->Name) != strtolower($this->User->Name)) {
-            $this->canonicalUrl(url('profile/'.$this->User->UserID.'/'.Gdn_Format::url($this->User->Name), true));
-        } else {
-            $this->canonicalUrl(url('profile/'.strtolower($this->User->Name), true));
-        }
+        $this->canonicalUrl(userUrl($this->User));
 
         $this->render();
     }
@@ -358,7 +361,7 @@ class ProfileController extends Gdn_Controller {
      * @param mixed $userReference Username or User ID.
      */
     public function edit($userReference = '', $username = '', $userID = '') {
-        $this->permission('Garden.SignIn.Allow');
+        $this->permission(['Garden.SignIn.Allow', 'Garden.Profiles.Edit'], true);
 
         $this->getUserInfo($userReference, $username, $userID, true);
         $userID = valr('User.UserID', $this);
@@ -401,11 +404,27 @@ class ProfileController extends Gdn_Controller {
             // If we're changing the email address, militarize our reauth with no cooldown allowed.
             $authOptions = [];
             $submittedEmail = $this->Form->getFormValue('Email', null);
+            // If User has to re authenticate get the original form values
+            $originalSubmission = (array_key_exists('OriginalSubmission', $_POST))
+                ? $_POST['OriginalSubmission']
+                : '';
+
             if ($submittedEmail !== null && $canEditEmail && $user['Email'] !== $submittedEmail) {
                 $authOptions['ForceTimeout'] = true;
             }
 
             $this->reauth($authOptions);
+
+            // If the Form was reloaded because of reauth, reset the the form values to the original submission values.
+            $originalFormValues = (isset($originalSubmission))
+                ? json_decode($originalSubmission, true)
+                : null;
+
+            if (is_array($originalFormValues)) {
+                foreach ($originalFormValues as $key => $value) {
+                    $this->Form->setFormValue($key, $value);
+                }
+            }
 
             $this->Form->setFormValue('UserID', $userID);
 
@@ -684,6 +703,10 @@ class ProfileController extends Gdn_Controller {
     public function password() {
         $this->permission('Garden.SignIn.Allow');
 
+        $isSpamming = false;
+        $floodGate = FloodControlHelper::configure($this, 'Vanilla', 'Password');
+        $this->setFloodControlEnabled(true);
+
         // Don't allow password editing if using SSO Connect ONLY.
         // This is for security. We encountered the case where a customer charges
         // for membership using their external application and use SSO to let
@@ -704,7 +727,7 @@ class ProfileController extends Gdn_Controller {
         $this->Form->setModel($this->UserModel);
         $this->addDefinition('Username', $this->User->Name);
 
-        if ($this->Form->authenticatedPostBack() === true) {
+        if ($this->Form->authenticatedPostBack() === true && !$isSpamming = $this->checkUserSpamming(Gdn::session()->UserID, $floodGate)) {
             $this->Form->setFormValue('UserID', $this->User->UserID);
             $this->UserModel->defineSchema();
 //         $this->UserModel->Validation->addValidationField('OldPassword', $this->Form->formValues());
@@ -738,6 +761,17 @@ class ProfileController extends Gdn_Controller {
                 );
             }
         }
+
+        if ($isSpamming) {
+            $message = sprintf(
+                t('You have tried to reset your password %1$s times within %2$s seconds. You must wait at least %3$s seconds before attempting again.'),
+                $this->postCountThreshold,
+                $this->timeSpan,
+                $this->lockTime
+            );
+            throw new Gdn_UserException($message);
+        }
+
         $this->title(t('Change My Password'));
         $this->_setBreadcrumbs(t('Change My Password'), '/profile/password');
         $this->render();
@@ -1550,7 +1584,16 @@ EOT;
             }
         } else {
             if (hasEditProfile($this->User->UserID)) {
-                $module->addLink('Options', sprite('SpEdit').' '.t('Edit Profile'), '/profile/edit', false, ['class' => 'Popup EditAccountLink']);
+                $editLinkUrl = '/profile/edit';
+
+                // Kludge for if we're on /profile/edit/username for the current user.
+                $requestUrl = Gdn_Url::request();
+                $editUrl = "profile/edit/{$this->User->Name}";
+                if ($requestUrl === $editUrl) {
+                    $editLinkUrl = $editUrl;
+                }
+
+                $module->addLink('Options', sprite('SpEdit').' '.t('Edit Profile'), $editLinkUrl, false, ['class' => 'Popup EditAccountLink']);
             }
 
             // Add profile options for the profile owner

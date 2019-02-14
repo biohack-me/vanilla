@@ -2,8 +2,8 @@
 /**
  * Settings controller
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
@@ -40,11 +40,26 @@ class VanillaSettingsController extends Gdn_Controller {
         // Check permission
         $this->permission('Garden.Settings.Manage');
 
+        /** @var \Garden\EventManager $eventManager */
+        $eventManager = Gdn::getContainer()->get(\Garden\EventManager::class);
+
+        $initialFormats = ['Text']; // Check for additional formats
+        $formats = $eventManager->fireFilter("getPostFormats", $initialFormats);
+
+        // This was moved from the editor plugin. In order to maintain compatibility with existing event hooks
+        // We will need to fire this as EditorPlugin.
+        $eventManager->fireDeprecated("editorPlugin_getFormats", null, ['Formats' => &$formats]);
+
+        $this->setData('formats', $formats);
+
         // Load up config options we'll be setting
         $validation = new Gdn_Validation();
         $configurationModel = new Gdn_ConfigurationModel($validation);
+
         $configurationModel->setField([
             'Vanilla.Categories.MaxDisplayDepth',
+            'Garden.InputFormatter',
+            'Garden.MobileInputFormatter',
             'Vanilla.Discussions.PerPage',
             'Vanilla.Comments.PerPage',
             'Garden.Html.AllowedElements',
@@ -53,15 +68,21 @@ class VanillaSettingsController extends Gdn_Controller {
             'Vanilla.Comment.MaxLength',
             'Vanilla.Comment.MinLength',
             'Garden.Format.DisableUrlEmbeds',
+            'Plugins.editor.ForceWysiwyg',
         ]);
+
+        // Fire an filter event gather extra form HTML for specific format items.
+        // The form is added so the form can be enhanced and the config model needs to passed to add extra fields.
+        $extraFormatFormHTML = $eventManager->fireFilter('postingSettings_formatSpecificFormItems', "",
+            $this->Form,
+            $configurationModel);
+        $this->setData('extraFormatFormHTML', $extraFormatFormHTML);
 
         // Set the model on the form.
         $this->Form->setModel($configurationModel);
 
         // If seeing the form for the first time...
         if ($this->Form->authenticatedPostBack() === false) {
-
-
             // Apply the config settings to the form.
             $this->Form->setData($configurationModel->Data);
         } else {
@@ -69,8 +90,13 @@ class VanillaSettingsController extends Gdn_Controller {
             $disableUrlEmbeds = $this->Form->getFormValue('Garden.Format.DisableUrlEmbeds', true);
             $this->Form->setFormValue('Garden.Format.DisableUrlEmbeds', !$disableUrlEmbeds);
 
+            if ($this->Form->_FormValues['Vanilla.Comment.MaxLength'] > DiscussionModel::MAX_POST_LENGTH) {
+                $this->Form->addError('The highest allowed limit is 50,000 characters');
+            }
+
             // Define some validation rules for the fields being saved
-            $configurationModel->Validation->applyRule('Vanilla.Categories.MaxDisplayDepth', 'Required');
+            $configurationModel->Validation->applyRule('Garden.InputFormatter', 'Required');
+            $configurationModel->Validation->applyRule('Garden.MobileInputFormatter', 'Required');
             $configurationModel->Validation->applyRule('Vanilla.Categories.MaxDisplayDepth', 'Integer');
             $configurationModel->Validation->applyRule('Vanilla.Discussions.PerPage', 'Required');
             $configurationModel->Validation->applyRule('Vanilla.Discussions.PerPage', 'Integer');
@@ -902,7 +928,7 @@ class VanillaSettingsController extends Gdn_Controller {
         $this->title(t('Categories'));
 
         // Get category data
-        $categoryData = $this->CategoryModel->getAll('TreeLeft');
+        $categoryData = $this->CategoryModel->getAll();
 
         // Set CanDelete per-category so we can override later if we want.
         $canDelete = checkPermission(['Garden.Community.Manage', 'Garden.Settings.Manage']);

@@ -2,8 +2,8 @@
 /**
  * Attachment Model.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.2
  */
@@ -345,6 +345,10 @@ class AttachmentModel extends Gdn_Model {
      * @return string Function name.
      */
     public static function getWriteAttachmentMethodName($type) {
+        if (empty($type)) {
+            return '';
+        }
+
         $method = str_replace('-', ' ', $type);
         $method = ucwords($method);
         $method = str_replace(' ', '', $method);

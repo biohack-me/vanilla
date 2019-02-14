@@ -2,8 +2,8 @@
 /**
  * Manages basic searching.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -25,11 +25,14 @@ class SearchController extends Gdn_Controller {
     /**
      * Object instantiation & form prep.
      */
-    public function __construct() {
+    public function __construct(SearchModel $searchModel = null) {
         parent::__construct();
 
-        // Object instantiation
-        $this->SearchModel = new SearchModel();
+        // Object instantiation.
+        if ($searchModel === null) {
+            $searchModel = new SearchModel();
+        }
+        $this->SearchModel = $searchModel;
         $form = Gdn::factory('Form');
 
         // Form prep
@@ -54,7 +57,6 @@ class SearchController extends Gdn_Controller {
 
         $this->addCssFile('style.css');
         $this->addCssFile('vanillicon.css', 'static');
-        $this->addCssFile('menu.css');
         $this->addModule('GuestModule');
         parent::initialize();
         $this->setData('Breadcrumbs', [['Name' => t('Search'), 'Url' => '/search']]);
@@ -63,11 +65,10 @@ class SearchController extends Gdn_Controller {
     /**
      * Default search functionality.
      *
-     * @since 2.0.0
-     * @access public
-     * @param int $page Page number.
+     * @param string $search The search string.
+     * @param string $page Page number.
      */
-    public function index($page = '') {
+    public function index($search = '', $page = '') {
         $this->addJsFile('search.js');
         $this->title(t('Search'));
 
@@ -77,7 +78,6 @@ class SearchController extends Gdn_Controller {
         list($offset, $limit) = offsetLimit($page, c('Garden.Search.PerPage', 20));
         $this->setData('_Limit', $limit);
 
-        $search = $this->Form->getFormValue('Search');
         $mode = $this->Form->getFormValue('Mode');
         if ($mode) {
             $this->SearchModel->ForceSearchMode = $mode;

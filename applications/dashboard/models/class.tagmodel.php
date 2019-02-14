@@ -2,8 +2,8 @@
 /**
  * Tagging plugin.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Tagging
  */
 
@@ -516,10 +516,12 @@ class TagModel extends Gdn_Model {
      * @param string|array $tag tag name(s)
      * @param int $limit limit number of result
      * @param int $offset start result at this offset
+     * @param string $sortField column to sort results by
+     * @param string $sortDirection the direction to sort the discussions
      * @return Gdn_DataSet
      * @throws Exception
      */
-    public function getDiscussions($tag, $limit, $offset) {
+    public function getDiscussions($tag, $limit, $offset, $sortField = 'd.DateLastComment', $sortDirection = 'desc') {
         if (!is_array($tag)) {
             $tags = array_map('trim', explode(',', $tag));
         }
@@ -528,16 +530,16 @@ class TagModel extends Gdn_Model {
             ->select('td.DiscussionID')
             ->from('TagDiscussion td')
             ->join('Tag t', 't.TagID = td.TagID')
+            ->join('Discussion d', 'd.DiscussionID = td.DiscussionID')
             ->whereIn('t.Name', $tags)
             ->limit($limit, $offset)
+            ->orderBy($sortField, $sortDirection)
             ->get()->resultArray();
 
         $taggedDiscussionIDs = array_column($taggedDiscussionIDs, 'DiscussionID');
 
         $discussionModel = new DiscussionModel();
-        $discussions = $discussionModel->get(
-            0,
-            '',
+        $discussions = $discussionModel->getWhere(
             [
                 'Announce' => 'all',
                 'd.DiscussionID' => $taggedDiscussionIDs,

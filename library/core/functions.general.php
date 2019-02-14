@@ -2,8 +2,8 @@
 /**
  * General functions
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -21,39 +21,72 @@ if (!function_exists('absoluteSource')) {
      * @return string Absolute source path.
      */
     function absoluteSource($srcPath, $url) {
-        // If there is a scheme in the srcpath already, just return it.
-        if (!is_null(parse_url($srcPath, PHP_URL_SCHEME))) {
-            return $srcPath;
+        $srcParts = parse_url($srcPath);
+        $urlParts = parse_url($url);
+
+        if ($srcParts === false || $urlParts === false) {
+            return '';
         }
 
-        // Does SrcPath assume root?
-        if (in_array(substr($srcPath, 0, 1), ['/', '\\'])) {
-            return parse_url($url, PHP_URL_SCHEME)
-            .'://'
-            .parse_url($url, PHP_URL_HOST)
-            .$srcPath;
-        }
-
-        // Work with the path in the url & the provided src path to backtrace if necessary
-        $urlPathParts = explode('/', str_replace('\\', '/', parse_url($url, PHP_URL_PATH)));
-        $srcParts = explode('/', str_replace('\\', '/', $srcPath));
-        $result = [];
-        foreach ($srcParts as $part) {
-            if (!$part || $part == '.') {
-                continue;
-            }
-
-            if ($part == '..') {
-                array_pop($urlPathParts);
+        // If there is a scheme in the src path already, just return it.
+        if (!empty($srcParts['scheme'])) {
+            if (in_array($srcParts['scheme'], ['http', 'https'], true)) {
+                return $srcPath;
             } else {
-                $result[] = $part;
+                return '';
+            }
+        } elseif (empty($urlParts['scheme']) || !in_array($urlParts['scheme'], ['http', 'https'])) {
+            return '';
+        }
+
+        $parts = $srcParts + $urlParts + ['path' => ''];
+
+        if (!empty($srcParts['path']) && $srcParts['path'][0] !== '/') {
+            // Work with the path in the url & the provided src path to backtrace if necessary
+            $urlPathParts = explode('/', trim(str_replace('\\', '/', $urlParts['path'] ?? ''), '/'));
+            $srcPathParts = explode('/', str_replace('\\', '/', $srcParts['path']));
+            foreach ($srcPathParts as $part) {
+                if (!$part || $part == '.') {
+                    continue;
+                }
+
+                if ($part == '..') {
+                    array_pop($urlPathParts);
+                } else {
+                    $urlPathParts[] = $part;
+                }
+            }
+
+            $parts['path'] = '/'.implode('/', $urlPathParts);
+        }
+
+        $result = "{$parts['scheme']}://{$parts['host']}{$parts['path']}";
+        return $result;
+    }
+}
+
+if (!function_exists('anonymizeIP')) {
+    /**
+     * Anonymize an IPv4 or IPv6 address.
+     *
+     * @param string $ip An IPv4 or IPv6 address.
+     * @return bool|string Anonymized IP address on success. False on failure.
+     */
+    function anonymizeIP(string $ip) {
+        $result = false;
+
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6)) {
+            // Need a packed version for bitwise operations.
+            $packed = inet_pton($ip);
+            if ($packed !== false) {
+                // Remove the last octet of an IPv4 address or the last 80 bits of an IPv6 address.
+                // IP v4 addresses are 32 bits (4 bytes). IP v6 addresses are 128 bits (16 bytes).
+                $mask = strlen($packed) == 4 ? inet_pton('255.255.255.0') : inet_pton('ffff:ffff:ffff::');
+                $result = inet_ntop($packed & $mask);
             }
         }
-        // Put it all together & return
-        return parse_url($url, PHP_URL_SCHEME)
-        .'://'
-        .parse_url($url, PHP_URL_HOST)
-        .'/'.implode('/', array_filter(array_merge($urlPathParts, $result)));
+
+        return $result;
     }
 }
 
@@ -154,6 +187,43 @@ if (!function_exists('arrayKeyExistsI')) {
             }
         }
         return false;
+    }
+}
+
+if (!function_exists('arrayPathExists')) {
+    /**
+     * Whether a sequence of keys (path) exists or not in an array.
+     *
+     * This function should only be used if isset($array[$key1][$key2]) cannot be used because the value could be null.
+     *
+     * @param array $keys The sequence of keys (path) to test against the array.
+     * @param array $array The array to search.
+     * @param mixed $value The path value.
+     *
+     * @return bool Returns true if the path exists in the array or false otherwise.
+     */
+    function arrayPathExists(array $keys, array $array, &$value = null) {
+        if (!count($keys) || !count($array)) {
+            return false;
+        }
+
+        $target = $array;
+        do {
+            $key = array_shift($keys);
+
+            if (array_key_exists($key, $target)) {
+                $target = $target[$key];
+            } else {
+                return false;
+            }
+        } while (($countKeys = count($keys)) && is_array($target));
+
+        $found = $countKeys === 0;
+        if ($found) {
+            $value = $target;
+        }
+
+        return $found;
     }
 }
 
@@ -281,7 +351,7 @@ if (!function_exists('asset')) {
         if (isUrl($destination)) {
             $result = $destination;
         } else {
-            $result = Gdn::request()->urlDomain($withDomain).Gdn::request()->assetRoot().'/'.ltrim($destination, '/');
+            $result = Gdn::request()->urlDomain($withDomain).Gdn::request()->getAssetRoot().'/'.ltrim($destination, '/');
         }
 
         if ($addVersion) {
@@ -613,19 +683,58 @@ if (!function_exists('flattenArray')) {
     function flattenArray($sep, $array) {
         $result = [];
 
-        $fn = function ($array, $px = '') use ($sep, &$fn, &$result) {
+        $fn = function ($array, $previousLevel = null) use ($sep, &$fn, &$result) {
             foreach ($array as $key => $value) {
-                $px = $px ? "{$px}{$sep}{$key}" : $key;
+                $currentLevel = $previousLevel ? "{$previousLevel}{$sep}{$key}" : $key;
 
                 if (is_array($value)) {
-                    $fn($value, $px);
+                    $fn($value, $currentLevel);
                 } else {
-                    $result[$px] = $value;
+                    $result[$currentLevel] = $value;
                 }
             }
         };
 
         $fn($array);
+
+        return $result;
+    }
+}
+
+if (!function_exists('unflattenArray')) {
+
+    /**
+     * Convert a flattened array into a multi dimensional array.
+     *
+     * See {@link flattenArray}
+     *
+     * @param string $sep The string used to separate keys.
+     * @param array $array The array to flatten.
+     * @return array|bool Returns the flattened array or false.
+     */
+    function unflattenArray($sep, $array) {
+        $result = [];
+
+        try {
+            foreach ($array as $flattenedKey => $value) {
+                $keys = explode($sep, $flattenedKey);
+
+                $target = &$result;
+                while (count($keys) > 1) {
+                    $key = array_shift($keys);
+                    if (!array_key_exists($key, $target)) {
+                        $target[$key] = [];
+                    }
+                    $target = &$target[$key];
+                }
+
+                $key = array_shift($keys);
+                $target[$key] = $value;
+                unset($target);
+            }
+        } catch (\Throwable $t) {
+            $result = false;
+        }
 
         return $result;
     }
@@ -1121,8 +1230,6 @@ if (!function_exists('domGetImages')) {
             ];
         }
 
-//      Gdn::controller()->Data['AllImages'] = $Images;
-
         // Sort by size, biggest one first
         $imageSort = [];
         // Only look at first 4 images (speed!)
@@ -1130,7 +1237,7 @@ if (!function_exists('domGetImages')) {
         foreach ($images as $imageInfo) {
             $image = $imageInfo['Src'];
 
-            if (strpos($image, 'doubleclick.') != false) {
+            if (empty($image) || strpos($image, 'doubleclick.') !== false) {
                 continue;
             }
 
@@ -1143,8 +1250,6 @@ if (!function_exists('domGetImages')) {
                 }
 
                 $diag = (int)floor(sqrt(($width * $width) + ($height * $height)));
-
-//            Gdn::controller()->Data['Foo'][] = array($Image, $Width, $Height, $Diag);
 
                 if (!$width || !$height) {
                     continue;
@@ -1161,8 +1266,6 @@ if (!function_exists('domGetImages')) {
                 }
 
                 // Prefer images that are less than 800px wide (banners?)
-//            if ($Diag > 141 && $Width < 800) { }
-
                 if (!array_key_exists($diag, $imageSort)) {
                     $imageSort[$diag] = [$image];
                 } else {
@@ -1196,6 +1299,8 @@ if (!function_exists('forceIPv4')) {
      * @param string $iP The IP address to force.
      * @return string Returns the IPv4 address version of {@link IP}.
      * @since 2.1
+     *
+     * @deprecated we are now storing IPV6, IPV4 notation is not required
      */
     function forceIPv4($iP) {
         if ($iP === '::1') {
@@ -1283,9 +1388,9 @@ if (!function_exists('_formatStringCallback')) {
         // Parse out the field and format.
         $parts = explode(',', $match);
         $field = trim($parts[0]);
-        $format = trim(val(1, $parts, ''));
-        $subFormat = strtolower(trim(val(2, $parts, '')));
-        $formatArgs = val(3, $parts, '');
+        $format = trim(($parts[1] ?? ''));
+        $subFormat = isset($parts[2]) ? strtolower(trim($parts[2])) : '';
+        $formatArgs = $parts[3] ?? '';
 
         if (in_array($format, ['currency', 'integer', 'percent'])) {
             $formatArgs = $subFormat;
@@ -1413,11 +1518,11 @@ if (!function_exists('_formatStringCallback')) {
                             $result = $formatArgs;
                             break;
                         case 'p':
-                            $result = val(5, $parts, val(4, $parts));
+                            $result = ($parts[5] ?? ($parts[4] ?? false));
                             break;
                         case 'u':
                         default:
-                            $result = val(4, $parts);
+                            $result = ($parts[4] ?? false);
                     }
 
                     break;
@@ -1721,10 +1826,11 @@ if (!function_exists('getRecord')) {
                 /** @var ActivityModel $activityModel */
                 $activityModel = $container->get(ActivityModel::class);
                 $row = $activityModel->getID($id, DATASET_TYPE_ARRAY);
-                if (!$activityModel->canView($row)) {
-                    throw permissionException();
-                }
                 if ($row) {
+                    if (!$activityModel->canView($row)) {
+                        throw permissionException();
+                    }
+
                     $row['Name'] = formatString($row['HeadlineFormat'], $row);
                     $row['Body'] = $row['Story'];
                 }
@@ -2253,37 +2359,11 @@ if (!function_exists('jsonEncodeChecked')) {
      * @param mixed $value
      * @param int|null $options
      * @return string
-     * @throws Exception
+     * @throws Exception If an error occurred while encoding.
+     * @deprecated 2.8 Use \Vanilla\Utility\StringUtils::jsonEncodeChecked instead.
      */
     function jsonEncodeChecked($value, $options = null) {
-         if ($options === null) {
-            $options = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES;
-        }
-        $encoded = json_encode($value, $options);
-        $errorMessage = null;
-        switch (json_last_error()) {
-            case JSON_ERROR_NONE:
-                // Do absolutely nothing since all went well!
-                break;
-            case JSON_ERROR_UTF8:
-                $errorMessage = 'Malformed UTF-8 characters, possibly incorrectly encoded';
-                break;
-            case JSON_ERROR_RECURSION:
-                $errorMessage = 'One or more recursive references in the value to be encoded.';
-                break;
-            case JSON_ERROR_INF_OR_NAN:
-                $errorMessage = 'One or more NAN or INF values in the value to be encoded';
-                break;
-            case JSON_ERROR_UNSUPPORTED_TYPE:
-                $errorMessage = 'A value of a type that cannot be encoded was given.';
-                break;
-            default:
-                $errorMessage = 'An unknown error has occurred.';
-        }
-        if ($errorMessage !== null) {
-            throw new Exception("JSON encoding error: {$errorMessage}", 500);
-        }
-        return $encoded;
+        return \Vanilla\Utility\StringUtils::jsonEncodeChecked($value, $options);
     }
 }
 
@@ -2434,33 +2514,6 @@ if (!function_exists('recordType')) {
             return ['Activity', $activityID];
         } else {
             return [null, null];
-        }
-    }
-}
-
-if (!function_exists('touchConfig')) {
-    /**
-     * Make sure the config has a setting.
-     *
-     * This function is useful to call in the setup/structure of plugins to make sure they have some default config set.
-     *
-     * @param string|array $name The name of the config key or an array of config key value pairs.
-     * @param mixed $default The default value to set in the config.
-     */
-    function touchConfig($name, $default = null) {
-        if (!is_array($name)) {
-            $name = [$name => $default];
-        }
-
-        $save = [];
-        foreach ($name as $key => $value) {
-            if (!c($key)) {
-                $save[$key] = $value;
-            }
-        }
-
-        if (!empty($save)) {
-            saveToConfig($save);
         }
     }
 }
@@ -3030,7 +3083,7 @@ if (!function_exists('reflectArgs')) {
     /**
      * Reflect the arguments on a callback and returns them as an associative array.
      *
-     * @param callback $callback A callback to the function.
+     * @param callback|ReflectionFunctionAbstract $callback A callback to the function.
      * @param array $args1 An array of arguments.
      * @param array $args2 An optional other array of arguments.
      * @return array The arguments in an associative array, in order ready to be passed to call_user_func_array().
@@ -3051,14 +3104,16 @@ if (!function_exists('reflectArgs')) {
 
         if (is_string($callback)) {
             $meth = new ReflectionFunction($callback);
-            $methName = $meth;
+        } elseif ($callback instanceof ReflectionFunctionAbstract) {
+            $meth = $callback;
         } else {
             $meth = new ReflectionMethod($callback[0], $callback[1]);
-            if (is_string($callback[0])) {
-                $methName = $callback[0].'::'.$meth->getName();
-            } else {
-                $methName = get_class($callback[0]).'->'.$meth->getName();
-            }
+        }
+
+        if ($meth instanceof ReflectionMethod) {
+            $methName = $meth->getDeclaringClass()->getName().'::'.$meth->getName();
+        } else {
+            $methName = $meth->getName();
         }
 
         $methArgs = $meth->getParameters();
@@ -3393,7 +3448,7 @@ if (!function_exists('smartAsset')) {
         if (isUrl($destination)) {
             $result = $destination;
         } else {
-            $result = Gdn::request()->urlDomain($withDomain).Gdn::request()->assetRoot().'/'.ltrim($destination, '/');
+            $result = Gdn::request()->urlDomain($withDomain).Gdn::request()->getAssetRoot().'/'.ltrim($destination, '/');
         }
 
         if ($addVersion) {
@@ -3517,8 +3572,10 @@ if (!function_exists('translateContent')) {
      * @param string $default The default value to be displayed if the translation code is not found.
      * @return string The translated string or $code if there is no value in $default.
      * @see Gdn::translate()
+     * @deprecated
      */
     function translateContent($code, $default = false) {
+        \Vanilla\Utility\Deprecation::log();
         return t($code, $default);
     }
 }
@@ -3540,7 +3597,7 @@ if (!function_exists('safeURL')) {
      *
      * "Safe" means that the domain of the URL is trusted.
      *
-     * @param $destination Destination URL or path.
+     * @param string $destination Destination URL or path.
      * @return string The destination if safe, /home/leaving?Target=$destination if not.
      */
     function safeURL($destination) {
@@ -3697,7 +3754,7 @@ if (!function_exists('url')) {
      * @return string Returns the resulting URL.
      */
     function url($path = '', $withDomain = false) {
-        $result = Gdn::request()->url($path, $withDomain);
+        $result = Gdn::request()->url(strval($path), $withDomain);
         return $result;
     }
 }
@@ -3812,6 +3869,10 @@ if (!function_exists('isTrustedDomain')) {
      */
     function isTrustedDomain($url) {
         static $trusted = null;
+
+        if (defined('TESTMODE_ENABLED') && constant('TESTMODE_ENABLED')) {
+            $trusted = null;
+        }
 
         if (empty($url)) {
             return false;
@@ -4140,7 +4201,7 @@ if (!function_exists('ipEncodeRecursive')) {
     function ipEncodeRecursive($input) {
         walkAllRecursive($input, function(&$val, $key = null, $parent = null) {
             if (is_string($val)) {
-                if (stringEndsWith($key, 'IPAddress', true) || stringEndsWith($parent, 'IPAddresses', true)) {
+                if (stringEndsWith($key, 'IPAddress', true) || stringEndsWith($parent, 'IPAddresses', true) || $key === 'IP') {
                     $val = ipEncode($val);
                 }
             }
@@ -4159,7 +4220,7 @@ if (!function_exists('ipDecodeRecursive')) {
     function ipDecodeRecursive($input) {
         walkAllRecursive($input, function(&$val, $key = null, $parent = null) {
             if (is_string($val)) {
-                if (stringEndsWith($key, 'IPAddress', true) || stringEndsWith($parent, 'IPAddresses', true)) {
+                if (stringEndsWith($key, 'IPAddress', true) || stringEndsWith($parent, 'IPAddresses', true) || $key === 'IP') {
                     $val = ipDecode($val);
                 }
             }

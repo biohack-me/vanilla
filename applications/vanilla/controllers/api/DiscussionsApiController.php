@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 use Garden\Schema\Schema;
@@ -16,6 +16,9 @@ use Vanilla\ApiUtils;
  * API Controller for the `/discussions` resource.
  */
 class DiscussionsApiController extends AbstractApiController {
+
+    /** @var CategoryModel */
+    private $categoryModel;
 
     /** @var DiscussionModel */
     private $discussionModel;
@@ -37,11 +40,14 @@ class DiscussionsApiController extends AbstractApiController {
      *
      * @param DiscussionModel $discussionModel
      * @param UserModel $userModel
+     * @param CategoryModel $categoryModel
      */
     public function __construct(
         DiscussionModel $discussionModel,
-        UserModel $userModel
+        UserModel $userModel,
+        CategoryModel $categoryModel
     ) {
+        $this->categoryModel = $categoryModel;
         $this->discussionModel = $discussionModel;
         $this->userModel = $userModel;
     }
@@ -184,6 +190,7 @@ class DiscussionsApiController extends AbstractApiController {
             'name:s' => 'The title of the discussion.',
             'body:s' => 'The body of the discussion.',
             'categoryID:i' => 'The category the discussion is in.',
+            'category?' => $this->getCategoryFragmentSchema(),
             'dateInserted:dt' => 'When the discussion was created.',
             'dateUpdated:dt|n' => 'When the discussion was last updated.',
             'insertUserID:i' => 'The user that created the discussion.',
@@ -224,6 +231,8 @@ class DiscussionsApiController extends AbstractApiController {
 
         $query = $in->validate($query);
 
+        $this->getEventManager()->fireFilter('discussionsApiController_getFilters', $this, $id, $query);
+
         $row = $this->discussionByID($id);
         if (!$row) {
             throw new NotFoundException('Discussion');
@@ -253,11 +262,7 @@ class DiscussionsApiController extends AbstractApiController {
         $dbRecord['Bookmarked'] = (bool)$dbRecord['Bookmarked'];
         $dbRecord['Url'] = discussionUrl($dbRecord);
         $this->formatField($dbRecord, 'Body', $dbRecord['Format']);
-
-        if (!is_array($dbRecord['Attributes'])) {
-            $attributes = dbdecode($dbRecord['Attributes']);
-            $dbRecord['Attributes'] = is_array($attributes) ? $attributes : [];
-        }
+        $dbRecord['Attributes'] = new \Vanilla\Attributes($dbRecord['Attributes']);
 
         if ($this->getSession()->User) {
             $dbRecord['unread'] = $dbRecord['CountUnreadComments'] !== 0
@@ -287,6 +292,11 @@ class DiscussionsApiController extends AbstractApiController {
             $dbRecord['lastPost'] = $lastPost;
         }
 
+        // The Category key will hold a category fragment in API responses. Ditch the default string.
+        if (array_key_exists('Category', $dbRecord) && !is_array($dbRecord['Category'])) {
+            unset($dbRecord['Category']);
+        }
+
         $schemaRecord = ApiUtils::convertOutputKeys($dbRecord);
         $schemaRecord['type'] = isset($schemaRecord['type']) ? lcfirst($schemaRecord['type']) : null;
 
@@ -295,6 +305,58 @@ class DiscussionsApiController extends AbstractApiController {
         $result = $this->getEventManager()->fireFilter('discussionsApiController_normalizeOutput', $schemaRecord, $this, $options);
 
         return $result;
+    }
+
+    /**
+     * Get a discussion's quote data.
+     *
+     * @param int $id The ID of the discussion.
+     *
+     * @return array The discussion quote data.
+     *
+     * @throws NotFoundException If the record with the given ID can't be found.
+     * @throws \Exception if no session is available.
+     * @throws \Vanilla\Exception\PermissionException if the user does not have the specified permission(s).
+     * @throws \Garden\Schema\ValidationException If the output schema is configured incorrectly.
+     */
+    public function get_quote($id) {
+        $this->permission();
+
+        $this->idParamSchema();
+        $in = $this->schema([], ['in'])->setDescription('Get a discussions embed data.');
+        $out = $this->schema($this->quoteSchema(), 'out');
+
+        $discussion = $this->discussionByID($id);
+        $discussion['Url'] = discussionUrl($discussion);
+
+        if ($discussion['InsertUserID'] !== $this->getSession()->UserID) {
+            $this->discussionModel->categoryPermission('Vanilla.Discussions.Edit', $discussion['CategoryID']);
+        }
+
+        $isRich = $discussion['Format'] === 'Rich';
+        $discussion['bodyRaw'] = $isRich ? json_decode($discussion['Body'], true) : $discussion['Body'];
+
+        $this->userModel->expandUsers($discussion, ['InsertUserID'], ['expand' => true]);
+        $result = $out->validate($discussion);
+        return $result;
+    }
+
+    /**
+     * Get the schema for discussion quote data.
+     *
+     * @return Schema
+     */
+    private function quoteSchema(): Schema {
+        return Schema::parse([
+            'discussionID:i' => 'The ID of the discussion.',
+            'name:s' => 'The title of the discussion',
+            'bodyRaw:s|a' => 'The raw body of the discussion. This can be an array of rich operations or a string for other formats',
+            'dateInserted:dt' => 'When the discussion was created.',
+            'dateUpdated:dt|n' => 'When the discussion was last updated.',
+            'insertUser' => $this->getUserFragmentSchema(),
+            'url:s' => 'The full URL to the discussion.',
+            'format:s' => 'The original format of the discussion',
+        ]);
     }
 
     /**
@@ -413,7 +475,7 @@ class DiscussionsApiController extends AbstractApiController {
                     'field' => 'd.InsertUserID',
                 ],
             ],
-            'expand?' => ApiUtils::getExpandDefinition(['insertUser', 'lastUser', 'lastPost'])
+            'expand?' => ApiUtils::getExpandDefinition(['category', 'insertUser', 'lastUser', 'lastPost'])
         ], ['DiscussionIndex', 'in'])->setDescription('List discussions.');
         $out = $this->schema([':a' => $this->discussionSchema()], 'out');
 
@@ -458,6 +520,9 @@ class DiscussionsApiController extends AbstractApiController {
             $this->resolveExpandFields($query, ['insertUser' => 'InsertUserID', 'lastUser' => 'LastUserID']),
             ['expand' => $query['expand']]
         );
+        if ($this->isExpandField('category', $query['expand'])) {
+            $this->categoryModel->expandCategories($rows);
+        }
 
         foreach ($rows as &$currentRow) {
             $currentRow = $this->normalizeOutput($currentRow, $query['expand']);

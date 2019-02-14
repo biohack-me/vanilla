@@ -2,16 +2,59 @@
 /**
  * VanillaHooks Plugin
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @since 2.0
  * @package Vanilla
  */
+
+use Garden\Container\Container;
+use Garden\Container\Reference;
+use Vanilla\Formatting\Embeds\EmbedManager;
 
 /**
  * Vanilla's event handlers.
  */
 class VanillaHooks implements Gdn_IPlugin {
+
+    /**
+     * Add to valid media attachment types.
+     *
+     * @param \Garden\Schema\Schema $schema
+     */
+    public function articlesPatchAttachmentSchema_init(\Garden\Schema\Schema $schema) {
+        $types = $schema->getField("properties.foreignType.enum");
+        $types[] = "comment";
+        $types[] = "discussion";
+        $schema->setField("properties.foreignType.enum", $types);
+    }
+
+    /**
+     * Verify the current user can attach a media item to a Vanilla post.
+     *
+     * @param bool $canAttach
+     * @param string $foreignType
+     * @param int $foreignID
+     * @return bool
+     */
+    public function canAttachMedia_handler(bool $canAttach, string $foreignType, int $foreignID): bool {
+        switch ($foreignType) {
+            case "comment":
+                $model = new CommentModel();
+                break;
+            case "discussion":
+                $model = new DiscussionModel();
+                break;
+            default:
+                return $canAttach;
+        }
+
+        $row = $model->getID($foreignID, DATASET_TYPE_ARRAY);
+        if (!$row) {
+            return false;
+        }
+        return ($row["InsertUserID"] === Gdn::session()->UserID || Gdn::session()->checkRankedPermission("Garden.Moderation.Manage"));
+    }
 
     /**
      * Counter rebuilding.
@@ -312,7 +355,7 @@ class VanillaHooks implements Gdn_IPlugin {
             return;
         }
 
-        if (in_array($Sender->RequestMethod, ['discussion', 'editdiscussion', 'question'])) {
+        if (in_array($Sender->RequestMethod, ['discussion', 'editdiscussion', 'question', 'idea'])) {
             // Setup, get most popular tags
             $TagModel = TagModel::instance();
             $Tags = $TagModel->getWhere(['Type' => array_keys($TagModel->defaultTypes())], 'CountDiscussions', 'desc', c('Vanilla.Tagging.ShowLimit', 50))->result(DATASET_TYPE_ARRAY);
@@ -684,7 +727,7 @@ class VanillaHooks implements Gdn_IPlugin {
      * @since 2.0.0
      * @package Vanilla
      *
-     * @param object $sender ProfileController.
+     * @param ProfileController $sender
      */
     public function profileController_addProfileTabs_handler($sender) {
         if (is_object($sender->User) && $sender->User->UserID > 0) {
@@ -693,11 +736,24 @@ class VanillaHooks implements Gdn_IPlugin {
             $discussionsLabel = sprite('SpDiscussions').' '.t('Discussions');
             $commentsLabel = sprite('SpComments').' '.t('Comments');
             if (c('Vanilla.Profile.ShowCounts', true)) {
-                $discussionsLabel .= '<span class="Aside">'.countString(getValueR('User.CountDiscussions', $sender, null), "/profile/count/discussions?userid=$userID").'</span>';
-                $commentsLabel .= '<span class="Aside">'.countString(getValueR('User.CountComments', $sender, null), "/profile/count/comments?userid=$userID").'</span>';
+                $discussionsCount = getValueR('User.CountDiscussions', $sender, null);
+                $commentsCount = getValueR('User.CountComments', $sender, null);
+
+                if (!is_null($discussionsCount) && !empty($discussionsCount)) {
+                    $discussionsLabel .=
+                        '<span class="Aside">' .
+                        countString(bigPlural($discussionsCount, '%s discussion'), "/profile/count/discussions?userid=$userID")
+                        . '</span>';
+                }
+                if (!is_null($commentsCount)  && !empty($commentsCount)) {
+                    $commentsLabel .=
+                        '<span class="Aside">' .
+                        countString(bigPlural($commentsCount, '%s comment'), "/profile/count/comments?userid=$userID") .
+                        '</span>';
+                }
             }
-            $sender->addProfileTab(t('Discussions'), 'profile/discussions/'.$sender->User->UserID.'/'.rawurlencode($sender->User->Name), 'Discussions', $discussionsLabel);
-            $sender->addProfileTab(t('Comments'), 'profile/comments/'.$sender->User->UserID.'/'.rawurlencode($sender->User->Name), 'Comments', $commentsLabel);
+            $sender->addProfileTab(t('Discussions'), userUrl($sender->User, '', 'discussions'), 'Discussions', $discussionsLabel);
+            $sender->addProfileTab(t('Comments'), userUrl($sender->User, '', 'comments'), 'Comments', $commentsLabel);
             // Add the discussion tab's CSS and Javascript.
             $sender->addJsFile('jquery.gardenmorepager.js');
             $sender->addJsFile('discussions.js', 'vanilla');

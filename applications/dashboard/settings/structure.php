@@ -4,8 +4,8 @@
 /**
  * Dashboard database structure.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -331,6 +331,9 @@ $Construct->table('AnalyticsLocal')
     ->column('EmbedViews', 'int', true)
     ->set(false, false);
 
+$uploadPermission = 'Garden.Uploads.Add';
+$uploadPermissionExists = $Construct->table('Permission')->columnExists($uploadPermission);
+
 // Only Create the permission table if we are using Garden's permission model.
 $PermissionModel = Gdn::permissionModel();
 $PermissionModel->Database = $Database;
@@ -369,7 +372,8 @@ $PermissionModel->define([
     'Garden.PersonalInfo.View' => 'Garden.Moderation.Manage',
     'Garden.AdvancedNotifications.Allow',
     'Garden.Community.Manage' => 'Garden.Settings.Manage',
-    'Garden.Tokens.Add' => 'Garden.Settings.Manage'
+    'Garden.Tokens.Add' => 'Garden.Settings.Manage',
+    $uploadPermission => 1
 ]);
 
 $PermissionModel->undefine([
@@ -381,6 +385,24 @@ $PermissionModel->undefine([
     'Garden.Themes.Manage',
     'Garden.Messages.Manage'
 ]);
+
+// Revoke the new upload permission from existing applicant, unconfirmed and guest roles.
+if ($uploadPermissionExists === false) {
+    $revokeTypes = [RoleModel::TYPE_APPLICANT, RoleModel::TYPE_UNCONFIRMED, RoleModel::TYPE_GUEST];
+
+    foreach ($revokeTypes as $revokeType) {
+        $revokeRoles = $RoleModel->getByType($revokeType)->resultArray();
+        foreach ($revokeRoles as $revokeRole) {
+            $revokePermissions = $PermissionModel->getRolePermissions($revokeRole['RoleID']);
+            foreach ($revokePermissions as $revokePermission) {
+                $PermissionModel->save([
+                    'PermissionID' => $revokePermission['PermissionID'],
+                    $uploadPermission => 0
+                ]);
+            }
+        }
+    }
+}
 
 // Invitation Table
 $Construct->table('Invitation')
@@ -704,7 +726,7 @@ if ($Construct->columnExists('Plugins.Tagging.Add')) {
     ];
     foreach ($configs as $newConfig => $oldConfig) {
         if (Gdn::config()->find($oldConfig, false) !== $configNotFound) {
-            touchConfig($newConfig, c($oldConfig));
+            \Gdn::config()->touch($newConfig, c($oldConfig));
         }
     }
 } else if (!$Construct->columnExists('Vanilla.Tagging.Add')) {
@@ -777,7 +799,8 @@ $Construct
     ->column('Path', 'varchar(255)')
     ->column('Type', 'varchar(128)')
     ->column('Size', 'int(11)')
-    ->column('InsertUserID', 'int(11)')
+    ->column('Active', 'tinyint', 1)
+    ->column('InsertUserID', 'int(11)', false, 'index')
     ->column('DateInserted', 'datetime')
     ->column('ForeignID', 'int(11)', true, 'index.Foreign')
     ->column('ForeignTable', 'varchar(24)', true, 'index.Foreign')
@@ -827,6 +850,19 @@ $Construct
     ->column('DateUpdated', 'datetime', true)
     ->column('UpdateUserID', 'int', true)
     ->column('UpdateIPAddress', 'ipaddress', true)
+    ->set($Explicit, $Drop);
+
+$Construct
+    ->table("contentDraft")
+    ->primaryKey("draftID")
+    ->column("recordType", "varchar(64)", false, ["index", "index.record", "index.parentRecord"])
+    ->column("recordID", "int", true, "index.record")
+    ->column("parentRecordID", "int", true, "index.parentRecord")
+    ->column("attributes", "mediumtext")
+    ->column("insertUserID", "int", false, "index")
+    ->column("dateInserted", "datetime")
+    ->column("updateUserID", "int")
+    ->column("dateUpdated", "datetime")
     ->set($Explicit, $Drop);
 
 // If the AllIPAddresses column exists, attempt to migrate legacy IP data to the UserIP table.
@@ -896,7 +932,7 @@ if (!$captureOnly && $AllIPAddressesExists) {
 // This will allow us to change the default later and grandfather existing forums in.
 saveToConfig('Garden.InputFormatter', c('Garden.InputFormatter'));
 
-touchConfig('Garden.Email.Format', 'text');
+\Gdn::config()->touch('Garden.Email.Format', 'text');
 
 // Make sure the default locale is in its canonical form.
 $currentLocale = c('Garden.Locale');
@@ -907,17 +943,17 @@ if ($currentLocale !== $canonicalLocale) {
 
 // We need to ensure that recaptcha is enabled if this site is upgrading from
 // 2.2 and has never had a captcha plugin
-touchConfig('EnabledPlugins.recaptcha', true);
+\Gdn::config()->touch('EnabledPlugins.recaptcha', true);
 
 // Move recaptcha private key to plugin namespace.
 if (c('Garden.Registration.CaptchaPrivateKey')) {
-    touchConfig('Recaptcha.PrivateKey', c('Garden.Registration.CaptchaPrivateKey'));
+    \Gdn::config()->touch('Recaptcha.PrivateKey', c('Garden.Registration.CaptchaPrivateKey'));
     removeFromConfig('Garden.Registration.CaptchaPrivateKey');
 }
 
 // Move recaptcha public key to plugin namespace.
 if (c('Garden.Registration.CaptchaPublicKey')) {
-    touchConfig('Recaptcha.PublicKey', c('Garden.Registration.CaptchaPublicKey'));
+    \Gdn::config()->touch('Recaptcha.PublicKey', c('Garden.Registration.CaptchaPublicKey'));
     removeFromConfig('Garden.Registration.CaptchaPublicKey');
 }
 
@@ -929,6 +965,18 @@ touchFolder(PATH_CACHE.'/Smarty/compile');
 if (c('Plugins.TouchIcon.Uploaded')) {
     saveToConfig('Garden.TouchIcon', 'TouchIcon/apple-touch-icon.png');
     removeFromConfig('Plugins.TouchIcon.Uploaded');
+}
+
+// Remove AllowJSONP globally
+if (c('Garden.AllowJSONP')) {
+    removeFromConfig('Garden.AllowJSONP');
+}
+
+// Avoid the mobile posts having the rich format fall through as the default when the addon is not enabled.
+$mobileInputFormatter = Gdn::config()->get("Garden.MobileInputFormatter");
+$richEditorEnabled = Gdn::addonManager()->isEnabled("rich-editor", \Vanilla\Addon::TYPE_ADDON);
+if ($mobileInputFormatter === "Rich" && $richEditorEnabled === false) {
+    Gdn::config()->set("Garden.MobileInputFormatter", Gdn::config()->get("Garden.InputFormatter"));
 }
 
 Gdn::router()->setRoute('apple-touch-icon.png', 'utility/showtouchicon', 'Internal');

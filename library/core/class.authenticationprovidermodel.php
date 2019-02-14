@@ -3,8 +3,8 @@
  * Authentication Helper: Authentication Provider Model
  *
  * @author Tim Gunter <tim@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0.10
  */
@@ -254,9 +254,14 @@ class Gdn_AuthenticationProviderModel extends Gdn_Model {
 
             $fields = $this->Validation->validationFields();
             if ($insert === false) {
-                $primaryKeyVal = $row[$this->PrimaryKey];
-                $this->update($fields, [$this->PrimaryKey => $primaryKeyVal]);
+                if ($settings['checkExisting'] ?? false) {
+                    $fields = array_diff_assoc($fields, $row);
+                }
 
+                if (!empty($fields)) {
+                    $primaryKeyVal = $row[$this->PrimaryKey];
+                    $this->update($fields, [$this->PrimaryKey => $primaryKeyVal]);
+                }
             } else {
                 $primaryKeyVal = $this->insert($fields);
             }

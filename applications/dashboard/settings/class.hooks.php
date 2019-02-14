@@ -2,8 +2,8 @@
 /**
  * DashboardHooks class.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -328,7 +328,7 @@ class DashboardHooks extends Gdn_Plugin {
 
             ->addGroupIf('Garden.Settings.Manage', t('Forum Data'), 'forum-data', '', ['after' => 'site-settings'])
             ->addLinkIf(
-                $session->checkPermission('Garden.Import'),
+                \Vanilla\FeatureFlagHelper::featureEnabled('Import') && $session->checkPermission('Garden.Import'),
                 t('Import'),
                 '/dashboard/import',
                 'forum-data.import',
@@ -617,7 +617,7 @@ class DashboardHooks extends Gdn_Plugin {
     public function gdn_dispatcher_appStartup_handler($sender) {
         safeHeader('P3P: CP="CAO PSA OUR"', true);
 
-        if ($sSO = Gdn::request()->get('sso')) {
+        if ($sso = Gdn::request()->get('sso')) {
             saveToConfig('Garden.Registration.SendConnectEmail', false, false);
 
             $deliveryMethod = $sender->getDeliveryMethod(Gdn::request());
@@ -626,7 +626,7 @@ class DashboardHooks extends Gdn_Plugin {
             $userID = false;
             try {
                 $currentUserID = Gdn::session()->UserID;
-                $userID = Gdn::userModel()->sso($sSO);
+                $userID = Gdn::userModel()->sso($sso);
             } catch (Exception $ex) {
                 trace($ex, TRACE_ERROR);
             }
@@ -656,6 +656,15 @@ class DashboardHooks extends Gdn_Plugin {
                 redirectTo($url);
             }
         }
+    }
+
+    /**
+     * Check if we have a valid token associated with the request.
+     * The checkAccessToken was previously done in gdn_dispatcher_appStartup_handler hook.
+     * It was changed to have the access token auth happen as close as possible to standard auth.
+     * It's necessary to do it via events until Vanilla overhauls its authentication workflow.
+     */
+    public function gdn_auth_startAuthenticator_handler() {
         $this->checkAccessToken();
     }
 

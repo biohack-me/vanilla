@@ -1,7 +1,7 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license Proprietary
  */
 
@@ -9,9 +9,9 @@ namespace VanillaTests\APIv0;
 
 
 use Garden\Http\HttpResponse;
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 
-abstract class BaseTest extends TestCase {
+abstract class BaseTest extends SharedBootstrapTestCase {
     /** @var APIv0  $api */
     protected static $api;
 
@@ -19,11 +19,16 @@ abstract class BaseTest extends TestCase {
      * Make sure there is a fresh copy of Vanilla for the class' tests.
      */
     public static function setUpBeforeClass() {
+        parent::setUpBeforeClass();
         $api = new APIv0();
 
         $api->uninstall();
         $api->install(get_called_class());
         self::$api = $api;
+
+        self::$api->saveToConfig([
+            'Vanilla.Discussion.SpamCount' => 100,
+        ]);
 
         $r = $api->get('/discussions.json');
         $data = $r->getBody();
@@ -35,6 +40,7 @@ abstract class BaseTest extends TestCase {
     public static function tearDownAfterClass() {
         self::$api->uninstall();
         self::$api->terminate();
+        parent::tearDownAfterClass();
     }
 
     /**

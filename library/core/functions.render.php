@@ -2,8 +2,8 @@
 /**
  * UI functions
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Core
  * @since 2.0
  */
@@ -421,15 +421,16 @@ if (!function_exists('categoryFilters')) {
         }
 
         $baseUrl = 'categories';
+        $transientKey = Gdn::session()->transientKey();
         $filters = [
             [
-                'name' => 'Following',
+                'name' => t('Following'),
                 'param' => 'followed',
-                'extra' => ['save' => 1]
+                'extra' => ['save' => 1, 'TransientKey' => $transientKey]
             ]
         ];
 
-        $defaultParams = ['save' => 1];
+        $defaultParams = ['save' => 1, 'TransientKey' => $transientKey];
         if (Gdn::request()->get('followed')) {
             $defaultParams['followed'] = 0;
         }
@@ -444,7 +445,7 @@ if (!function_exists('categoryFilters')) {
             $baseUrl,
             $filters,
             $extraClasses,
-            'All',
+            t('All'),
             $defaultUrl,
             'View'
         );
@@ -529,6 +530,7 @@ if (!function_exists('cssClass')) {
      * Used by category, discussion, and comment lists.
      *
      * @param array|object $row
+     * @param bool $inList Whether or not we are in a discussion list.
      * @return string The CSS classes to be inserted into the row.
      */
     function cssClass($row, $inList = true) {
@@ -547,7 +549,7 @@ if (!function_exists('cssClass')) {
         if (array_key_exists('UrlCode', $row)) {
             $cssClass .= ' Category-'.Gdn_Format::alphaNumeric($row['UrlCode']);
         }
-        if (val('CssClass', $row)) {
+        if ($row['CssClass'] ?? false) {
             $cssClass .= ' Item-'.$row['CssClass'];
         }
 
@@ -561,18 +563,22 @@ if (!function_exists('cssClass')) {
 
         // Discussion list classes.
         if ($inList) {
-            $cssClass .= val('Bookmarked', $row) == '1' ? ' Bookmarked' : '';
+            if (array_key_exists('Bookmarked', $row)) {
+                $cssClass .= ($row['Bookmarked'] ?? '') == '1' ? ' Bookmarked' : '';
 
-            $announce = val('Announce', $row);
-            if ($announce == 2) {
-                $cssClass .= ' Announcement Announcement-Category';
-            } elseif ($announce) {
-                $cssClass .= ' Announcement Announcement-Everywhere';
+                $announce = $row['Announce'];
+                if ($announce == 2) {
+                    $cssClass .= ' Announcement Announcement-Category';
+                } elseif ($announce) {
+                    $cssClass .= ' Announcement Announcement-Everywhere';
+                }
+
+                $cssClass .= ($row['Closed'] ?? '') == '1' ? ' Closed' : '';
+                $cssClass .= ($row['Participated'] ?? '') == '1' ? ' Participated' : '';
             }
 
-            $cssClass .= val('Closed', $row) == '1' ? ' Closed' : '';
-            $cssClass .= val('InsertUserID', $row) == $session->UserID ? ' Mine' : '';
-            $cssClass .= val('Participated', $row) == '1' ? ' Participated' : '';
+            $cssClass .= ($row['InsertUserID'] ?? false ) == $session->UserID ? ' Mine' : '';
+
             if (array_key_exists('CountUnreadComments', $row) && $session->isValid()) {
                 $countUnreadComments = $row['CountUnreadComments'];
                 if ($countUnreadComments === true) {
@@ -582,7 +588,7 @@ if (!function_exists('cssClass')) {
                 } else {
                     $cssClass .= ' Unread';
                 }
-            } elseif (($isRead = val('Read', $row, null)) !== null) {
+            } elseif (($isRead = ($row['Read'] ?? null)) !== null) {
                 // Category list
                 $cssClass .= $isRead ? ' Read' : ' Unread';
             }
@@ -599,14 +605,14 @@ if (!function_exists('cssClass')) {
             $cssClass .= isMeAction($row) ? ' MeAction' : '';
         }
 
-        if ($_CssClss = val('_CssClass', $row)) {
+        if ($_CssClss = ($row['_CssClass'] ?? false)) {
             $cssClass .= ' '.$_CssClss;
         }
 
         // Insert User classes.
-        if ($userID = val('InsertUserID', $row)) {
-            $user = Gdn::userModel()->getID($userID);
-            if ($_CssClss = val('_CssClass', $user)) {
+        if ($userID = ($row['InsertUserID'] ?? false)) {
+            $user = Gdn::userModel()->getID($userID, DATASET_TYPE_ARRAY);
+            if ($_CssClss = ($user['_CssClass'] ?? false)) {
                 $cssClass .= ' '.$_CssClss;
             }
         }
@@ -698,7 +704,7 @@ if (!function_exists('commentUrl')) {
     /**
      * Return a URL for a comment. This function is in here and not functions.general so that plugins can override.
      *
-     * @param object $comment
+     * @param object|array $comment
      * @param bool $withDomain
      * @return string
      */
@@ -722,15 +728,16 @@ if (!function_exists('discussionFilters')) {
         }
 
         $baseUrl = 'discussions';
+        $transientKey = Gdn::session()->transientKey();
         $filters = [
             [
-                'name' => 'Following',
+                'name' => t('Following'),
                 'param' => 'followed',
-                'extra' => ['save' => 1]
+                'extra' => ['save' => 1, 'TransientKey' => $transientKey]
             ]
         ];
 
-        $defaultParams = ['save' => 1];
+        $defaultParams = ['save' => 1, 'TransientKey' => $transientKey];
         if (Gdn::request()->get('followed')) {
             $defaultParams['followed'] = 0;
         }
@@ -745,7 +752,7 @@ if (!function_exists('discussionFilters')) {
             $baseUrl,
             $filters,
             $extraClasses,
-            'All',
+            t('All'),
             $defaultUrl,
             'View'
         );
@@ -756,7 +763,7 @@ if (!function_exists('discussionUrl')) {
     /**
      * Return a URL for a discussion. This function is in here and not functions.general so that plugins can override.
      *
-     * @param object $discussion
+     * @param object|array $discussion
      * @param int|string $page
      * @param bool $withDomain
      * @return string
@@ -811,12 +818,15 @@ if (!function_exists('filtersDropDown')) {
      *     ** 'param': URL parameter associated with the filter.
      *     ** 'value': A value for the URL parameter.
      * @param string $extraClasses any extra classes you add to the drop down
-     * @param string $default The default label for when no filter is active.
+     * @param string|null $default The default label for when no filter is active. If `null`, the default label is "All".
      * @param string|null $defaultURL URL override to return to the default, unfiltered state.
      * @param string $label Text for the label to attach to the cont
      * @return string
      */
-    function filtersDropDown($baseUrl, array $filters = [], $extraClasses = '', $default = 'All', $defaultUrl = null, $label = 'View') {
+    function filtersDropDown($baseUrl, array $filters = [], $extraClasses = '', $default = null, $defaultUrl = null, $label = 'View') {
+        if ($default === null) {
+            $default = t('All');
+        }
         $output = '';
 
         if (c('Vanilla.EnableCategoryFollowing')) {
@@ -931,7 +941,7 @@ if (!function_exists('formatPossessive')) {
     }
 }
 
-if (!function_exists('formatRssCustom')) {
+if (!function_exists('formatRssHtmlCustom')) {
     /**
      * @param string $html
      * @return string Returns the filtered RSS.

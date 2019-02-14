@@ -2232,8 +2232,8 @@ img.LeftAlign {
   clear: both;
 }
 
+.codeBlock,
 code, pre {
-  border-radius: 2px;
   background: $yellow-8;
   padding: 4px 8px;
   font-family: monospace;
@@ -2241,10 +2241,12 @@ code, pre {
   border: 1px solid $yellow-9;
 }
 
+.code,
 code {
   white-space: pre-wrap;
 }
 
+.codeBlock,
 pre {
   display: block;
   margin: 1em 0;
@@ -5893,7 +5895,7 @@ Styleguide Item
 
 .item-attachment .item-heading {
   margin-bottom: 0 !important; /* Hack */
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .item-attachment .item-body {
@@ -6000,4 +6002,14 @@ Styleguide Attachments
 
 .Groups.Section-DiscussionList .HomepageTitle {
   display: none;
+}
+
+
+// Special case for editor compatibility. The Bootstrap 3 derived themes have .InputBox that we can use
+// for the border style. If we set a default in style-compat.scss, it won't inherit the styles from
+// Bootstrap 3, so we need to set it before so it gets overwritten.
+.InputBox {
+  background: #fff;
+  border: 1px solid #999;
+  border: 1px solid rgba(0, 0, 0, 0.4);
 }

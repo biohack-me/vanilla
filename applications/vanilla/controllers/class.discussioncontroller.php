@@ -2,8 +2,8 @@
 /**
  * Discussion controller
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Vanilla
  * @since 2.0
  */
@@ -276,6 +276,10 @@ class DiscussionController extends VanillaController {
             }
         }
 
+        $this->Head->setJsonLD(
+            'DiscussionForumPosting',
+            $this->DiscussionModel->structuredData((array)$this->Discussion)
+        );
         $this->render();
     }
 
@@ -398,7 +402,7 @@ class DiscussionController extends VanillaController {
             redirectTo('discussions');
         }
 
-        $this->jsonTarget("#Discussion_$discussionID", null, 'SlideUp');
+        $this->jsonTarget("#Discussion_$discussionID", null, 'Highlight');
 
         $this->render('Blank', 'Utility', 'Dashboard');
     }

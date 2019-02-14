@@ -2,8 +2,8 @@
 /**
  * Activity Model.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -61,9 +61,11 @@ class ActivityModel extends Gdn_Model {
 
     /**
      * Defines the related database table name.
+     *
+     * @param Gdn_Validation $validation The validation dependency.
      */
-    public function __construct() {
-        parent::__construct('Activity');
+    public function __construct(Gdn_Validation $validation = null) {
+        parent::__construct('Activity', $validation);
         try {
             $this->setPruneAfter(c('Garden.PruneActivityAfter', '2 months'));
         } catch (Exception $ex) {
@@ -967,8 +969,13 @@ class ActivityModel extends Gdn_Model {
             $message = $prefix;
         }
 
-        if ($story = val('Story', $activity)) {
-            $message .= $story;
+        $isArray = is_array($activity);
+
+        $story = $isArray ? $activity['Story'] ?? null : $activity->Story ?? null;
+        $format = $isArray ? $activity['Format'] ?? null : $activity->Format ?? null;
+
+        if ($story && $format) {
+            $message .= Gdn_Format::to($story, $format);
         }
 
         return $message;
@@ -978,11 +985,23 @@ class ActivityModel extends Gdn_Model {
      *
      *
      * @param $activity
-     * @param bool $noDelete
+     * @param array $options Options to modify the behavior of the emailing.
+     *
+     * - **NoDelete**: Don't delete an email-only activity once the email is sent.
+     * - **EmailSubject**: A custom subject for the email.
      * @return bool
      * @throws Exception
      */
-    public function email(&$activity, $noDelete = false) {
+    public function email(&$activity,  $options = []) {
+        // The $options parameter used to be $noDelete bool, this is the backwards compat.
+        if (is_bool($options)) {
+            $options = ['NoDelete' => $options];
+        }
+        $options += [
+            'NoDelete' => false,
+            'EmailSubject' => '',
+        ];
+
         if (is_numeric($activity)) {
             $activityID = $activity;
             $activity = $this->getID($activityID);
@@ -1022,16 +1041,22 @@ class ActivityModel extends Gdn_Model {
             $activity['Headline'] = Gdn_Format::activityHeadline($activity, '', $user['UserID']);
         }
 
+        $subject = $options['EmailSubject'] ?: Gdn_Format::plainText($activity['Headline']);
+
         // Build the email to send.
         $email = new Gdn_Email();
-        $email->subject(sprintf(t('[%1$s] %2$s'), c('Garden.Title'), Gdn_Format::plainText($activity['Headline'])));
+        $email->subject(sprintf(
+            t('[%1$s] %2$s'),
+            c('Garden.Title'),
+            $subject
+        ));
         $email->to($user);
 
         $url = externalUrl(val('Route', $activity) == '' ? '/' : val('Route', $activity));
 
         $emailTemplate = $email->getEmailTemplate()
             ->setButton($url, val('ActionText', $activity, t('Check it out')))
-            ->setTitle(Gdn_Format::plainText(val('Headline', $activity)));
+            ->setTitle($subject);
 
         if ($message = $this->getEmailMessage($activity)) {
             $emailTemplate->setMessage($message, true);
@@ -1055,7 +1080,7 @@ class ActivityModel extends Gdn_Model {
             }
 
             // Delete the activity now that it has been emailed.
-            if (!$noDelete && !$activity['Notified']) {
+            if (!$options['NoDelete'] && !$activity['Notified']) {
                 if (val('ActivityID', $activity)) {
                     $this->delete($activity['ActivityID']);
                 } else {
@@ -1235,6 +1260,25 @@ class ActivityModel extends Gdn_Model {
         // Clear out the queue
         unset($this->_NotificationQueue);
         $this->_NotificationQueue = [];
+    }
+
+    /**
+     * Get total unread notifications for a user.
+     *
+     * @param integer $userID
+     */
+    public function getUserTotalUnread($userID) {
+        $notifications = $this->SQL
+            ->select("ActivityID", "count", "total")
+            ->from($this->Name)
+            ->where("NotifyUserID", $userID)
+            ->where("Notified", self::SENT_PENDING)
+            ->get()
+            ->resultArray();
+        if (!is_array($notifications) || !isset($notifications[0])) {
+            return 0;
+        }
+        return $notifications[0]["total"] ?? 0;
     }
 
     /**
@@ -1502,7 +1546,7 @@ class ActivityModel extends Gdn_Model {
 
         $delete = false;
         if ($activity['Emailed'] == self::SENT_PENDING) {
-            $this->email($activity);
+            $this->email($activity, $options);
             $delete = val('_Delete', $activity);
         }
 
@@ -1598,6 +1642,19 @@ class ActivityModel extends Gdn_Model {
         }
 
         return $activity;
+    }
+
+    /**
+     * Update a single activity's notification fields to reflect a read status.
+     *
+     * @param int $activityID
+     */
+    public function markSingleRead(int $activityID) {
+        $this->SQL->put(
+            "Activity",
+            ["Notified" => self::SENT_OK, "Emailed" => self::SENT_OK],
+            ["ActivityID" => $activityID]
+        );
     }
 
     /**

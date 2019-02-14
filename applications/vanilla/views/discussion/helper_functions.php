@@ -1,6 +1,6 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
+ * @copyright 2009-2019 Vanilla Forums Inc.
  * @license http://www.opensource.org/licenses/gpl-2.0.php GPLv2
  */
 
@@ -77,7 +77,7 @@ if (!function_exists('writeComment')) :
             $sender->CanEditComments = $session->checkPermission('Vanilla.Comments.Edit', true, 'Category', 'any') && c('Vanilla.AdminCheckboxes.Use');
         }
         // Prep event args
-        $cssClass = cssClass($comment, $currentOffset);
+        $cssClass = cssClass($comment, false);
         $sender->EventArguments['Comment'] = &$comment;
         $sender->EventArguments['Author'] = &$author;
         $sender->EventArguments['CssClass'] = &$cssClass;
@@ -89,6 +89,10 @@ if (!function_exists('writeComment')) :
             $discussionModel = new DiscussionModel();
             $discussion = $discussionModel->getID($comment->DiscussionID);
             $sender->setData('Discussion', $discussion);
+        }
+        
+        if ($sender->data('Discussion.InsertUserID') === $comment->InsertUserID) {
+            $cssClass .= ' isOriginalPoster';
         }
 
         // DEPRECATED ARGUMENTS (as of 2.1)
@@ -186,14 +190,14 @@ if (!function_exists('discussionOptionsToDropdown')):
      * @param DropdownModule|null $dropdown
      * @return DropdownModule
      */
-    function discussionOptionsToDropdown($options, $dropdown = null) {
+    function discussionOptionsToDropdown(array $options, $dropdown = null) {
         if (is_null($dropdown)) {
             $dropdown = new DropdownModule('dropdown', '', 'OptionsMenu');
         }
 
         if (!empty($options)) {
             foreach ($options as $option) {
-                $dropdown->addLink(val('Label', $option), val('Url', $option), NavModule::textToKey(val('Label', $option)), val('Class', $option));
+                $dropdown->addLink(($option['Label'] ?? ''), ($option['Url'] ?? ''), NavModule::textToKey(($option['Label'] ?? '')), ($option['Class'] ?? false));
             }
         }
 
@@ -613,7 +617,7 @@ if (!function_exists('writeEmbedCommentForm')) :
                 $returnUrl = $controller->data('ForeignSource.vanilla_url', Gdn::request()->pathAndQuery());
 
                 if ($session->isValid()) {
-                    $authenticationUrl = Gdn::authenticator()->signOutUrl($returnUrl);
+                    $authenticationUrl = url(signOutUrl($returnUrl), true);
                     echo wrap(
                         sprintf(
                             t('Commenting as %1$s (%2$s)', 'Commenting as %1$s <span class="SignOutWrap">(%2$s)</span>'),

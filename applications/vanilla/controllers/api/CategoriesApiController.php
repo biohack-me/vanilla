@@ -1,7 +1,7 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 use Garden\Schema\Schema;
@@ -189,7 +189,7 @@ class CategoriesApiController extends AbstractApiController {
      * @return Data
      */
     public function get_search(array $query) {
-        $this->permission('Garden.SignIn.Allow');
+        $this->permission();
 
         $in = $this->schema([
             'query:s' => 'Category name filter.',
@@ -256,7 +256,7 @@ class CategoriesApiController extends AbstractApiController {
      * @return Data
      */
     public function index(array $query) {
-        $this->permission('Garden.SignIn.Allow');
+        $this->permission();
 
         $in = $this->schema([
             'parentCategoryID:i?' => 'Parent category ID.',

@@ -2,8 +2,8 @@
 /**
  * User model.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @package Dashboard
  * @since 2.0
  */
@@ -14,6 +14,9 @@ use Garden\EventManager;
  * Handles user data.
  */
 class UserModel extends Gdn_Model {
+
+    /** @var int */
+    const GUEST_USER_ID = 0;
 
     /** Deprecated. */
     const DEFAULT_CONFIRM_EMAIL = 'You need to confirm your email address before you can continue. Please confirm your email address by clicking on the following link: {/entry/emailconfirm,exurl,domain}/{User.UserID,rawurlencode}/{EmailKey,rawurlencode}';
@@ -64,12 +67,23 @@ class UserModel extends Gdn_Model {
     public $UserMegaThreshold = 1000000;
 
     /**
+     * @var bool
+     */
+    private $nameUnique;
+
+    /**
+     * @var bool
+     */
+    private $emailUnique;
+
+    /**
      * Class constructor. Defines the related database table name.
      *
-     * @param EventManager $eventManager
+     * @param EventManager $eventManager The event manager dependency.
+     * @param Gdn_Validation $validation The validation dependency.
      */
-    public function __construct(EventManager $eventManager = null) {
-        parent::__construct('User');
+    public function __construct(EventManager $eventManager = null, Gdn_Validation $validation = null) {
+        parent::__construct('User', $validation);
 
         if ($eventManager === null) {
             $this->eventManager = Gdn::getContainer()->get(EventManager::class);
@@ -82,6 +96,10 @@ class UserModel extends Gdn_Model {
             'LastIPAddress', 'AllIPAddresses', 'DateFirstVisit', 'DateLastActive', 'CountDiscussions', 'CountComments',
             'Score'
         ]);
+
+
+        $this->nameUnique = (bool)c('Garden.Registration.NameUnique', true);
+        $this->emailUnique = (bool)c('Garden.Registration.EmailUnique', true);
     }
 
     /**
@@ -759,9 +777,10 @@ class UserModel extends Gdn_Model {
      * @param array|int $currentUser
      * @param array $newUser Data to overwrite user with.
      * @param bool $force
+     * @param bool $isTrustedProvider
      * @since 2.1
      */
-    public function syncUser($currentUser, $newUser, $force = false) {
+    public function syncUser($currentUser, $newUser, $force = false, $isTrustedProvider = false) {
         // Don't synchronize the user if we are configured not to.
         if (!$force && !c('Garden.Registration.ConnectSynchronize', true)) {
             return;
@@ -802,7 +821,12 @@ class UserModel extends Gdn_Model {
         $newUser['UserID'] = $currentUser['UserID'];
         trace($newUser);
 
-        $result = $this->save($newUser, ['NoConfirmEmail' => true, 'FixUnique' => true, 'SaveRoles' => isset($newUser['RoleID'])]);
+        $result = $this->save($newUser, [
+            'NoConfirmEmail' => true,
+            'FixUnique' => true,
+            'SaveRoles' => isset($newUser['RoleID']),
+            'ValidateName' => !$isTrustedProvider,
+        ]);
         if (!$result) {
             trace($this->Validation->resultsText());
         }
@@ -821,9 +845,14 @@ class UserModel extends Gdn_Model {
         trace('UserModel->Connect()');
         $provider = Gdn_AuthenticationProviderModel::getProviderByKey($providerKey);
 
+        $isTrustedProvider = $provider['Trusted'] ?? false;
+
+        $saveRoles = $saveRolesRegister = false;
+
         // Trusted providers can sync roles.
-        if (val('Trusted', $provider) && (!empty($userData['Roles']) || !empty($userData['Roles']))) {
+        if ($isTrustedProvider && !empty($userData['Roles'])) {
             saveToConfig('Garden.SSO.SyncRoles', true, false);
+            $saveRoles = $saveRolesRegister = true;
         }
 
         $userID = false;
@@ -839,7 +868,7 @@ class UserModel extends Gdn_Model {
 
         if ($userID) {
             // Save the user.
-            $this->syncUser($userID, $userData);
+            $this->syncUser($userID, $userData, false, $isTrustedProvider);
             return $userID;
         } else {
             // The user hasn't already been connected. We want to see if we can't find the user based on some critera.
@@ -851,7 +880,7 @@ class UserModel extends Gdn_Model {
                 if ($user) {
                     $user = (array)$user;
                     // Save the user.
-                    $this->syncUser($user, $userData);
+                    $this->syncUser($user, $userData, false, $isTrustedProvider);
                     $userID = $user['UserID'];
                 }
             }
@@ -861,15 +890,16 @@ class UserModel extends Gdn_Model {
                 $userData['Password'] = md5(microtime());
                 $userData['HashMethod'] = 'Random';
 
-                touchValue('CheckCaptcha', $options, false);
-                touchValue('NoConfirmEmail', $options, true);
-                touchValue('NoActivity', $options, true);
-
                 // Translate SSO style roles to an array of role IDs suitable for registration.
                 if (!empty($userData['Roles']) && !isset($userData['RoleID'])) {
                     $userData['RoleID'] = $this->lookupRoleIDs($userData['Roles']);
                 }
-                touchValue('SaveRoles', $options, !empty($userData['RoleID']) && c('Garden.SSO.SyncRoles', false));
+
+                $options['CheckCaptcha'] = $options['CheckCaptcha'] ?? false;
+                $options['NoConfirmEmail'] = isset($userData['Email']) || !UserModel::requireConfirmEmail();
+                $options['NoActivity'] = $options['NoActivity'] ?? true;
+                $options['SaveRoles'] = $saveRolesRegister;
+                $options['ValidateName'] = !$isTrustedProvider;
 
                 trace($userData, 'Registering User');
                 $userID = $this->register($userData, $options);
@@ -1019,7 +1049,7 @@ class UserModel extends Gdn_Model {
         $userIDs = [];
         foreach ($data as $row) {
             foreach ($columns as $columnName) {
-                $iD = val($columnName, $row);
+                $iD = (is_object($row))? ($row->$columnName ?? false) : ($row[$columnName] ?? false);
                 if (is_numeric($iD)) {
                     $userIDs[$iD] = 1;
                 }
@@ -1036,13 +1066,15 @@ class UserModel extends Gdn_Model {
         }
 
         // Join the user data using prefixes (ex: 'Name' for 'InsertUserID' becomes 'InsertName')
-        $join = val('Join', $options, ['Name', 'Email', 'Photo']);
+        $join = ($options['Join'] ?? ['Name', 'Email', 'Photo']);
 
         foreach ($data2 as &$row) {
+            $isObj = is_object($row);
             foreach ($prefixes as $px) {
-                $iD = val($px.'UserID', $row);
+                $pxUserId = $px.'UserID';
+                $iD = $isObj ? ($row->$pxUserId ?? false) : ($row[$pxUserId] ?? false);
                 if (is_numeric($iD)) {
-                    $user = val($iD, $users, false);
+                    $user = $users[$iD] ?? false;
                     foreach ($join as $column) {
                         $value = $user[$column];
                         if ($column == 'Photo') {
@@ -1470,7 +1502,6 @@ class UserModel extends Gdn_Model {
 
         // Check page cache, then memcached
         $user = $this->getUserFromCache($iD, 'userid');
-
         // If not, query DB
         if ($user === Gdn_Cache::CACHEOP_FAILURE) {
             $user = parent::getID($iD, DATASET_TYPE_ARRAY);
@@ -1485,12 +1516,12 @@ class UserModel extends Gdn_Model {
             return false;
         }
 
-        // Apply calculated fields
-        $this->setCalculatedFields($user);
-
         // Allow FALSE returns
         if ($user === false || is_null($user)) {
             return false;
+        } else {
+            // Apply calculated fields
+            $this->setCalculatedFields($user);
         }
 
         if (is_array($user) && $datasetType == DATASET_TYPE_OBJECT) {
@@ -1827,7 +1858,7 @@ class UserModel extends Gdn_Model {
                     'Photo' => asset('/applications/dashboard/design/images/usericon.png', true),
                     'Password' => randomString('20'),
                     'HashMethod' => 'Random',
-                    'Email' => 'system@example.com',
+                    'Email' => 'system@stub.vanillacommunity.example',
                     'DateInserted' => Gdn_Format::toDateTime(),
                     'Admin' => '2'
                 ];
@@ -2064,6 +2095,7 @@ class UserModel extends Gdn_Model {
      * - HashPassword - Hash the provided password on update. Default true.
      * - FixUnique - Try to resolve conflicts with unique constraints on Name and Email. Default false.
      * - ValidateEmail - Make sure the provided email addresses is formatted properly. Default true.
+     * - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * - NoConfirmEmail - Disable email confirmation. Default false.
      *
      */
@@ -2159,6 +2191,9 @@ class UserModel extends Gdn_Model {
         if (array_key_exists('Email', $formPostValues) && val('ValidateEmail', $settings, true)) {
             $this->Validation->applyRule('Email', 'Email');
         }
+        if (val('ValidateName', $settings, true)) {
+            $this->Validation->applyRule('Name', 'Username');
+        }
 
         if ($this->validate($formPostValues, $insert) && $uniqueValid) {
             // All fields on the form that need to be validated (including non-schema field rules defined above)
@@ -2182,17 +2217,19 @@ class UserModel extends Gdn_Model {
 
             // Check for email confirmation.
             if (self::requireConfirmEmail() && !val('NoConfirmEmail', $settings)) {
+                $emailIsSet = isset($fields['Email']);
+                $emailIsNotConfirmed = array_key_exists('Confirmed', $fields) && $fields['Confirmed'] == 0;
+                $validSession = Gdn::session()->isValid();
+
+                $currentUserEmailIsBeingChanged =
+                    $validSession
+                    && $userID == Gdn::session()->UserID
+                    && $fields['Email'] != Gdn::session()->User->Email
+                    && !Gdn::session()->checkPermission('Garden.Users.Edit')
+                ;
+
                 // Email address has changed
-                if (isset($fields['Email']) && (
-                        array_key_exists('Confirmed', $fields) &&
-                        $fields['Confirmed'] == 0 ||
-                        (
-                            $userID == Gdn::session()->UserID &&
-                            $fields['Email'] != Gdn::session()->User->Email &&
-                            !Gdn::session()->checkPermission('Garden.Users.Edit')
-                        )
-                    )
-                ) {
+                if ($emailIsSet && ($emailIsNotConfirmed || $currentUserEmailIsBeingChanged)) {
                     $attributes = val('Attributes', Gdn::session()->User);
                     if (is_string($attributes)) {
                         $attributes = dbdecode($attributes);
@@ -2317,9 +2354,12 @@ class UserModel extends Gdn_Model {
                     // Define the other required fields:
                     $fields['Email'] = $email;
 
+                    // Make sure that the user is assigned to at least the default role(s).
+                    if (!is_array($roleIDs)) {
+                        $roleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
+                    }
                     $fields['Roles'] = $roleIDs;
-                    // Make sure that the user is assigned to one or more roles:
-                    $saveRoles = false;
+                    $saveRoles = false; // insertInternal will take care of updating the roles.
 
                     // And insert the new user.
                     $userID = $this->insertInternal($fields, $settings);
@@ -2346,6 +2386,7 @@ class UserModel extends Gdn_Model {
                             'HeadlineFormat' => t('HeadlineFormat.AddUser', '{ActivityUserID,user} added an account for {RegardingUserID,user}.')]);
                     }
                 }
+
                 // Now update the role settings if necessary.
                 if ($saveRoles) {
                     // If no RoleIDs were provided, use the system defaults
@@ -2546,8 +2587,8 @@ class UserModel extends Gdn_Model {
         }
         $keywords = trim($keywords);
 
-        // Check for an IP address.
-        if (preg_match('`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`', $keywords)) {
+        // Check for an IPV4/IPV6 address.
+        if (filter_var($keywords, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6) !== false) {
             $ipAddress = $keywords;
             $this->addIpFilters($ipAddress, ['LastIPAddress']);
         } elseif (strtolower($keywords) == 'banned') {
@@ -2571,7 +2612,7 @@ class UserModel extends Gdn_Model {
         $this->fireEvent('AfterUserQuery');
 
         if (isset($where)) {
-            $this->SQL->where($where);
+            $this->SQL->where($where, null, false);
         }
 
         if (!empty($roleID)) {
@@ -2689,15 +2730,15 @@ class UserModel extends Gdn_Model {
         }
 
         if (isset($where)) {
-            $this->SQL->where($where);
+            $this->SQL->where($where, null, false);
         }
 
         $this->SQL
             ->select('u.UserID', 'count', 'UserCount')
             ->from('User u');
 
-        // Check for an IP address.
-        if (preg_match('`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}`', $keywords)) {
+        // Check for an IPV4/IPV6 address.
+        if (filter_var($keywords, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6) !== false) {
             $fields = ['LastIPAddress'];
             $this->addIpFilters($keywords, $fields);
         } else if ($roleID) {
@@ -2797,6 +2838,7 @@ class UserModel extends Gdn_Model {
      *
      * @param array $formPostValues
      * @param array $options
+     *  - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * @return int UserID.
      */
     public function insertForInvite($formPostValues, $options = []) {
@@ -2852,6 +2894,10 @@ class UserModel extends Gdn_Model {
 
         $inviteUserID = $invitation->InsertUserID;
         $formPostValues['Email'] = $invitation->Email;
+
+        if (val('ValidateName', $options, true)) {
+            $this->Validation->applyRule('Name', 'Username');
+        }
 
         if ($this->validate($formPostValues, true)) {
             // Check for spam.
@@ -2932,6 +2978,7 @@ class UserModel extends Gdn_Model {
      * @param array $options
      *  - ValidateSpam
      *  - CheckCaptcha
+     *  - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * @return int UserID.
      */
     public function insertForApproval($formPostValues, $options = []) {
@@ -2956,6 +3003,10 @@ class UserModel extends Gdn_Model {
         }
 
         $this->addInsertFields($formPostValues);
+
+        if (val('ValidateName', $options, true)) {
+            $this->Validation->applyRule('Name', 'Username');
+        }
 
         if ($this->validate($formPostValues, true)) {
 
@@ -3005,6 +3056,7 @@ class UserModel extends Gdn_Model {
      * @param array $formPostValues
      * @param bool $checkCaptcha
      * @param array $options
+     *  - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * @return bool|int|string
      * @throws Exception
      */
@@ -3024,8 +3076,13 @@ class UserModel extends Gdn_Model {
         $this->defineSchema();
 
         // Add & apply any extra validation rules.
+        $this->Validation->addRule('UsernameBlacklist', 'function:validateAgainstUsernameBlacklist');
+        $this->Validation->applyRule('Name', 'UsernameBlacklist');
         if (val('ValidateEmail', $options, true)) {
             $this->Validation->applyRule('Email', 'Email');
+        }
+        if (val('ValidateName', $options, true)) {
+            $this->Validation->applyRule('Name', 'Username');
         }
 
         // TODO: DO I NEED THIS?!
@@ -3322,7 +3379,7 @@ class UserModel extends Gdn_Model {
      * @param string $password
      * @return object|false Returns the user matching the credentials or **false** if the user doesn't validate.
      */
-    public function validateCredentials($email = '', $iD = 0, $password) {
+    public function validateCredentials($email = '', $iD = 0, $password, $throw = false) {
         $this->EventArguments['Credentials'] = ['Email' => $email, 'ID' => $iD, 'Password' => $password];
         $this->fireEvent('BeforeValidateCredentials');
 
@@ -3365,19 +3422,26 @@ class UserModel extends Gdn_Model {
             $dataSet = $this->SQL->get();
         }
 
-        if ($dataSet->numRows() < 1) {
+        if ($dataSet->numRows() < 1 || val('Deleted', $dataSet->firstRow())) {
+            if ($throw) {
+                $validation = new \Garden\Schema\Validation();
+                $validation->addError('username', sprintf(t('User not found.'), strtolower(t(UserModel::signinLabelCode()))), 404);
+                throw new \Garden\Schema\ValidationException($validation);
+            }
+
             return false;
         }
 
         $userData = $dataSet->firstRow();
-        // Check for a deleted user.
-        if (val('Deleted', $userData)) {
-            return false;
-        }
 
         $passwordHash = new Gdn_PasswordHash();
         $hashMethod = val('HashMethod', $userData);
         if (!$passwordHash->checkPassword($password, $userData->Password, $hashMethod, $userData->Name)) {
+            if ($throw) {
+                $validation = new \Garden\Schema\Validation();
+                $validation->addError('password', t('The password you entered is incorrect.'), 401);
+                throw new \Garden\Schema\ValidationException($validation);
+            }
             return false;
         }
 
@@ -4017,6 +4081,62 @@ class UserModel extends Gdn_Model {
      * @throws Exception
      */
     public function setCalculatedFields(&$user) {
+        if (is_object($user)) {
+            $this->setCalculatedFieldsObject($user);
+            return;
+        } elseif (empty($user)){
+            return;
+        }
+        if (is_string($v = ($user['Attributes'] ?? false))) {
+            $user['Attributes'] = dbdecode($v);
+        }
+        if (is_string($v = ($user['Permissions'] ?? false))) {
+            $user['Permissions'] = dbdecode($v);
+        }
+        if (is_string($v = ($user['Preferences'] ?? false))) {
+            $user['Preferences'] = dbdecode($v);
+        }
+
+        if ($v = ($user['Photo'] ?? false)) {
+            if (!isUrl($v)) {
+                $photoUrl = Gdn_Upload::url(changeBasename($v, 'n%s'));
+            } else {
+                $photoUrl = $v;
+            }
+            $user['PhotoUrl'] = $photoUrl;
+        }
+
+        $confirmed = ($user['Confirmed'] ?? null);
+        if ($confirmed !== null) {
+            $user['EmailConfirmed'] = $confirmed;
+        }
+        $verified = ($user['Verified'] ?? null);
+        if ($verified !== null) {
+            $user['BypassSpam'] = $verified;
+        }
+
+        // We store IPs in the UserIP table. To avoid unnecessary queries, the full list is not built here. Shim for BC.
+        $user['AllIPAddresses'] = [
+            $user['InsertIPAddress'] ?? false,
+            $user['LastIPAddress'] ?? false
+        ];
+
+        $user['_CssClass'] = '';
+        if ($user['Banned'] ?? false) {
+            $user['_CssClass'] = 'Banned';
+        }
+
+        $this->EventArguments['User'] = &$user;
+        $this->fireEvent('SetCalculatedFields');
+    }
+
+    /**
+     * Duplicates `setCalculatedFields()` for objects.
+     *
+     * @deprecated Call `setCalculatedFields()` with an array instead.
+     */
+    public function setCalculatedFieldsObject( &$user) {
+        deprecated(__METHOD__);
         if ($v = val('Attributes', $user)) {
             if (is_string($v)) {
                 setValue('Attributes', $user, dbdecode($v));
@@ -4455,26 +4575,43 @@ class UserModel extends Gdn_Model {
     /**
      * Send forgot password email.
      *
-     * @param string $email
+     * @param string $input
+     * @param array $options
      * @return bool
      */
-    public function passwordRequest($email) {
-        if (!$email) {
+    public function passwordRequest($input, $options = []) {
+        $this->Validation->reset();
+        if (!$input) {
             return false;
         }
+        $log = $options['log'] ?? true;
 
-        $users = $this->getWhere(['Email' => $email])->resultObject();
-        if (count($users) == 0) {
+        $users = $this->getWhere(['Email' => $input])->resultObject();
+        if (empty($users)) {
+            // Don't allow username reset unless usernames are unique.
+            if (($this->isEmailUnique() || !$this->isNameUnique()) && filter_var($input, FILTER_VALIDATE_EMAIL) === false) {
+                $this->Validation->addValidationResult('Email', 'You must enter a valid email address.');
+                return false;
+            }
+
             // Check for the username.
-            $users = $this->getWhere(['Name' => $email])->resultObject();
+            $users = $this->getWhere(['Name' => $input])->resultObject();
         }
 
         $this->EventArguments['Users'] =& $users;
-        $this->EventArguments['Email'] = $email;
+        $this->EventArguments['Email'] = $input;
         $this->fireEvent('BeforePasswordRequest');
 
         if (count($users) == 0) {
-            $this->Validation->addValidationResult('Name', "Couldn't find an account associated with that email/username.");
+            $this->Validation->addValidationResult('email', "Couldn't find an account associated with that email/username.");
+            if ($log) {
+                Logger::event(
+                    'password_reset_failure',
+                    Logger::INFO,
+                    'Can\'t find account associated with email/username {input}.',
+                    ['input' => $input]
+                );
+            }
             return false;
         }
 
@@ -4501,9 +4638,34 @@ class UserModel extends Gdn_Model {
 
             try {
                 $email->send();
-            } catch (Exception $e) {
+                if ($log) {
+                    Logger::event(
+                        'password_reset_request',
+                        Logger::INFO,
+                        '{email} has been sent a password reset email.',
+                        ['input' => $input, 'email' => $user->Email, 'forUserID' => $user->UserID]
+                    );
+                }
+            } catch (Exception $ex) {
+                if ($log) {
+                    if ($ex->getCode() === Gdn_Email::ERR_SKIPPED) {
+                        Logger::event(
+                            'password_reset_skipped',
+                            Logger::INFO,
+                            $ex->getMessage(),
+                            ['input' => $input, 'email' => $user->Email]
+                        );
+                    } else {
+                        Logger::event(
+                            'password_reset_failure',
+                            Logger::ERROR,
+                            'The password reset email to {email} failed to send.',
+                            ['input' => $input, 'email' => $user->Email]
+                        );
+                    }
+                }
                 if (debug()) {
-                    throw $e;
+                    throw $ex;
                 }
             }
 
@@ -4512,6 +4674,14 @@ class UserModel extends Gdn_Model {
 
         if ($noEmail) {
             $this->Validation->addValidationResult('Name', 'There is no email address associated with that account.');
+            if ($log) {
+                Logger::event(
+                    'password_reset_failure',
+                    Logger::INFO,
+                    'Can\'t find account associated with email/username {input}.',
+                    ['input' => $input]
+                );
+            }
             return false;
         }
         return true;
@@ -5050,5 +5220,45 @@ class UserModel extends Gdn_Model {
 
         $result = [$column, $direction];
         return $result;
+    }
+
+    /**
+     * Whether or not usernames have to be unique.
+     *
+     * @return bool Returns the setting.
+     */
+    public function isNameUnique() {
+        return $this->nameUnique;
+    }
+
+    /**
+     * Whether or not usernames have to be unique.
+     *
+     * @param bool $nameUnique The new setting.
+     * @return $this
+     */
+    public function setNameUnique(bool $nameUnique) {
+        $this->nameUnique = $nameUnique;
+        return $this;
+    }
+
+    /**
+     * Whether or not email addresses have to be unique.
+     *
+     * @return bool Returns the setting.
+     */
+    public function isEmailUnique() {
+        return $this->emailUnique;
+    }
+
+    /**
+     * Whether or not email addresses have to be unique.
+     *
+     * @param bool $emailUnique The new setting.
+     * @return $this
+     */
+    public function setEmailUnique(bool $emailUnique) {
+        $this->emailUnique = $emailUnique;
+        return $this;
     }
 }

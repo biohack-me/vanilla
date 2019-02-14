@@ -1,8 +1,8 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace Garden\Web\Exception;
@@ -100,8 +100,9 @@ abstract class HttpException extends \Exception implements \JsonSerializable {
      * @param int $code An HTTP status code.
      * @param string $message The error message or an empty string to use the default message for the code.
      * @param array $context An array of context variables that can be used to render a more detailed response.
+     * @return HttpException Returns the new exception.
      */
-    public static function createFromStatus($code, $message = '', array $context = []) {
+    public static function createFromStatus(int $code, string $message = '', array $context = []): HttpException {
         // Try for a specific error message.
         switch ($code) {
             case 403:

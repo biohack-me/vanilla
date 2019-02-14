@@ -4,8 +4,8 @@
  *
  * Called by VanillaHooks::setup() to update database upon enabling app.
  *
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license http://www.opensource.org/licenses/gpl-2.0.php GNU GPL v2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  * @since 2.0
  * @package Vanilla
  */
@@ -441,8 +441,43 @@ if (!$captureOnly) {
     }
 }
 
+// Override MaxLength settings that are too high for the database
+$maxCommentLength = Gdn::config('Vanilla.Comment.MaxLength');
+if ($maxCommentLength > DiscussionModel::MAX_POST_LENGTH) {
+    saveToConfig('Vanilla.Comment.MaxLength', DiscussionModel::MAX_POST_LENGTH);
+}
+
 // Add stub content
 include(PATH_APPLICATIONS.DS.'vanilla'.DS.'settings'.DS.'stub.php');
+
+$defaultEmails = [
+    'system@example.com',
+    'vanilla@stub.vanillacommunity.com',
+    'karen@stub.vanillacommunity.com',
+    'victorine@stub.vanillacommunity.com',
+    'alex@stub.vanillacommunity.com'
+];
+
+$users = [];
+foreach ($defaultEmails as $email) {
+    $user = Gdn::userModel()
+        ->getWhere(['Email' => $email])
+        ->firstRow(DATASET_TYPE_ARRAY);
+
+    if ($user) {
+        $users[] = $user;
+    }
+}
+
+foreach ($users as $user) {
+    if ($user) {
+        $emailPrefix = explode('@', $user['Email']);
+        $SQL->update('User')
+            ->set('Email', $emailPrefix[0].'@vanillacommunity.example')
+            ->where('email', $user['Email'])
+            ->put();
+    }
+}
 
 // Set current Vanilla.Version
 $appInfo = json_decode(file_get_contents(PATH_APPLICATIONS.DS.'vanilla'.DS.'addon.json'), true);

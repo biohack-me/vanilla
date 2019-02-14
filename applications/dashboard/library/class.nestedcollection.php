@@ -376,7 +376,7 @@ trait NestedCollection {
         $this->touchKey($link);
         $link['cssClass'] = $cssClass.' '.$this->buildCssClass($this->linkCssClassPrefix, $link);
 
-        $listItemCssClasses = val('listItemCssClasses', $modifiers, []);
+        $listItemCssClasses = $modifiers['listItemCssClasses'] ?? [];
         if ($disabled) {
             $listItemCssClasses[] = 'disabled';
         }
@@ -425,12 +425,13 @@ trait NestedCollection {
      * @param array $item The item to add to the array.
      * @throws Exception
      */
-    private function addItem($type, $item) {
+    private function addItem($type, array $item) {
         $this->touchKey($item);
-        if (!is_array(val('key', $item))) {
-            $item['key'] = explode('.', val('key', $item));
+        $key = $item['key'] ?? false;
+        if (!is_array($key)) {
+            $item['key'] = explode('.', $key);
         } else {
-            $item['key'] = array_values(val('key', $item));
+            $item['key'] = array_values($key);
         }
 
         $item = (array)$item;
@@ -440,14 +441,14 @@ trait NestedCollection {
 
         // Walk into the items list to set the item.
         $items =& $this->items;
-        foreach (val('key', $item) as $i => $key_part) {
+        foreach ($item['key'] as $i => $key_part) {
 
-            if ($i === count(val('key', $item)) - 1) {
+            if ($i === count($item['key'] ?? false) - 1) {
                 // Add the item here.
                 if (array_key_exists($key_part, $items)) {
                     // The item is already here so merge this one on top of it.
                     if ($items[$key_part]['type'] !== $type)
-                        throw new \Exception(val('key', $item)." of type $type does not match existing type {$items[$key_part]['type']}.", 500);
+                        throw new \Exception(($item['key'] ?? '')." of type $type does not match existing type {$items[$key_part]['type']}.", 500);
 
                     $items[$key_part] = array_merge($items[$key_part], $item);
                 } else {
@@ -502,7 +503,7 @@ trait NestedCollection {
      * @param array $item The item to generate CSS class for.
      * @return string The generated CSS class.
      */
-    private function buildCssClass($prefix, $item) {
+    private function buildCssClass($prefix, array $item = []) {
         $result = '';
         if ($prefix) {
             $prefix .= '-';
@@ -510,12 +511,12 @@ trait NestedCollection {
         if (!$this->useCssPrefix) {
             $prefix = '';
         }
-        if (val('key', $item)) {
-            if (is_array(val('key', $item))) {
-                $result .= $prefix.implode('-', val('key', $item));
+        if ($cssClass = ($item['key'] ?? false)) {
+            if (is_array($cssClass)) {
+                $result .= $prefix.implode('-', $cssClass);
             }
             else {
-                $result .= $prefix.str_replace('.', '-', val('key', $item));
+                $result .= $prefix.str_replace('.', '-', $cssClass);
             }
         }
         return trim($result);
@@ -533,35 +534,46 @@ trait NestedCollection {
         } else {
             $highlightRoute = url($this->highlightRoute);
         }
-        return (val('url', $item) && (trim(url(val('url', $item)), '/') == trim($highlightRoute, '/')));
+        $url = $item['url'] ?? false;
+        if ($url) {
+            $result = trim(url($url), '/') == trim($highlightRoute, '/');
+        } else {
+            $result = false;
+        }
+        return $result;
     }
 
     /**
      * Recursive function to sort the items in a given array.
      *
-     * @param array $items The items to sort.
+     * @param array &$items The items to sort.
      */
-    private function sortItems(&$items) {
-        foreach($items as &$item) {
-            if (val('items', $item)) {
+    protected function sortItems(&$items) {
+        $i = 0;
+        foreach ($items as &$item) {
+            $item += ['_sort' => $i++];
+            if ($item['items'] ?? false) {
                 $this->sortItems($item['items']);
             }
         }
-        uasort($items, function($a, $b) use ($items) {
+
+        uasort($items, function ($a, $b) use ($items) {
             $sort_a = $this->sortItemsOrder($a, $items);
             $sort_b = $this->sortItemsOrder($b, $items);
 
-            if ($sort_a > $sort_b)
+            if ($sort_a > $sort_b) {
                 return 1;
-            elseif ($sort_a < $sort_b)
+            } elseif ($sort_a < $sort_b) {
                 return -1;
-            else
+            } else {
                 return 0;
+            }
         });
     }
 
     /**
      * Get the sort order of an item in the items array.
+     *
      * This function looks at the following keys:
      * - **sort (numeric)**: A specific numeric sort was provided.
      * - **sort array('before|after', 'key')**: You can specify that the item is before or after another item.
@@ -580,7 +592,7 @@ trait NestedCollection {
             if (is_numeric($item['sort'])) {
                 // This is a numeric sort
                 return $item['sort'] * 10000 + $default_sort;
-            } elseif (is_array($item['sort']) && $depth < 10) {
+            } elseif (is_array($item['sort']) && !empty($item['sort']) && $depth < 10) {
                 // This sort is before or after another depth.
                 $op = array_keys($item['sort'])[0];
                 $key = $item['sort'][$op];
@@ -694,7 +706,7 @@ trait NestedCollection {
      * @param array $items The item list to flatten.
      * @return array The flattened items list.
      */
-    private function flattenArray($items) {
+    private function flattenArray(array $items) {
         $newItems = [];
         $itemslength = sizeof($items);
         $index = 0;
@@ -702,16 +714,16 @@ trait NestedCollection {
             $subItems = [];
 
             // Group item
-            if (val('type', $item) == 'group') {
-                if (val('items', $item)) {
+            if (($item['type'] ?? '') == 'group') {
+                if (($item['items'] ?? false)) {
                     $subItems = $item['items'];
                     unset($item['items']);
-                    if (val('text', $item)) {
+                    if (($item['text'] ?? false)) {
                         $newItems[] = $item;
                     }
                 }
             }
-            if ((val('type', $item) != 'group')) {
+            if (($item['type'] ?? '') != 'group') {
                 $newItems[] = $item;
             }
             if ($subItems) {

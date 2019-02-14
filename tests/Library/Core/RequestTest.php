@@ -1,18 +1,18 @@
 <?php
 /**
- * @copyright 2009-2018 Vanilla Forums Inc.
- * @license GPLv2
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
  */
 
 namespace VanillaTests\Library\Core;
 
-use PHPUnit\Framework\TestCase;
+use VanillaTests\SharedBootstrapTestCase;
 use Gdn_Request;
 
 /**
  * Test the {@link Gdn_Request} class.
  */
-class RequestTest extends TestCase {
+class RequestTest extends SharedBootstrapTestCase {
 
     public function provideUrls() {
         return [
