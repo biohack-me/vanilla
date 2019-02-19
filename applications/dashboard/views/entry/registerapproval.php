@@ -48,6 +48,7 @@
             <li>
                 <?php
                 echo $this->Form->label('Why do you want to join?', 'DiscoveryText');
+                echo wrap(t('This will be reviewed by moderators before your account becomes active.'), 'div', ['class' => 'Gloss']);
                 echo $this->Form->textBox('DiscoveryText', ['MultiLine' => true, 'Wrap' => TRUE]);
                 ?>
             </li>
