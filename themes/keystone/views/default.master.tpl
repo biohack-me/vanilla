@@ -55,7 +55,7 @@
       <p class="browsehappy">You are using an <strong>outdated</strong> browser. Please <a href="http://browsehappy.com/">upgrade your browser</a> to improve your experience.</p>
     <![endif]-->
 
-    <div class="Frame">
+    <div class="Frame" id="page">
         <div class="Frame-top">
             <div class="Frame-header">
 
@@ -78,6 +78,12 @@
                             <a href="{home_link format="%url"}" class="Header-logo mobile">
                                 {mobile_logo}
                             </a>
+                            <nav class="Header-desktopNav">
+                                {categories_link format=$linkFormat}
+                                {discussions_link format=$linkFormat}
+                                {custom_menu format=$linkFormat}
+                            </nav>
+                            <div class="Header-flexSpacer"></div>
                             <div class="Header-right">
                                 <div class="MeBox-header">
                                     {module name="MeModule" CssClass="FlyoutRight"}
@@ -166,31 +172,24 @@
                     <div class="Container">
                         <div class="Frame-contentWrap">
                             <div class="Frame-details">
-                                {if !$ThemeOptions.Options.hasFeatureSearchbox || !inSection(["CategoryList", "DiscussionList"])}
+                                {if !$isHomepage}
                                     <div class="Frame-row">
                                         <nav class="BreadcrumbsBox">
                                             {breadcrumbs}
                                         </nav>
-                                        {if !$SectionGroups}
-                                            <div class="SearchBox js-sphinxAutoComplete" role="search">
-                                                {if $hasAdvancedSearch === true}
-                                                    {module name="AdvancedSearchModule"}
-                                                {else}
-                                                    {searchbox}
-                                                {/if}
-                                            </div>
-                                        {/if}
                                     </div>
                                 {/if}
+                                <div class="Frame-row SearchBoxMobile">
+                                    {if !$SectionGroups && !inSection(["SearchResults"])}
+                                        <div class="SearchBox js-sphinxAutoComplete" role="search">
+                                            {module name="AdvancedSearchModule"}
+                                        </div>
+                                    {/if}
+                                </div>
                                 <div class="Frame-row">
 
                                     <!---------- Main Content ---------->
                                     <main class="Content MainContent">
-                                        {if $ThemeOptions.Options.hasFeatureSearchbox && inSection(["CategoryList", "DiscussionList"])}
-                                            <nav class="BreadcrumbsBox">
-                                                {breadcrumbs}
-                                            </nav>
-                                        {/if}
                                         <!---------- Profile Page Header ---------->
                                         {if inSection("Profile")}
                                             <div class="Profile-header">
@@ -221,12 +220,16 @@
                                         <!---------- Profile Page Header END ---------->
 
                                         {asset name="Content"}
-                                        {event name="AfterBody"}
                                     </main>
                                     <!---------- Main Content END ---------->
 
                                     <!---------- Main Panel ---------->
                                     <aside class="Panel Panel-main">
+                                        {if !$SectionGroups}
+                                            <div class="SearchBox js-sphinxAutoComplete" role="search">
+                                                {searchbox}
+                                            </div>
+                                        {/if}
                                         {asset name="Panel"}
                                     </aside>
                                     <!---------- Main Panel END ---------->
@@ -264,6 +267,8 @@
 
         </div>
     </div>
+    <div id="modals"></div>
+    {event name="AfterBody"}
 </body>
 
 </html>

@@ -10,12 +10,26 @@
 
 use Garden\Container\Container;
 use Garden\Container\Reference;
-use Vanilla\Formatting\Embeds\EmbedManager;
 
 /**
  * Vanilla's event handlers.
  */
 class VanillaHooks implements Gdn_IPlugin {
+
+    /**
+     * Handle the container init event to register things with the container.
+     *
+     * @param Container $dic
+     */
+    public function container_init(Container $dic) {
+        $dic->rule(\Vanilla\Navigation\BreadcrumbModel::class)
+            ->addCall('addProvider', [new Reference(\Vanilla\Forum\Navigation\ForumBreadcrumbProvider::class)])
+        ;
+
+        $dic->rule(\Vanilla\Menu\CounterModel::class)
+            ->addCall('addProvider', [new Reference(\Vanilla\Forum\Menu\UserCounterProvider::class)])
+        ;
+    }
 
     /**
      * Add to valid media attachment types.
@@ -1098,6 +1112,23 @@ class VanillaHooks implements Gdn_IPlugin {
     public function pluginController_tagsearch_create() {
         $query = http_build_query(Gdn::request()->getQuery());
         redirectTo(url('/tags/search'.($query ? '?'.$query : null)), 301);
+    }
+
+    /**
+     * Hook in before a discussion is rendered and display any messages.
+     *
+     * @param mixed DiscussionController $sender
+     * @param array array $args
+     */
+    public function discussionController_beforeDiscussionDisplay_handler($sender, array $args) {
+        if (!($sender instanceof DiscussionController)) {
+            return;
+        }
+
+        $messages = $sender->getMessages();
+        foreach ($messages as $message) {
+            echo $message;
+        }
     }
 
     /**

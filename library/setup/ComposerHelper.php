@@ -27,7 +27,7 @@ class ComposerHelper {
         $cacheDir = realpath(__DIR__.'/../../cache');
 
         $paths = array_merge(
-            [$cacheDir.'/addon.php'],
+            [$cacheDir.'/addon.php', $cacheDir.'/openapi.php'],
             glob($cacheDir.'/locale/*.php'),
             glob($cacheDir.'/theme/*.php'),
             glob($cacheDir.'/*-index.php')
@@ -90,7 +90,7 @@ class ComposerHelper {
 
         printf("\nBuilding frontend assets\n");
         printf("\n$buildCommand\n");
-        passthru($buildCommand, $buildResult);
+        system($buildCommand, $buildResult);
 
         if ($buildResult !== 0) {
             printf("The build failed with code $buildResult");

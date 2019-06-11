@@ -4,7 +4,7 @@
  */
 
 import { SwaggerUIBundle } from "swagger-ui-dist";
-import { formatUrl, getMeta } from "@library/application";
+import { formatUrl, getMeta } from "@library/utility/appUtils";
 import "swagger-ui-dist/swagger-ui.css";
 import "../scss/swagger-ui.scss";
 
@@ -19,7 +19,7 @@ export function mountSwagger() {
             request.headers["x-transient-key"] = getMeta("TransientKey");
             return request;
         },
-        url: formatUrl("/api/v2/open-api/v2"),
+        url: formatUrl("/api/v2/open-api/v3" + window.location.search),
         validatorUrl: null,
     });
 }

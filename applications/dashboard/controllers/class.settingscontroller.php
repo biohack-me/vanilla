@@ -43,6 +43,11 @@ class SettingsController extends DashboardController {
         if ($this->Menu) {
             $this->Menu->highlightRoute('/dashboard/settings');
         }
+
+        // Many dashboard pages display a pretty style flash when deferring all scripts.
+        // Disable deferred scripts on these pages until this is resolved.
+        // This is also less signficant here because these pages are not indexed by search engines.
+        $this->useDeferredLegacyScripts = false;
     }
 
     /**
@@ -1239,7 +1244,7 @@ class SettingsController extends DashboardController {
         $this->permission('Garden.Settings.Manage');
 
         $this->title(t('Locales'));
-        $this->setHighlightRoute('dashboard/settings/locales');
+        $this->setHighlightRoute('/settings/locales');
         $this->addJsFile('addons.js');
 
         $LocaleModel = new LocaleModel();

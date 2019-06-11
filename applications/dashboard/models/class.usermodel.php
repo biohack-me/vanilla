@@ -1973,7 +1973,6 @@ class UserModel extends Gdn_Model {
         if (isset($formPostValues['Photo']) && !isUrl($formPostValues['Photo'])) {
             unset($formPostValues['Photo']);
         }
-
         // Check for banning first.
         $valid = BanModel::checkUser($formPostValues, null, true);
         if (!$valid) {

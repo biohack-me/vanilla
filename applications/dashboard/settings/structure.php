@@ -865,6 +865,26 @@ $Construct
     ->column("dateUpdated", "datetime")
     ->set($Explicit, $Drop);
 
+$Construct
+    ->table("reaction")
+    ->primaryKey("reactionID")
+    ->column("reactionOwnerID", "int", false, ["index", "index.record"])
+    ->column("recordID", "int", false, "index.record")
+    ->column("reactionValue", "int", false)
+    ->column("insertUserID", "int", false, ["index"])
+    ->column("dateInserted", "datetime")
+    ->set($Explicit, $Drop);
+
+$Construct
+    ->table("reactionOwner")
+    ->primaryKey("reactionOwnerID")
+    ->column("ownerType", "varchar(64)", false, ["index", "unique.record"])
+    ->column("reactionType", "varchar(64)", false, ["index", "unique.record"])
+    ->column("recordType", "varchar(64)", false, ["index", "unique.record"])
+    ->column("insertUserID", "int", false, ["index"])
+    ->column("dateInserted", "datetime")
+    ->set($Explicit, $Drop);
+
 // If the AllIPAddresses column exists, attempt to migrate legacy IP data to the UserIP table.
 if (!$captureOnly && $AllIPAddressesExists) {
     $limit = 10000;
@@ -980,3 +1000,11 @@ if ($mobileInputFormatter === "Rich" && $richEditorEnabled === false) {
 }
 
 Gdn::router()->setRoute('apple-touch-icon.png', 'utility/showtouchicon', 'Internal');
+Gdn::router()->setRoute("robots.txt", "/robots", "Internal");
+Gdn::router()->setRoute("utility/robots", "/robots", "Internal");
+
+// Migrate rules from Sitemaps addon.
+if (Gdn::config()->get("Robots.Rules") === false && $sitemapsRobotsRules = Gdn::config()->get("Sitemap.Robots.Rules")) {
+    Gdn::config()->set("Robots.Rules", $sitemapsRobotsRules);
+    Gdn::config()->remove("Sitemap.Robots.Rules");
+}

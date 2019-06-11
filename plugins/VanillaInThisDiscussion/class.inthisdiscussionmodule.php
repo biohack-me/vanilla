@@ -26,11 +26,10 @@ class InThisDiscussionModule extends Gdn_Module {
     }
 
     /**
+     * Fetch every unique user from the discussion in the order they first posted.
      *
-     *
-     * @param $discussionID
-     * @param int $limit
-     * @throws Exception
+     * @param int $discussionID The discussion ID to fetch.
+     * @param int $limit The max number of users to fetch.
      */
     public function getData($discussionID, $limit = 50) {
         $sQL = Gdn::sql();
@@ -41,7 +40,7 @@ class InThisDiscussionModule extends Gdn_Module {
             ->join('Comment c', 'u.UserID = c.InsertUserID')
             ->where('c.DiscussionID', $discussionID)
             ->groupBy('u.UserID, u.Name, u.Photo')
-            ->orderBy('c.DateInserted', 'desc')
+            ->orderBy('DateLastActive', 'desc')
             ->limit($limit)
             ->get();
     }
