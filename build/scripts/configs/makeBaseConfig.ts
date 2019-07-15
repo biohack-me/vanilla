@@ -25,8 +25,8 @@ export async function makeBaseConfig(entryModel: EntryModel, section: string) {
 
     const modulePaths = [
         "node_modules",
-        path.join(VANILLA_ROOT, "node_modules"),
         ...entryModel.addonDirs.map(dir => path.resolve(dir, "node_modules")),
+        path.join(VANILLA_ROOT, "node_modules"),
     ];
 
     const aliases = Object.keys(entryModel.aliases).join(", ");
@@ -43,7 +43,9 @@ ${chalk.green(aliases)}`;
         hotAliases["react-dom"] = require.resolve("@hot-loader/react-dom");
     }
 
-    const storybookLoaders = section === "storybook" ? [require.resolve("react-docgen-typescript-loader")] : [];
+    // Leaving this out until we get the docs actually generating. Huge slowdown.
+    // const storybookLoaders = section === "storybook" ? [require.resolve("react-docgen-typescript-loader")] : [];
+    const storybookLoaders: never[] = [];
 
     const config: any = {
         context: VANILLA_ROOT,
@@ -52,10 +54,8 @@ ${chalk.green(aliases)}`;
                 {
                     test: /\.(jsx?|tsx?)$/,
                     exclude: (modulePath: string) => {
-                        const modulesRequiringTranspilation = ["quill", "p-debounce"];
-                        const exlusionRegex = new RegExp(
-                            `node_modules\/(${modulesRequiringTranspilation.join("|")})\/`,
-                        );
+                        const modulesRequiringTranspilation = ["quill", "p-debounce", "@vanilla/.*"];
+                        const exlusionRegex = new RegExp(`node_modules/(${modulesRequiringTranspilation.join("|")})/`);
 
                         // We need to transpile quill's ES6 because we are building from source.
                         return /node_modules/.test(modulePath) && !exlusionRegex.test(modulePath);
@@ -65,7 +65,7 @@ ${chalk.green(aliases)}`;
                         {
                             loader: "babel-loader",
                             options: {
-                                presets: [require.resolve("@vanillaforums/babel-preset")],
+                                presets: [require.resolve("@vanilla/babel-preset")],
                                 plugins: babelPlugins,
                                 cacheDirectory: true,
                             },

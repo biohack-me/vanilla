@@ -28,6 +28,8 @@
 
     {if $ThemeOptions.Options.hasFeatureSearchbox}
         ThemeOptions-hasFeatureSearchbox
+    {else}
+        hideHomepageTitle
     {/if}
 
     {if $ThemeOptions.Options.panelToLeft}
@@ -90,7 +92,9 @@
                                 </div>
                                 {if $User.SignedIn}
                                     <button class="mobileMeBox-button">
-                                        {module name="UserPhotoModule"}
+                                        <span class="Photo PhotoWrap">
+                                            <img src="{$User.Photo|escape:'html'}" class="ProfilePhotoSmall" alt="{t c='Avatar'}">
+                                        </span>
                                     </button>
                                 {/if}
                             </div>
@@ -152,7 +156,7 @@
                                 </div>
                             {else}
                                 {if $Category}
-                                    <h2 class="H HomepageTitle">{$Category.Name}</h2>
+                                    <h2 class="H HomepageTitle">{$Category.Name}{follow_button}</h2>
                                     <p class="P PageDescription">{$Category.Description}</p>
                                 {else}
                                     {if {homepage_title} !== ""}
@@ -182,7 +186,11 @@
                                 <div class="Frame-row SearchBoxMobile">
                                     {if !$SectionGroups && !inSection(["SearchResults"])}
                                         <div class="SearchBox js-sphinxAutoComplete" role="search">
-                                            {module name="AdvancedSearchModule"}
+                                            {if $hasAdvancedSearch === true}
+                                                {module name="AdvancedSearchModule"}
+                                            {else}
+                                                {searchbox}
+                                            {/if}
                                         </div>
                                     {/if}
                                 </div>
@@ -194,14 +202,9 @@
                                         {if inSection("Profile")}
                                             <div class="Profile-header">
                                                 <div class="Profile-photo">
-                                                    <div class="PhotoLarge"
-                                                        {if $Profile.PhotoUrl}
-                                                            style="background: url('{$Profile.PhotoUrl}') center/cover no-repeat;"
-                                                        {else}
-                                                            style="background: url('{$Profile.Photo}') center/cover no-repeat;"
-                                                        {/if}>
+                                                    <div class="PhotoLarge">
+                                                        {module name="UserPhotoModule"}
                                                     </div>
-                                                    {module name="UserPhotoModule"}
                                                 </div>
                                                 <div class="Profile-name">
                                                     <div class="Profile-row">

@@ -8,11 +8,10 @@
 import "focus-visible";
 import smoothscroll from "smoothscroll-polyfill";
 import twemoji from "twemoji";
-import { hashString } from "../utility/utils";
+import { hashString } from "@vanilla/utils";
 import React from "react";
 import ReactDOM from "react-dom";
 import { forceRenderStyles } from "typestyle";
-import { spawn } from "child_process";
 
 smoothscroll.polyfill();
 
@@ -494,7 +493,7 @@ export function mountReact(
         target.parentElement!.insertBefore(container, target);
         mountPoint = container;
     }
-    const result = ReactDOM.render(component, mountPoint, () => {
+    ReactDOM.render(component, mountPoint, () => {
         if (cleanupContainer) {
             target.remove();
             if (cleanupContainer.firstElementChild) {
@@ -506,5 +505,4 @@ export function mountReact(
         callback && callback();
     });
     forceRenderStyles();
-    return result;
 }

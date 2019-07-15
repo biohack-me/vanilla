@@ -25,9 +25,7 @@ import classNames from "classnames";
 import { components } from "react-select";
 import ReactDOM from "react-dom";
 import * as selectOverrides from "@library/forms/select/overwrites";
-import { OptionProps } from "react-select/lib/components/Option";
 import AsyncCreatable from "react-select/lib/AsyncCreatable";
-import { visibility } from "@library/styles/styleHelpers";
 
 export interface IComboBoxOption<T = any> {
     value: string | number;
@@ -49,7 +47,7 @@ interface IProps extends IOptionalComponentID, RouteComponentProps<any> {
     titleAsComponent?: React.ReactNode;
     isLoading?: boolean;
     onSearch: () => void;
-    optionComponent?: React.ComponentType<OptionProps<any>>;
+    optionComponent?: React.ComponentType<any>;
     getRef?: any;
     buttonClassName?: string;
     buttonLoaderClassName?: string;
@@ -306,7 +304,7 @@ export default class SearchBar extends React.Component<IProps, IState> {
                                         isLarge: this.props.isBigInput,
                                     },
                                 )}
-                                tabIndex={!!this.props.hideSearchButton ? -1 : 0}
+                                tabIndex={this.props.hideSearchButton ? -1 : 0}
                             >
                                 {this.props.isLoading ? (
                                     <ButtonLoader
@@ -370,7 +368,7 @@ export default class SearchBar extends React.Component<IProps, IState> {
     private componentOverwrites = {
         Control: this.SearchControl,
         IndicatorSeparator: selectOverrides.NullComponent,
-        Menu: !!this.props.resultsRef ? this.Menu : selectOverrides.Menu,
+        Menu: this.props.resultsRef ? this.Menu : selectOverrides.Menu,
         MenuList: selectOverrides.MenuList,
         Option: this.props.optionComponent!,
         NoOptionsMessage: selectOverrides.NoOptionsMessage,

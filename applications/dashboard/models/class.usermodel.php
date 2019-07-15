@@ -3438,6 +3438,8 @@ class UserModel extends Gdn_Model {
 
         $userData = $dataSet->firstRow();
 
+        self::rateLimit($userData);
+
         $passwordHash = new Gdn_PasswordHash();
         $hashMethod = val('HashMethod', $userData);
         if (!$passwordHash->checkPassword($password, $userData->Password, $hashMethod, $userData->Name)) {
@@ -3856,20 +3858,23 @@ class UserModel extends Gdn_Model {
             ->firstRow();
 
         // If CountInvitations is null (ie. never been set before) or it is a new month since the DateSetInvitations
-        if ($user->CountInvitations == '' || is_null($user->DateSetInvitations) || Gdn_Format::date($user->DateSetInvitations, '%m %Y') != Gdn_Format::date('', '%m %Y')) {
+        if ((empty($user->CountInvitations) && $user->CountInvitations !== 0 )
+            || is_null($user->DateSetInvitations)
+            || date("m Y", strtotime($user->DateSetInvitations)) !== date('m Y')) {
             // Reset CountInvitations and DateSetInvitations
             $this->SQL->put(
                 $this->Name,
                 [
                     'CountInvitations' => $inviteCount,
-                    'DateSetInvitations' => Gdn_Format::date('', '%Y-%m-01') // The first day of this month
+                    'DateSetInvitations' => date('Y-m-01') // The first day of this month
                 ],
                 ['UserID' => $userID]
             );
             return $inviteCount;
         } else {
             // Otherwise return CountInvitations
-            return $user->CountInvitations;
+            // or inviteCount if it was recently downsized for the User's Role
+            return min($inviteCount, $user->CountInvitations);
         }
     }
 
@@ -4724,9 +4729,8 @@ class UserModel extends Gdn_Model {
      * Check and apply login rate limiting
      *
      * @param array $user
-     * @param bool $passwordOK
      */
-    public static function rateLimit($user, $passwordOK) {
+    public static function rateLimit($user) {
         if (Gdn::cache()->activeEnabled()) {
             // Rate limit using Gdn_Cache.
             $userRateKey = formatString(self::LOGIN_RATE_KEY, ['Source' => $user->UserID]);

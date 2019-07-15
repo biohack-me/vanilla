@@ -11,7 +11,7 @@ import ModalSizes from "@library/modal/ModalSizes";
 import { uniqueIDFromPrefix } from "@library/utility/idUtils";
 import { modalClasses } from "@library/modal/modalStyles";
 import TabHandler from "@library/dom/TabHandler";
-import { logWarning } from "@library/utility/utils";
+import { logWarning } from "@vanilla/utils";
 import { forceRenderStyles } from "typestyle";
 import ScrollLock from "react-scrolllock";
 import { ModalView } from "@library/modal/ModalView";
@@ -208,7 +208,7 @@ Please wrap your primary content area with the ID "${PAGE_CONTAINER_ID}" so it c
      * Focus the initial element in the Modal.
      */
     private focusInitialElement() {
-        const focusElement = !!this.props.elementToFocus ? this.props.elementToFocus : this.tabHandler.getInitial();
+        const focusElement = this.props.elementToFocus ? this.props.elementToFocus : this.tabHandler.getInitial();
         if (focusElement) {
             focusElement!.focus();
         }

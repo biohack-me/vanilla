@@ -7,7 +7,7 @@
 import { userContentClasses } from "@library/content/userContentStyles";
 import { delegateEvent, removeDelegatedEvent } from "@library/dom/domUtils";
 import { useLastValue } from "@library/dom/hookUtils";
-import { debug } from "@library/utility/utils";
+import { debug } from "@vanilla/utils";
 import { useEditorContents } from "@rich-editor/editor/contentContext";
 import { useEditor } from "@rich-editor/editor/context";
 import { richEditorClasses } from "@rich-editor/editor/richEditorClasses";
@@ -19,12 +19,12 @@ import classNames from "classnames";
 import hljs from "highlight.js";
 import throttle from "lodash/throttle";
 import Quill, { DeltaOperation, QuillOptionsStatic, Sources } from "quill/core";
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useMemo } from "react";
 
 const DEFAULT_CONTENT = [{ insert: "\n" }];
 
 interface IProps {
-    legacyTextArea?: HTMLInputElement;
+    legacyTextArea?: HTMLInputElement | HTMLTextAreaElement;
     placeholder?: string;
 }
 
@@ -92,21 +92,20 @@ function useQuillAttributeSync(placeholder?: string) {
     const { legacyMode, quill } = useEditor();
     const classesRichEditor = richEditorClasses(legacyMode);
     const classesUserContent = userContentClasses();
-    const quillRootClasses = classNames(
-        quill && quill.root.classList.value,
-        "richEditor-text",
-        "userContent",
-        classesRichEditor.text,
-        {
-            // These classes shouln't be applied until the forum is converted to the new styles.
-            [classesUserContent.root]: !legacyMode,
-        },
+    const quillRootClasses = useMemo(
+        () =>
+            classNames("richEditor-text", "userContent", classesRichEditor.text, {
+                // These classes shouln't be applied until the forum is converted to the new styles.
+                [classesUserContent.root]: !legacyMode,
+            }),
+        [],
     );
 
     useEffect(() => {
         if (quill) {
-            // Initialize some CSS classes onto the quill root.
-            quill.root.classList.value = quillRootClasses;
+            // Initialize some CSS classes onto the quill root.quillRootClasses
+            // quill && quill.root.classList.value,
+            quill.root.classList.value += " " + quillRootClasses;
         }
     }, [quill, quillRootClasses]);
 
@@ -172,9 +171,7 @@ function useOperationsQueue() {
                 quill.updateContents([offsetOperations, ...operation]);
             }
         });
-        return () => {
-            clearOperationsQueue && clearOperationsQueue();
-        };
+        clearOperationsQueue && clearOperationsQueue();
     }, [quill, operationsQueue, clearOperationsQueue]);
 }
 
@@ -183,7 +180,7 @@ function useOperationsQueue() {
  *
  * Once we rewrite the post page, this should no longer be necessary.
  */
-function useLegacyTextAreaSync(textArea?: HTMLInputElement) {
+function useLegacyTextAreaSync(textArea?: HTMLInputElement | HTMLTextAreaElement) {
     const { legacyMode, quill } = useEditor();
 
     useEffect(() => {
@@ -201,9 +198,12 @@ function useLegacyTextAreaSync(textArea?: HTMLInputElement) {
             return;
         }
         // Sync the text areas together.
-        const handleChange = () => {
-            textArea.value = JSON.stringify(quill.getContents().ops);
-        };
+        // Throttled to keep performance up on slower devices.
+        const handleChange = throttle(() => {
+            requestAnimationFrame(() => {
+                textArea.value = JSON.stringify(quill.getContents().ops);
+            });
+        }, 1000 / 60); // 60FPS
         quill.on(Quill.events.TEXT_CHANGE, handleChange);
 
         // Listen for the legacy form event if applicable and clear the form.
@@ -275,7 +275,7 @@ function useGlobalSelectionHandler() {
  * Pasting a valid quill JSON delta into the box will reset the contents of the editor to that delta.
  * This only works for PASTE. Not editing the contents.
  */
-function useDebugPasteListener(textArea?: HTMLInputElement) {
+function useDebugPasteListener(textArea?: HTMLInputElement | HTMLTextAreaElement) {
     const { legacyMode, quill } = useEditor();
     useEffect(() => {
         if (!legacyMode || !textArea || !debug() || !quill) {
@@ -365,6 +365,9 @@ function useSynchronization() {
         if (!quill) {
             return;
         }
+
+        // Call intially with the value.
+        updateHandler(Quill.events.TEXT_CHANGE, null, null, Quill.sources.API);
 
         quill.on(Quill.events.EDITOR_CHANGE, updateHandler);
         return () => {

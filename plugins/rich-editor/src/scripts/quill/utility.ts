@@ -7,12 +7,12 @@
 import Emitter from "quill/core/emitter";
 import Quill, { RangeStatic, Blot, DeltaOperation } from "quill/core";
 import Delta from "quill-delta";
-import { matchAtMention } from "@library/utility/utils";
+import { matchAtMention } from "@vanilla/utils";
 import uniqueId from "lodash/uniqueId";
 import FocusableEmbedBlot from "@rich-editor/quill/blots/abstract/FocusableEmbedBlot";
 import BlockBlot from "quill/blots/block";
 import CodeBlockBlot from "@rich-editor/quill/blots/blocks/CodeBlockBlot";
-import { log } from "@library/utility/utils";
+import { logDebug } from "@vanilla/utils";
 
 interface IBoundary {
     start: number;
@@ -285,9 +285,7 @@ const MIN_MENTION_LENGTH = 1;
  * @returns A range if a mention was matched, or null if one was not.
  */
 export function getMentionRange(quill: Quill, currentSelection: RangeStatic | null): RangeStatic | null {
-    if (!quill.hasFocus()) {
-        return null;
-    }
+    // We can't check for focus here. Clicking an item in the mention list causes quill to "lose" focus.
 
     if (!currentSelection) {
         return null;
@@ -400,7 +398,7 @@ export function forceSelectionUpdate() {
  * @param content The delta to set.
  */
 export function resetQuillContent(quill: Quill, content: DeltaOperation[]) {
-    log("Setting existing content as contents of editor");
+    logDebug("Setting existing content as contents of editor");
     quill.setContents(content);
     // Clear the history so that you can't "undo" your initial content.
     quill.getModule("history").clear();
