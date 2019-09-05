@@ -341,6 +341,16 @@ button.Close {
   opacity: 0.4;
 }
 
+/*!
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license GPL-2.0-only
+ */
+.Popup .Content > h1:first-child, .Popup .Content > h2:first-child, .Popup .Content > h3:first-child {
+  font-size: 20px;
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
 .authenticateUserCol {
   padding: 0 26px;
   margin: auto;
@@ -923,10 +933,10 @@ label.checkbox input.checkbox-input {
   line-height: 1.25;
   color: #555a62;
 }
-.userContent > *:not(.emoji):not(:last-child):not(br, .embedResponsive) {
+.userContent > *:not(.emoji):not(:last-child):not(br) {
   margin-bottom: 14px;
 }
-.userContent > *:not(.emoji):first-child:not(br, .embedResponsive) {
+.userContent > *:not(.emoji):first-child:not(br) {
   margin-top: -0.25em !important;
 }
 .userContent,
@@ -1027,84 +1037,128 @@ body.hasRichEditor .richEditor .spoiler .iconButton {
   display: flex;
 }
 
+.Popup.hasRichEditor .Border {
+  width: 100%;
+  box-sizing: border-box;
+}
+.Popup.hasRichEditor .richEditor ~ .TextBoxWrapper,
+.Popup.hasRichEditor .CommentForm .PreviewButton,
+.Popup.hasRichEditor #Form_Preview {
+  display: none !important;
+}
+
 @media (min-width: 700px) {
-  body.hasRichEditor.Section-PostDiscussion #DiscussionForm select {
+  .Popup.hasRichEditor.Section-PostDiscussion #DiscussionForm select,
+body.hasRichEditor.Section-PostDiscussion #DiscussionForm select {
     max-width: 100%;
   }
-  body.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper {
+  .Popup.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper,
+body.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper {
     padding-left: 36px;
     padding-right: 36px;
   }
-  body.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper .richEditor {
+  .Popup.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper .richEditor,
+body.hasRichEditor.Section-PostDiscussion #DiscussionForm .FormWrapper .richEditor {
     padding-left: 0;
     padding-right: 0;
   }
-  body.hasRichEditor .CommentForm .CommentFormWrap .Form-HeaderWrap {
+  .Popup.hasRichEditor .CommentForm .CommentFormWrap .Form-HeaderWrap,
+body.hasRichEditor .CommentForm .CommentFormWrap .Form-HeaderWrap {
     display: none;
   }
-  body.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper {
+  .Popup.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper,
+body.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper {
     padding-right: 0;
     padding-left: 0;
   }
-  body.hasRichEditor .CommentForm .richEditor {
+  .Popup.hasRichEditor .CommentForm .richEditor,
+body.hasRichEditor .CommentForm .richEditor {
     padding-left: 36px;
     padding-right: 36px;
   }
-  body.hasRichEditor .CommentForm .richEditor .richEditor {
+  .Popup.hasRichEditor .CommentForm .richEditor .richEditor,
+body.hasRichEditor .CommentForm .richEditor .richEditor {
     padding-left: 0;
     padding-right: 0;
   }
-  body.hasRichEditor .CommentForm .Buttons {
+  .Popup.hasRichEditor .CommentForm .Buttons,
+body.hasRichEditor .CommentForm .Buttons {
     padding-right: 36px;
   }
-  body.hasRichEditor #EventAddEditForm .Form-HeaderWrap,
+  .Popup.hasRichEditor #EventAddEditForm .Form-HeaderWrap,
+.Popup.hasRichEditor #GroupForm .Form-HeaderWrap,
+.Popup.hasRichEditor #MessageForm .Form-HeaderWrap,
+.Popup.hasRichEditor #ConversationForm .Form-HeaderWrap,
+body.hasRichEditor #EventAddEditForm .Form-HeaderWrap,
 body.hasRichEditor #GroupForm .Form-HeaderWrap,
 body.hasRichEditor #MessageForm .Form-HeaderWrap,
 body.hasRichEditor #ConversationForm .Form-HeaderWrap {
     display: none;
   }
-  body.hasRichEditor #EventAddEditForm .FormWrapper,
+  .Popup.hasRichEditor #EventAddEditForm .FormWrapper,
+.Popup.hasRichEditor #GroupForm .FormWrapper,
+.Popup.hasRichEditor #MessageForm .FormWrapper,
+.Popup.hasRichEditor #ConversationForm .FormWrapper,
+body.hasRichEditor #EventAddEditForm .FormWrapper,
 body.hasRichEditor #GroupForm .FormWrapper,
 body.hasRichEditor #MessageForm .FormWrapper,
 body.hasRichEditor #ConversationForm .FormWrapper {
     padding-left: 36px;
     padding-right: 36px;
   }
-  body.hasRichEditor #EventAddEditForm .FormWrapper .richEditor,
+  .Popup.hasRichEditor #EventAddEditForm .FormWrapper .richEditor,
+.Popup.hasRichEditor #GroupForm .FormWrapper .richEditor,
+.Popup.hasRichEditor #MessageForm .FormWrapper .richEditor,
+.Popup.hasRichEditor #ConversationForm .FormWrapper .richEditor,
+body.hasRichEditor #EventAddEditForm .FormWrapper .richEditor,
 body.hasRichEditor #GroupForm .FormWrapper .richEditor,
 body.hasRichEditor #MessageForm .FormWrapper .richEditor,
 body.hasRichEditor #ConversationForm .FormWrapper .richEditor {
     padding-right: 0;
     padding-left: 0;
   }
-  body.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed {
+  .Popup.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed,
+body.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed {
     padding-right: 36px;
     padding-left: 0;
   }
-  body.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed .Activity .Buttons {
+  .Popup.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed .Activity .Buttons,
+body.hasRichEditor.Profile .FormWrapper.FormWrapper-Condensed .Activity .Buttons {
     padding-left: 36px;
   }
-  body.hasRichEditor.Section-Conversation .CommentForm .Buttons {
+  .Popup.hasRichEditor.Section-Conversation .CommentForm .Buttons,
+body.hasRichEditor.Section-Conversation .CommentForm .Buttons {
     padding-right: 0;
   }
-  body.hasRichEditor .Popup.hasRichEditor .Border {
+  .Popup.hasRichEditor .Popup.hasRichEditor .Border,
+body.hasRichEditor .Popup.hasRichEditor .Border {
     width: 100%;
     box-sizing: border-box;
   }
-  body.hasRichEditor .Popup.hasRichEditor .Content {
-    margin-top: 10px;
-  }
-  body.hasRichEditor .Popup.hasRichEditor .Content > h1 {
+  .Popup.hasRichEditor .Popup.hasRichEditor .Content > h1,
+body.hasRichEditor .Popup.hasRichEditor .Content > h1 {
     padding-left: 36px;
   }
-  body.hasRichEditor .Popup.hasRichEditor .FormWrapper {
+  .Popup.hasRichEditor .Popup.hasRichEditor .FormWrapper,
+body.hasRichEditor .Popup.hasRichEditor .FormWrapper {
     background: none;
     padding-top: 3px;
     padding-left: 36px;
     padding-right: 36px;
   }
-  body.hasRichEditor .Popup.hasRichEditor .richEditor {
+  .Popup.hasRichEditor .Popup.hasRichEditor .richEditor,
+body.hasRichEditor .Popup.hasRichEditor .richEditor {
     padding-left: 0;
+  }
+  .Popup.hasRichEditor .NoteForm.FormWrapper,
+body.hasRichEditor .NoteForm.FormWrapper {
+    padding-left: 36px;
+    padding-right: 36px;
+  }
+  .Popup.hasRichEditor .NoteForm.FormWrapper .richEditor,
+body.hasRichEditor .NoteForm.FormWrapper .richEditor {
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 .richEditor-text {
@@ -1216,6 +1270,19 @@ body.isMobile .Popup.hasRichEditor .Border {
   min-height: 236px;
 }
 
+.richEditor-close.richEditor-close {
+  display: block;
+}
+
+@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
+  .richEditorFlyout .richEditorFlyout-header.richEditorFlyout-header {
+    display: table;
+  }
+  .richEditorFlyout .richEditorFlyout-title.richEditorFlyout-title {
+    display: table-cell;
+    vertical-align: middle;
+  }
+}
 /*!
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
@@ -1229,6 +1296,7 @@ body.isMobile .Popup.hasRichEditor .Border {
  * @license GPL-2.0-only
  */
 .embedResponsive {
+  position: relative;
   text-align: center;
 }
 
@@ -1322,6 +1390,7 @@ body.isMobile .Popup.hasRichEditor .Border {
 }
 
 .embedLinkLoader-link {
+  position: relative;
   display: inline-block;
   white-space: normal;
   padding: 2px 4px;
@@ -1363,6 +1432,10 @@ body.isMobile .Popup.hasRichEditor .Border {
 .richEditor .embedExternal-content > *,
 .richEditor .embedLinkLoader-link > * {
   pointer-events: none;
+}
+.richEditor .embedExternal-content > .u-excludeFromPointerEvents,
+.richEditor .embedLinkLoader-link > .u-excludeFromPointerEvents {
+  pointer-events: initial;
 }
 
 .embed-focusableElement {
@@ -1469,6 +1542,7 @@ body.isMobile .Popup.hasRichEditor .Border {
   width: 100%;
   cursor: pointer;
   overflow: hidden;
+  border: none;
 }
 
 .embedVideo-playIcon {
@@ -1491,15 +1565,10 @@ body.isMobile .Popup.hasRichEditor .Border {
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-.embedImage .embedExternal-content {
-  width: auto;
+.embedImage {
+  width: 100%;
   max-width: 640px;
   display: inline-block;
-}
-@media screen and (-ms-high-contrast: active), screen and (-ms-high-contrast: none) {
-  .embedImage .embedExternal-content {
-    width: 100%;
-  }
 }
 
 .Message img .embedImage-img,
@@ -1509,26 +1578,20 @@ body.isMobile .Popup.hasRichEditor .Border {
   margin-left: auto;
   margin-right: auto;
   max-width: 100%;
+  max-height: 400px;
+}
+
+.richEditor .embedImage-img:hover {
+  box-shadow: 0 0 0 2px rgba(2, 145, 219, 0.5);
+}
+.richEditor .embedImage-img:focus {
+  box-shadow: 0 0 0 2px #0291db;
 }
 
 /*!
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-.embedText {
-  font-size: 14px;
-}
-
-.embedText-content {
-  display: block;
-  background: #ffffff;
-  box-shadow: 0 1px 3px 0 rgba(85, 90, 98, 0.3);
-}
-.embedText-content, .embedText-content:hover, .embedText-content:focus {
-  color: inherit;
-  text-decoration: none !important;
-}
-
 .embedText-body {
   display: block;
   position: relative;
@@ -1674,7 +1737,6 @@ body.isMobile .Popup.hasRichEditor .Border {
 }
 
 .embedQuote-userName {
-  margin: 0 0 0 4px;
   padding: 0;
   color: #6f737a;
   font-weight: 700;
@@ -1730,7 +1792,7 @@ body.isMobile .Popup.hasRichEditor .Border {
 }
 
 .embedQuote-title {
-  max-width: calc(100% - 36px);
+  padding-right: 36px;
 }
 
 .embedQuote-chevronUp,
@@ -1766,6 +1828,10 @@ body.isMobile .Popup.hasRichEditor .Border {
 .embedQuote-body {
   display: block;
   margin: 0;
+  padding: 0;
+}
+.embedQuote-body::before, .embedQuote-body::after {
+  content: initial;
 }
 
 .embedQuote-metaLink {
@@ -1968,23 +2034,6 @@ body.isMobile .Popup.hasRichEditor .Border {
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-.embedTwitter .embedExternal-content {
-  border-radius: 4px;
-  width: auto;
-  display: -webkit-inline-flex;
-  display: -ms-inline-flexbox;
-  display: inline-flex;
-}
-
-.twitter-tweet {
-  margin: 0 auto !important;
-  min-width: 100% !important;
-}
-
-/*!
- * @copyright 2009-2019 Vanilla Forums Inc.
- * @license GPL-2.0-only
- */
 .embedSoundcloud {
   position: relative;
   width: 640px;
@@ -2001,6 +2050,97 @@ body.isMobile .Popup.hasRichEditor .Border {
 .instagram-media {
   margin-bottom: 0 !important;
   width: 100% !important;
+}
+
+/**
+ * @author Stéphane (slafleche) LaFlèche <stephane.l@vanillaforums.com>
+ * @copyright 2009-2019 Vanilla Forums Inc.
+ * @license Proprietary
+ */
+.icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+.icon.isSmall {
+  width: 16px;
+  height: 16px;
+}
+.icon.isLarge {
+  width: 32px;
+  height: 32px;
+}
+
+.icon-close {
+  display: block;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+}
+
+.icon-triangleDown,
+.icon-triangleRight {
+  display: block;
+  margin: auto;
+  width: 8px;
+  height: 8px;
+}
+
+.icon-help {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-search {
+  width: 18px;
+  height: 24px;
+}
+
+.icon-notifications {
+  width: 18px;
+  height: 24px;
+}
+
+.icon-messages {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-fake {
+  font-family: arial, sans-serif;
+}
+
+.icon-compose {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-settings {
+  width: 18px;
+  height: 20px;
+}
+
+.icon-user {
+  width: 20px;
+}
+
+.icon-noUserPhoto {
+  width: 100%;
+  height: auto;
+}
+
+.icon-chevronUp {
+  width: 51px;
+  height: 17px;
+}
+
+.icon-folderOpen {
+  width: 18.612px;
+  height: 14px;
+}
+
+.icon-folderClosed {
+  width: 16px;
+  height: 14px;
 }
 
 /**
@@ -2170,21 +2310,54 @@ body.isMobile .Popup.hasRichEditor .Border {
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-.richEditor-text ul,
-.richEditor-text ol {
-  margin: 1em 0 1em 3em;
+.userContent ul,
+.userContent ol {
+  margin: 1em 0 1em 2em;
 }
 
-.richEditor-text ol li {
+.userContent ol li {
   list-style: decimal !important;
 }
-
-.richEditor-text ul li {
-  list-style: disc !important;
+.userContent ol ol li {
+  list-style: lower-alpha !important;
+}
+.userContent ol ol ol li {
+  list-style: lower-roman !important;
+}
+.userContent ol ol ol ol li {
+  list-style: decimal !important;
+}
+.userContent ol ol ol ol ol li {
+  list-style: lower-alpha !important;
+}
+.userContent ol ol ol ol ol ol li {
+  list-style: lower-roman !important;
+}
+.userContent ol ol ol ol ol ol ol li {
+  list-style: decimal !important;
+}
+.userContent ol ol,
+.userContent ol ul {
+  margin: 0 0 0 1em;
 }
 
-.richEditor-text li,
-.richEditor-text.richEditor-text ul li {
+.userContent ul li {
+  list-style: none !important;
+  position: relative;
+}
+.userContent ul li::before {
+  content: "•";
+  font-family: "Arial", serif !important;
+  position: absolute;
+  left: -1em;
+}
+.userContent ul ol,
+.userContent ul ul {
+  margin: 0 0 0 1em;
+}
+
+.userContent li,
+.userContent.userContent ul li {
   margin: 5px 0;
 }
 
@@ -2373,7 +2546,7 @@ body.isMobile .Popup.hasRichEditor .Border {
   display: -webkit-inline-flex;
   display: -ms-inline-flexbox;
   display: inline-flex;
-  font-family: "Apple Color Emoji", sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
   vertical-align: middle;
   text-align: center;
   height: 1em;
@@ -2382,7 +2555,7 @@ body.isMobile .Popup.hasRichEditor .Border {
 }
 
 .nativeEmoji {
-  font-family: "Segoe UI Emoji", sans-serif;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
 }
 
 .fallBackEmoji {

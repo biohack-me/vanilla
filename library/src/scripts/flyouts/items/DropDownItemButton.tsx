@@ -42,9 +42,8 @@ export default class DropDownItemButton extends React.Component<IDropDownItemBut
             this.props.onClick(clickData, index);
         };
         return (
-            <DropDownItem className={classNames(this.props.className, classesDropDown.item)}>
+            <DropDownItem className={classNames(this.props.className)}>
                 <Button
-                    type="button"
                     title={this.props.name}
                     onClick={buttonClick}
                     className={classNames(this.props.buttonClassName, classesDropDown.action)}

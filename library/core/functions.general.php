@@ -1767,7 +1767,11 @@ if (!function_exists('getAllMentions')) {
                 $parts2 = preg_split('`([\s.,;?!:])`', $part, 2, PREG_SPLIT_DELIM_CAPTURE);
                 $mention = $parts2[0];
             }
-            $mentions[] = $mention;
+
+            // Filter empty mentions
+            if ($mention) {
+                $mentions[] = $mention;
+            }
         }
 
         return $mentions;
@@ -3082,6 +3086,7 @@ if (!function_exists('redirectTo')) {
             echo json_encode([
                 'FormSaved' => true,
                 'RedirectUrl' => $url,
+                'RedirectTo' => $url,
             ]);
         } else {
             safeHeader('Location: ' . $url, true, $statusCode);
