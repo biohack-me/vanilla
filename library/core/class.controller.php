@@ -12,10 +12,12 @@
  * @abstract
  */
 
+use Vanilla\Models\ThemePreloadProvider;
 use \Vanilla\Web\Asset\LegacyAssetModel;
 use Vanilla\Web\HttpStrictTransportSecurityModel;
 use Vanilla\Web\ContentSecurityPolicy\ContentSecurityPolicyModel;
 use Vanilla\Web\ContentSecurityPolicy\Policy;
+use Vanilla\Web\JsInterpop\ReduxActionPreloadTrait;
 
 /**
  * Controller base class.
@@ -25,7 +27,7 @@ use Vanilla\Web\ContentSecurityPolicy\Policy;
  * @method void render($view = '', $controllerName = false, $applicationFolder = false, $assetName = 'Content') Render the controller's view.
  */
 class Gdn_Controller extends Gdn_Pluggable {
-    use \Garden\MetaTrait, \Vanilla\Browser\ReduxTrait;
+    use \Garden\MetaTrait, ReduxActionPreloadTrait;
 
     /** Seconds before reauthentication is required for protected operations. */
     const REAUTH_TIMEOUT = 1200; // 20 minutes
@@ -158,6 +160,9 @@ class Gdn_Controller extends Gdn_Pluggable {
 
     /** @var bool Indicate that the controller add the `defer` attribute to it's legacy scripts. */
     protected $useDeferredLegacyScripts;
+
+    /** @var bool Disable this to disabled custom theming for the page. */
+    protected $allowCustomTheming = true;
 
     /** @var array An array of CSS file names to search for in theme folders & include in the page. */
     protected $_CssFiles;
@@ -684,8 +689,7 @@ class Gdn_Controller extends Gdn_Pluggable {
         // Output a JavaScript object with all the definitions.
         $result = 'gdn=window.gdn||{};'.
             'gdn.meta='.json_encode($this->_Definitions).";\n".
-            'gdn.permissions='.json_encode(Gdn::session()->getPermissions()).";\n".
-            $this->renderClientState()
+            'gdn.permissions='.json_encode(Gdn::session()->getPermissions()).";\n"
             ;
 
         if ($wrap) {
@@ -1282,7 +1286,7 @@ class Gdn_Controller extends Gdn_Pluggable {
 
         // ...and have a proper password.
         $user = Gdn::userModel()->getID(Gdn::session()->UserID);
-        if (val('HashMethod', $user) == 'Random') {
+        if (val('HashMethod', $user) === 'Random') {
             return;
         }
 
@@ -1912,6 +1916,7 @@ class Gdn_Controller extends Gdn_Pluggable {
                 $this->EventArguments['Cdns'] = &$Cdns;
                 $this->fireEvent('AfterJsCdns');
 
+                // Add inline content meta.
                 $this->Head->addScript('', 'text/javascript', false, ['content' => $this->definitionList(false)]);
 
                 // Add legacy style scripts
@@ -1952,6 +1957,15 @@ class Gdn_Controller extends Gdn_Pluggable {
                 }
 
                 $this->addWebpackAssets();
+                $this->addThemeAssets();
+
+                // Add preloaded redux actions.
+                $this->Head->addScript(
+                    '',
+                    'text/javascript',
+                    false,
+                    ['content' => $this->getReduxActionsAsJsVariable()]
+                );
             }
 
             // Add the favicon.
@@ -2037,6 +2051,25 @@ class Gdn_Controller extends Gdn_Pluggable {
     }
 
     /**
+     * Get theming assets for the page.
+     */
+    private function addThemeAssets() {
+        if (!$this->allowCustomTheming || $this->_DeliveryType !== DELIVERY_TYPE_ALL) {
+            // We only want to load theme data for full page loads & controllers that require theming data.
+            return;
+        }
+
+        /** @var ThemePreloadProvider $themeProvider */
+        $themeProvider = Gdn::getContainer()->get(ThemePreloadProvider::class);
+
+        $this->registerReduxActionProvider($themeProvider);
+        $themeScript = $themeProvider->getThemeScript();
+        if ($themeScript !== null) {
+            $this->Head->addScript($themeScript->getWebPath());
+        }
+    }
+
+    /**
      * Add the assets from WebpackAssetProvider to the page.
      */
     private function addWebpackAssets() {
@@ -2074,10 +2107,9 @@ class Gdn_Controller extends Gdn_Pluggable {
                 safeHeader("$name: $value", true, $code);
             }
         }
+
         if (!empty($this->_Headers['Cache-Control'])) {
-            foreach (\Vanilla\Web\CacheControlMiddleware::getHttp10Headers($this->_Headers['Cache-Control']) as $key => $value) {
-                safeHeader("$key: $value", true);
-            }
+            \Vanilla\Web\CacheControlMiddleware::sendCacheControlHeaders($this->_Headers['Cache-Control']);
         }
 
         // Empty the collection after sending

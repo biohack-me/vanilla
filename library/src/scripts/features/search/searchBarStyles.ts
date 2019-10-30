@@ -7,7 +7,7 @@
 import { globalVariables } from "@library/styles/globalStyleVars";
 import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { borderRadii, borders, colorOut, unit, paddings } from "@library/styles/styleHelpers";
+import { borderRadii, borders, colorOut, unit, paddings, importantUnit } from "@library/styles/styleHelpers";
 import { calc, important, percent, px } from "csx";
 import { titleBarVariables } from "@library/headers/titleBarStyles";
 import { buttonClasses, buttonVariables } from "@library/forms/buttonStyles";
@@ -35,7 +35,7 @@ export const searchBarVariables = useThemeCache(() => {
     });
 
     const heading = themeVars("heading", {
-        margin: 5,
+        margin: 12,
     });
 
     const border = themeVars("border", {
@@ -217,7 +217,6 @@ export const searchBarClasses = useThemeCache(() => {
     const valueContainer = style("valueContainer", {
         display: "flex",
         alignItems: "center",
-        borderRight: 0,
         paddingTop: 0,
         paddingBottom: 0,
         paddingRight: 0,
@@ -237,13 +236,22 @@ export const searchBarClasses = useThemeCache(() => {
                 justifyContent: "flex-start",
                 paddingLeft: unit(vars.searchIcon.gap),
             },
+            "&.noSearchButton": {
+                ...borderRadii({
+                    right: importantUnit(vars.border.radius),
+                }),
+            },
         },
     });
 
     // Has a search button attached.
     const compoundValueContainer = style("compoundValueContainer", {
-        borderTopRightRadius: 0,
-        borderBottomRightRadius: 0,
+        $nest: {
+            "&&": {
+                borderTopRightRadius: 0,
+                borderBottomRightRadius: 0,
+            },
+        },
     });
 
     const actionButton = style("actionButton", {

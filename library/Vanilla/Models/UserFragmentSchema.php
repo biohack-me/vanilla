@@ -8,6 +8,7 @@
 namespace Vanilla\Models;
 
 use Garden\Schema\Schema;
+use Vanilla\ApiUtils;
 
 /**
  * Schema to validate shape of some media upload metadata.
@@ -23,6 +24,23 @@ class UserFragmentSchema extends Schema {
             'name:s', // The username of the user.
             'photoUrl:s', // The URL of the user\'s avatar picture.
             'dateLastActive:dt|n', // Time the user was last active.
+            'label:s?'
         ]));
+    }
+
+    /**
+     * Normalize a user from the DB into a user fragment.
+     *
+     * @param array $dbRecord
+     * @return array
+     */
+    public static function normalizeUserFragment(array $dbRecord) {
+        if (array_key_exists('Photo', $dbRecord)) {
+            $photo = userPhotoUrl($dbRecord);
+            $dbRecord['PhotoUrl'] = $photo;
+        }
+
+        $schemaRecord = ApiUtils::convertOutputKeys($dbRecord);
+        return $schemaRecord;
     }
 }

@@ -252,7 +252,7 @@ export default class SearchBar extends React.Component<IProps, IState> {
                     {!this.props.noHeading && (
                         <Heading
                             depth={1}
-                            className={classNames("searchBar-heading", "pageSmallTitle", classes.heading)}
+                            className={classNames("searchBar-heading", classes.heading)}
                             title={this.props.title}
                         >
                             <label
@@ -280,6 +280,7 @@ export default class SearchBar extends React.Component<IProps, IState> {
                                 {
                                     [classes.compoundValueContainer]: !this.props.hideSearchButton,
                                     isLarge: this.props.isBigInput,
+                                    noSearchButton: !!this.props.hideSearchButton,
                                 },
                             )}
                         >

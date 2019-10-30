@@ -9,9 +9,13 @@ use Vanilla\Formatting\Html\HtmlEnhancer;
 use Vanilla\Formatting\Html\HtmlSanitizer;
 use Vanilla\InjectableInterface;
 use Vanilla\Contracts;
+use Vanilla\Models\LocalePreloadProvider;
+use Vanilla\Site\SingleSiteSectionProvider;
 use Vanilla\Utility\ContainerUtils;
 use \Vanilla\Formatting\Formats;
 use Firebase\JWT\JWT;
+use Vanilla\Web\Page;
+use Vanilla\Web\TwigEnhancer;
 
 if (!defined('APPLICATION')) exit();
 /**
@@ -60,6 +64,11 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
     ->setShared(true)
     ->addAlias('Config')
     ->addAlias(Contracts\ConfigurationInterface::class)
+
+    // Site sections
+    ->rule(\Vanilla\Contracts\Site\SiteSectionProviderInterface::class)
+    ->setClass(SingleSiteSectionProvider::class)
+    ->setShared(true)
 
     // AddonManager
     ->rule(Vanilla\AddonManager::class)
@@ -120,6 +129,10 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
     ->setShared(true)
     ->setConstructorArgs([new Reference(['Gdn_Configuration', 'Garden.Locale'])])
     ->addAlias('Locale')
+
+    ->rule(Contracts\LocaleInterface::class)
+    ->setAliasOf(Gdn_Locale::class)
+    ->setShared(true)
 
     // Request
     ->rule('Gdn_Request')
@@ -226,10 +239,14 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
         return $uid;
     })
 
+    ->rule(\Vanilla\Web\PrivateCommunityMiddleware::class)
+    ->setConstructorArgs([ContainerUtils::config('Garden.PrivateCommunity')])
+
     ->rule('@api-v2-route')
     ->setClass(\Garden\Web\ResourceRoute::class)
     ->setConstructorArgs(['/api/v2/', '*\\%sApiController'])
     ->addCall('setMeta', ['CONTENT_TYPE', 'application/json; charset=utf-8'])
+    ->addCall('addMiddleware', [new Reference(\Vanilla\Web\PrivateCommunityMiddleware::class)])
 
     ->rule('@view-application/json')
     ->setClass(\Vanilla\Web\JsonView::class)
@@ -299,6 +316,10 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
     ->setClass(\Vanilla\Web\LegacyTwigViewHandler::class)
     ->setShared(true)
 
+    ->rule(TwigEnhancer::class)
+    ->addCall('setCompileCacheDirectory', [PATH_CACHE . '/twig'])
+    ->setShared(true)
+
     ->rule('Gdn_Form')
     ->addAlias('Form')
 
@@ -321,6 +342,9 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
     ->addCall('registerMetadataParser', [new Reference(Vanilla\Metadata\Parser\JsonLDParser::class)])
     ->setShared(true)
 
+    ->rule(Garden\Http\HttpClient::class)
+    ->setConstructorArgs(["handler" => new Reference(Vanilla\Web\SafeCurlHttpHandler::class)])
+
     ->rule(Vanilla\Formatting\FormatService::class)
     ->addCall('registerBuiltInFormats')
     ->setShared(true)
@@ -337,6 +361,21 @@ $dic->setInstance(Garden\Container\Container::class, $dic)
     ->rule(\Vanilla\Analytics\Client::class)
     ->setShared(true)
     ->addAlias(\Vanilla\Contracts\Analytics\ClientInterface::class)
+
+    ->rule(Vanilla\Scheduler\SchedulerInterface::class)
+    ->setClass(Vanilla\Scheduler\DummyScheduler::class)
+    ->addCall('addDriver', [Vanilla\Scheduler\Driver\LocalDriver::class])
+    ->addCall('setDispatchEventName', ['SchedulerDispatch'])
+    ->addCall('setDispatchedEventName', ['SchedulerDispatched'])
+    ->setShared(true)
+
+    // Controller data preloading
+    ->rule(Page::class)
+    ->setInherit(true)
+    ->addCall('registerReduxActionProvider', ['provider' => new Reference(LocalePreloadProvider::class)])
+    ->rule(Gdn_Controller::class)
+    ->setInherit(true)
+    ->addCall('registerReduxActionProvider', ['provider' => new Reference(LocalePreloadProvider::class)])
 ;
 
 // Run through the bootstrap with dependencies.
@@ -494,3 +533,8 @@ require_once PATH_LIBRARY_CORE.'/functions.render.php';
 if (!defined('CLIENT_NAME')) {
     define('CLIENT_NAME', 'vanilla');
 }
+
+register_shutdown_function(function () use ($dic) {
+    // Trigger SchedulerDispatch event
+    $dic->get(\Garden\EventManager::class)->fire('SchedulerDispatch');
+});

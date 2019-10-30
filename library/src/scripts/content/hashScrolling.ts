@@ -4,18 +4,27 @@
  */
 import { forceRenderStyles } from "typestyle";
 import { useScrollOffset } from "@library/layout/ScrollOffsetContext";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { initAllUserContent } from "@library/content/index";
 
-export function useHashScrolling() {
+/**
+ * Hook for handling hash scrolling and user content rendering.
+ *
+ * @param content The content being displayed. Pass this to refresh the content when filled.
+ * @param disabled Whether or not hash scrolling is disabled.
+ */
+export function useHashScrolling(content: string, disabled?: boolean) {
     const { temporarilyDisabledWatching, getCalcedHashOffset } = useScrollOffset();
     const calcedOffset = getCalcedHashOffset();
 
     useEffect(() => {
+        if (disabled) {
+            return;
+        }
         void initAllUserContent().then(() => {
             initHashScrolling(calcedOffset, () => temporarilyDisabledWatching(500));
         });
-    }, [calcedOffset, temporarilyDisabledWatching]);
+    }, [calcedOffset, temporarilyDisabledWatching, disabled, content]);
 }
 
 export function initHashScrolling(offset: number = 0, beforeScrollHandler?: () => void) {
