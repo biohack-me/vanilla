@@ -160,7 +160,7 @@ class InvitationModel extends Gdn_Model {
                 try {
                     $this->send($invitationID);
                 } catch (Exception $ex) {
-                    $this->Validation->addValidationResult('Email', sprintf(t('Although the invitation was created successfully, the email failed to send. The server reported the following error: %s'), strip_tags($ex->getMessage())));
+                    $this->Validation->addValidationResult('Email', sprintf('Invitation email failed to send: %s', strip_tags($ex->getMessage())));
                     return false;
                 }
             }
@@ -235,6 +235,9 @@ class InvitationModel extends Gdn_Model {
      * {@inheritdoc}
      */
     public function deleteID($id, $options = []) {
+        \Webmozart\Assert\Assert::integerish($id);
+        \Webmozart\Assert\Assert::isArray($options);
+
         $session = Gdn::session();
         $userID = $session->UserID;
 

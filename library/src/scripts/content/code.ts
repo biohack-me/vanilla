@@ -6,7 +6,7 @@
 import { onContent } from "@library/utility/appUtils";
 import { globalVariables } from "@library/styles/globalStyleVars";
 
-type HLJS = typeof import("highlight.js");
+type HLJS = typeof import("@library/content/highlightJs").default;
 
 export function initCodeHighlighting() {
     void highlightCodeBlocks();
@@ -14,10 +14,19 @@ export function initCodeHighlighting() {
 }
 
 export async function highlightCodeBlocks(domNode: HTMLElement = document.body) {
-    const hljs = await importHLJS();
+    // Make sure we actually have some codeblocks before initializing.
     const blocks = domNode.querySelectorAll(".code.codeBlock");
-    blocks.forEach(hljs.highlightBlock);
+    if (blocks.length === 0) {
+        return;
+    }
+
+    const hljs = await importHLJS();
+    blocks.forEach((node) => {
+        hljs.highlightBlock(node);
+    });
 }
+
+let hljsCache: HLJS | null = null;
 
 /**
  * Highlight some text and return HTML for it.
@@ -27,6 +36,20 @@ export async function highlightCodeBlocks(domNode: HTMLElement = document.body) 
 export async function highlightText(text: string): Promise<string> {
     const hljs = await importHLJS();
     return hljs.highlightAuto(text).value;
+}
+
+/**
+ * Like hihglightText, but returns synchronously.
+ *
+ * If null is returned, ignore the result, because the highlighter isn't initialized yet.
+ */
+export function highlightTextSync(text: string): string | null {
+    if (hljsCache) {
+        return hljsCache.highlightAuto(text).value;
+    } else {
+        void importHLJS(); // Don't care when it finishes.
+        return null;
+    }
 }
 
 let requestPromise: Promise<HLJS> | null = null;
@@ -41,7 +64,7 @@ function importHLJS(): Promise<HLJS> {
 
     const innerImport = async () => {
         // Lazily initialize this because it can be rather heavy.
-        const hljs = await import("highlight.js" /* webpackChunkName: "highlightJs" */);
+        const hljs = await import("@library/content/highlightJs" /* webpackChunkName: "highlightJs" */);
 
         // Start fetching the styles.
         const vars = globalVariables();
@@ -52,7 +75,9 @@ function importHLJS(): Promise<HLJS> {
             await import("./_codeDark.scss" /* webpackChunkName: "highlightJs-dark" */ as any); // Sorry typescript.
         }
 
-        return hljs;
+        hljsCache = hljs.default;
+
+        return hljs.default;
     };
 
     requestPromise = innerImport();

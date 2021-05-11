@@ -8,6 +8,7 @@
 namespace VanillaTests\Library\Vanilla\Formatting\Formats;
 
 use Vanilla\Contracts\Formatting\FormatInterface;
+use Vanilla\Formatting\FormatService;
 use VanillaTests\MinimalContainerTestCase;
 use VanillaTests\Fixtures\Formatting\FormatFixture;
 use VanillaTests\Library\Vanilla\Formatting\AssertsFixtureRenderingTrait;
@@ -170,6 +171,81 @@ abstract class AbstractFormatTestCase extends MinimalContainerTestCase {
      *
      * @return array
      */
+    public function imageProvider(): array {
+        return $this->makeDataProvider('getImages', 'Images');
+    }
+
+    /**
+     * Test heading parsing of the format against fixtures.
+     *
+     * @param string $input
+     * @param array $expectedOutput
+     *
+     * @dataProvider imageProvider
+     */
+    public function testParseImages(string $input, array $expectedOutput) {
+        $format = $this->prepareFormatter();
+        $images = $format->parseImages($input);
+        $this->assertEquals($expectedOutput, $images);
+    }
+
+    /**
+     * PHPUnit data provider.
+     *
+     * @return array
+     */
+    public function imageUrlProvider(): array {
+        return $this->makeDataProvider('getImageUrls', 'Images');
+    }
+
+    /**
+     * Test heading parsing of the format against fixtures.
+     *
+     * @param string $input
+     * @param array $expectedOutput
+     *
+     * @dataProvider imageUrlProvider
+     */
+    public function testParseImageUrls(string $input, array $expectedOutput) {
+        $format = $this->prepareFormatter();
+        $images = $format->parseImageUrls($input);
+        $this->assertEquals(
+            json_encode($expectedOutput, JSON_PRETTY_PRINT),
+            json_encode($images, JSON_PRETTY_PRINT)
+        );
+    }
+
+    /**
+     * PHPUnit data provider.
+     *
+     * @return array
+     */
+    public function attachmentProvider(): array {
+        return $this->makeDataProvider('getAttachments', 'attachments');
+    }
+
+    /**
+     * Test heading parsing of the format against fixtures.
+     *
+     * @param string $input
+     * @param array $expectedOutput
+     *
+     * @dataProvider attachmentProvider
+     */
+    public function testParseAttachments(string $input, array $expectedOutput) {
+        $format = $this->prepareFormatter();
+        $headings = $format->parseAttachments($input);
+        $this->assertEquals(
+            json_encode($expectedOutput, JSON_PRETTY_PRINT),
+            json_encode($headings, JSON_PRETTY_PRINT)
+        );
+    }
+
+    /**
+     * PHPUnit data provider.
+     *
+     * @return array
+     */
     public function mentionsProvider(): array {
         return $this->makeDataProvider('getMentions', 'Mentions');
     }
@@ -188,6 +264,25 @@ abstract class AbstractFormatTestCase extends MinimalContainerTestCase {
             $expectedOutput,
             $format->parseMentions($input)
         );
+    }
+
+    /**
+     * Test parseImageUrls when the format is null.
+     */
+    public function testParseImageUrlsNullFormat() {
+        $formatService =  self::container()->get(FormatService::class);
+        $result = $formatService->parseImageUrls('test content', null);
+        $this->assertEquals([], $result, 'NotFoundFormat::parseImageUrl returns an empty array');
+    }
+
+    /**
+     * Test parseImageUrls excludes emojis.
+     */
+    public function testParseImageUrlsExcludeEmojis() {
+        $formatService = $this->prepareFormatter();
+        $content = '<img class="emoji" src="http://dev.vanilla.localhost/resources/emoji/smile.png" title=":)" alt=":)" height="20">';
+        $result = $formatService->parseImageUrls($content);
+        $this->assertEquals([], $result);
     }
 
     /**

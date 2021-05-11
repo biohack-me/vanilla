@@ -10,7 +10,7 @@ namespace VanillaTests\APIv2;
 use Gdn_Upload;
 use Garden\Http\HttpResponse;
 use Vanilla\UploadedFile;
-use VanillaTests\Fixtures\Uploader;
+use VanillaTests\Fixtures\TestUploader;
 
 /**
  * Test the /api/v2/media endpoints.
@@ -36,7 +36,7 @@ class MediaTest extends AbstractAPIv2Test {
             "{$this->baseUrl}/{$mediaID}/attachment",
             $updatedAttachment
         );
-        $this->assertArraySubset($updatedAttachment, $result->getBody());
+        $this->assertEquals($updatedAttachment, array_intersect_assoc($updatedAttachment, $result->getBody()));
     }
 
     /**
@@ -45,8 +45,8 @@ class MediaTest extends AbstractAPIv2Test {
      * @return array ['uploadedFile' => UploadedFile, 'responseBody' => $body]
      */
     public function testPost() {
-        Uploader::resetUploads();
-        $photo = Uploader::uploadFile('photo', PATH_ROOT.'/tests/fixtures/apple.jpg');
+        TestUploader::resetUploads();
+        $photo = TestUploader::uploadFile('photo', PATH_ROOT.'/tests/fixtures/apple.jpg');
 
         $row = [
             'file' => $photo,
@@ -144,7 +144,7 @@ class MediaTest extends AbstractAPIv2Test {
      */
     private function validateMedia(UploadedFile $uploadedFile, HttpResponse $result) {
         $body = $result->getBody();
-        $this->assertInternalType('array', $body);
+        $this->assertIsArray($body);
 
         $this->assertArrayHasKey('mediaID', $body);
         $this->assertTrue(is_int($body['mediaID']));

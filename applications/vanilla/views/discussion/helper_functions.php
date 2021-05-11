@@ -8,6 +8,9 @@ if (!defined('APPLICATION')) {
     exit();
 }
 
+use Vanilla\Theme\BoxThemeShim;
+use Vanilla\Utility\HtmlUtils;
+
 
 if (!function_exists('formatBody')) :
     /**
@@ -38,14 +41,18 @@ if (!function_exists('writeBookmarkLink')) :
         }
 
         $discussion = Gdn::controller()->data('Discussion');
+        $isBookmarked = $discussion->Bookmarked == '1';
 
         // Bookmark link
-        $title = t($discussion->Bookmarked == '1' ? 'Unbookmark' : 'Bookmark');
+        $title = t($isBookmarked ? 'Unbookmark' : 'Bookmark');
+
+        $accessibleLabel= HtmlUtils::accessibleLabel('%s for discussion: "%s"', [t($isBookmarked? 'Unbookmark' : 'Bookmark'), is_array($discussion) ? $discussion["Name"] : $discussion->Name]);
+
         echo anchor(
             $title,
             '/discussion/bookmark/'.$discussion->DiscussionID.'/'.Gdn::session()->transientKey().'?Target='.urlencode(Gdn::controller()->SelfUrl),
-            'Hijack Bookmark'.($discussion->Bookmarked == '1' ? ' Bookmarked' : ''),
-            ['title' => $title]
+            'Hijack Bookmark'.($isBookmarked ? ' Bookmarked' : ''),
+            ['title' => $title, 'aria-label' => $accessibleLabel]
         );
     }
 endif;
@@ -92,7 +99,7 @@ if (!function_exists('writeComment')) :
             $discussion = $discussionModel->getID($comment->DiscussionID);
             $sender->setData('Discussion', $discussion);
         }
-        
+
         if ($sender->data('Discussion.InsertUserID') === $comment->InsertUserID) {
             $cssClass .= ' isOriginalPoster';
         }
@@ -103,46 +110,50 @@ if (!function_exists('writeComment')) :
 
         // First comment template event
         $sender->fireEvent('BeforeCommentDisplay'); ?>
-        <li class="<?php echo $cssClass; ?>" id="<?php echo 'Comment_'.$comment->CommentID; ?>">
+        <li class="<?php echo $cssClass; ?> pageBox" id="<?php echo 'Comment_'.$comment->CommentID; ?>">
             <div class="Comment">
 
                 <?php
                 // Write a stub for the latest comment so it's easy to link to it from outside.
-                if ($currentOffset == Gdn::controller()->data('_LatestItem')) {
+                if ($currentOffset == Gdn::controller()->data('_LatestItem') && Gdn::config('Vanilla.Comments.AutoOffset')) {
                     echo '<span id="latest"></span>';
                 }
                 ?>
-                <div class="Options">
-                    <?php writeCommentOptions($comment); ?>
-                </div>
+                <?php if (!BoxThemeShim::isActive()) { ?>
+                    <div class="Options">
+                        <?php writeCommentOptions($comment); ?>
+                    </div>
+                <?php } ?>
                 <?php $sender->fireEvent('BeforeCommentMeta'); ?>
                 <div class="Item-Header CommentHeader">
+                    <?php BoxThemeShim::activeHtml(userPhoto($author)); ?>
+                    <?php BoxThemeShim::activeHtml('<div class="Item-HeaderContent">'); ?>
                     <div class="AuthorWrap">
-            <span class="Author">
-               <?php
-               if ($userPhotoFirst) {
-                   echo userPhoto($author);
-                   echo userAnchor($author, 'Username');
-               } else {
-                   echo userAnchor($author, 'Username');
-                   echo userPhoto($author);
-               }
-               echo formatMeAction($comment);
-               $sender->fireEvent('AuthorPhoto');
-               ?>
-            </span>
-            <span class="AuthorInfo">
-               <?php
-               echo ' '.wrapIf(htmlspecialchars(val('Title', $author)), 'span', ['class' => 'MItem AuthorTitle']);
-               echo ' '.wrapIf(htmlspecialchars(val('Location', $author)), 'span', ['class' => 'MItem AuthorLocation']);
-               $sender->fireEvent('AuthorInfo');
-               ?>
-            </span>
+                        <span class="Author">
+                           <?php
+                           if ($userPhotoFirst) {
+                               BoxThemeShim::inactiveHtml(userPhoto($author));
+                               echo userAnchor($author, 'Username');
+                           } else {
+                               echo userAnchor($author, 'Username');
+                               BoxThemeShim::inactiveHtml(userPhoto($author));
+                           }
+                           echo formatMeAction($comment);
+                           $sender->fireEvent('AuthorPhoto');
+                           ?>
+                        </span>
+                        <span class="AuthorInfo">
+                           <?php
+                           echo ' '.wrapIf(htmlspecialchars(val('Title', $author)), 'span', ['class' => 'MItem AuthorTitle']);
+                           echo ' '.wrapIf(htmlspecialchars(val('Location', $author)), 'span', ['class' => 'MItem AuthorLocation']);
+                           $sender->fireEvent('AuthorInfo');
+                           ?>
+                        </span>
                     </div>
                     <div class="Meta CommentMeta CommentInfo">
-            <span class="MItem DateCreated">
-               <?php echo anchor(Gdn_Format::date($comment->DateInserted, 'html'), $permalink, 'Permalink', ['name' => 'Item_'.($currentOffset), 'rel' => 'nofollow']); ?>
-            </span>
+                        <span class="MItem DateCreated">
+                           <?php echo anchor(Gdn_Format::date($comment->DateInserted, 'html'), $permalink, 'Permalink', ['name' => 'Item_'.($currentOffset), 'rel' => 'nofollow']); ?>
+                        </span>
                         <?php
                         echo dateUpdated($comment, ['<span class="MItem">', '</span>']);
                         ?>
@@ -162,6 +173,12 @@ if (!function_exists('writeComment')) :
                         $sender->fireEvent('AfterCommentMeta'); // DEPRECATED
                         ?>
                     </div>
+                    <?php BoxThemeShim::activeHtml("</div>"); ?>
+                    <?php if (BoxThemeShim::isActive()) { ?>
+                        <div class="Options">
+                            <?php writeCommentOptions($comment); ?>
+                        </div>
+                    <?php } ?>
                 </div>
                 <div class="Item-BodyWrap">
                     <div class="Item-Body">
@@ -339,7 +356,7 @@ if (!function_exists('getDiscussionOptionsDropdown')):
         $canEdit = DiscussionModel::canEdit($discussion, $timeLeft);
         $canAnnounce = CategoryModel::checkPermission($categoryID, 'Vanilla.Discussions.Announce');
         $canSink = CategoryModel::checkPermission($categoryID, 'Vanilla.Discussions.Sink');
-        $canClose = CategoryModel::checkPermission($categoryID, 'Vanilla.Discussions.Close');
+        $canClose = DiscussionModel::canClose($discussion);
         $canDelete = CategoryModel::checkPermission($categoryID, 'Vanilla.Discussions.Delete');
         $canMove = $canEdit && $session->checkPermission('Garden.Moderation.Manage');
         $canRefetch = $canEdit && valr('Attributes.ForeignUrl', $discussion);
@@ -355,13 +372,47 @@ if (!function_exists('getDiscussionOptionsDropdown')):
 
         $dropdown->addLinkIf($canDismiss, t('Dismiss'), "vanilla/discussion/dismissannouncement?discussionid={$discussionID}", 'dismiss', 'DismissAnnouncement Hijack')
             ->addLinkIf($canEdit, t('Edit').$timeLeft, '/post/editdiscussion/'.$discussionID, 'edit')
+            ->addLinkIf($canTag, t('Tag'), '/discussion/tag?discussionid='.$discussionID, 'tag', 'TagDiscussion Popup');
+
+        if ($canEdit && $canAnnounce) {
+            $dropdown->addDivider();
+        }
+
+        $dropdown
             ->addLinkIf($canAnnounce, t('Announce'), '/discussion/announce?discussionid='.$discussionID, 'announce', 'AnnounceDiscussion Popup')
             ->addLinkIf($canSink, t($discussion->Sink ? 'Unsink' : 'Sink'), '/discussion/sink?discussionid='.$discussionID.'&sink='.(int)!$discussion->Sink, 'sink', 'SinkDiscussion Hijack')
             ->addLinkIf($canClose, t($discussion->Closed ? 'Reopen' : 'Close'), '/discussion/close?discussionid='.$discussionID.'&close='.(int)!$discussion->Closed, 'close', 'CloseDiscussion Hijack')
             ->addLinkIf($canRefetch, t('Refetch Page'), '/discussion/refetchpageinfo.json?discussionid='.$discussionID, 'refetch', 'RefetchPage Hijack')
-            ->addLinkIf($canMove, t('Move'), '/moderation/confirmdiscussionmoves?discussionid='.$discussionID, 'move', 'MoveDiscussion Popup')
-            ->addLinkIf($canTag, t('Tag'), '/discussion/tag?discussionid='.$discussionID, 'tag', 'TagDiscussion Popup')
-            ->addLinkIf($canDelete, t('Delete Discussion'), '/discussion/delete?discussionid='.$discussionID.'&target='.$categoryUrl, 'delete', 'DeleteDiscussion Popup');
+            ->addLinkIf($canMove, t('Move'), '/moderation/confirmdiscussionmoves?discussionid='.$discussionID, 'move', 'MoveDiscussion Popup');
+
+        $hasDiv = false;
+        if ($session->checkPermission('Garden.Moderation.Manage')) {
+            if (!empty(val('DateUpdated', $discussion))) {
+                $hasDiv = true;
+                $dropdown
+                    ->addDivider()
+                    ->addLink(
+                        t('Revision History'),
+                        '/log/filter?' . http_build_query(['recordType' => 'discussion', 'recordID' => $discussionID]),
+                        'discussionRevisionHistory',
+                        'RevisionHistory'
+                    );
+            }
+            $dropdown
+                ->addDividerIf(!$hasDiv)
+                ->addLink(
+                    t('Deleted Comments'),
+                    '/log/filter?'.http_build_query(['parentRecordID' => $discussionID, 'recordType' => 'comment', 'operation' => 'delete']),
+                    'deletedComments',
+                    'DeletedComments'
+                );
+        }
+
+        if ($canDelete) {
+            $dropdown
+                ->addDivider()
+                ->addLink(t('Delete Discussion'), '/discussion/delete?discussionid='.$discussionID.'&target='.$categoryUrl, 'delete', 'DeleteDiscussion Popup');
+        }
 
         // DEPRECATED
         $options = [];
@@ -369,7 +420,7 @@ if (!function_exists('getDiscussionOptionsDropdown')):
         $sender->EventArguments['Discussion'] = $discussion;
         $sender->fireEvent('DiscussionOptions');
 
-        // Backwards compatability
+        // Backwards compatibility
         $dropdown = discussionOptionsToDropdown($options, $dropdown);
 
         // Allow plugins to edit the dropdown.
@@ -391,7 +442,7 @@ if (!function_exists('WriteAdminCheck')):
         if (!Gdn::controller()->CanEditComments || !c('Vanilla.AdminCheckboxes.Use')) {
             return;
         }
-        echo '<span class="AdminCheck"><input type="checkbox" name="Toggle"></span>';
+        echo '<span class="AdminCheck"><input type="checkbox" aria-label="'.t("Select Discussion").'" name="Toggle"></span>';
     }
 endif;
 
@@ -427,7 +478,7 @@ if (!function_exists('getCommentOptions')) :
      * Get comment options.
      *
      * @since 2.1
-     * @param DataSet $comment .
+     * @param object $comment The comment to get the options for.
      * @return array $options Each element must include keys 'Label' and 'Url'.
      */
     function getCommentOptions($comment) {
@@ -456,6 +507,14 @@ if (!function_exists('getCommentOptions')) :
             ];
         }
 
+        if ($session->checkPermission('Garden.Moderation.Manage') && !empty(val('DateUpdated', $comment))) {
+            $options['RevisionHistory'] = [
+                'Label' => t('Revision History'),
+                'Url' => '/log/filter?' . http_build_query(['recordType' => 'comment', 'recordID' => $comment->CommentID]),
+                'RevisionHistory',
+            ];
+        }
+
         // Can the user delete the comment?
         $canDelete = CategoryModel::checkPermission(
             $categoryID,
@@ -469,6 +528,8 @@ if (!function_exists('getCommentOptions')) :
                 'Class' => 'DeleteComment'
             ];
         }
+
+
 
         // DEPRECATED (as of 2.1)
         $sender->EventArguments['Type'] = 'Comment';
@@ -516,7 +577,7 @@ if (!function_exists('writeCommentOptions')) :
                     $controller->CheckedComments = $session->getAttribute('CheckedComments', []);
                 }
                 $itemSelected = inSubArray($id, $controller->CheckedComments);
-                echo '<span class="AdminCheck"><input type="checkbox" name="'.'Comment'.'ID[]" value="'.$id.'"'.($itemSelected ? ' checked="checked"' : '').' /></span>';
+                echo '<span class="AdminCheck"><input type="checkbox" aria-label="'.t("Select Discussion").'" name="'.'Comment'.'ID[]" value="'.$id.'"'.($itemSelected ? ' checked="checked"' : '').' /></span>';
             }
         }
     }
@@ -540,14 +601,14 @@ if (!function_exists('writeCommentForm')) :
         // Closed notification
         if ($discussion->Closed == '1') {
             ?>
-            <div class="Foot Closed">
+            <div class="Foot Closed pageBox">
                 <div class="Note Closed"><?php echo t('This discussion has been closed.'); ?></div>
             </div>
         <?php
         } elseif (!$userCanComment) {
             if (!Gdn::session()->isValid()) {
                 ?>
-                <div class="Foot Closed">
+                <div class="Foot Closed pageBox">
                     <div class="Note Closed SignInOrRegister"><?php
                         $popup = (c('Garden.SignIn.Popup')) ? ' class="Popup"' : '';
                         $returnUrl = Gdn::request()->pathAndQuery();

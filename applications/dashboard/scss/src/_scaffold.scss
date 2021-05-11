@@ -47,7 +47,7 @@
   }
 }
 
-.main {
+.dashboard-main {
   position: relative;
   flex-grow: 1;
   // The panels are fixed width and the main content fills the rest of the screen.
@@ -90,15 +90,17 @@
   height: 100%;
 }
 
+$panelMaxHeight: calc(100vh - #{$navbar-height * 2});
+
 .panel-left {
   padding-left: $spacer;
   position: sticky;
   top: 0;
-  height: 100%;
+  max-height: $panelMaxHeight;
   padding-bottom: 0;
 
   .panel-content {
-    max-height: calc(100vh - #{$navbar-height * 2});
+    max-height: $panelMaxHeight;
     overflow: auto;
   }
 }
@@ -106,9 +108,13 @@
 .panel-right {
   padding-right: $spacer;
   order: 3;
+  position: sticky;
+  max-height: $panelMaxHeight;
+
+  top: 0;
 
   .panel-content {
-    max-height: 100%;
+    max-height: $panelMaxHeight;
     overflow: auto;
     padding-left: $spacer;
   }
@@ -117,7 +123,7 @@
 // For wide panel-less pages, like the Dashboard Home page
 
 .main-row-wide {
-  .main {
+  .dashboard-main {
     max-width: 1296px;
   }
 
@@ -132,7 +138,7 @@
 
 // Drawer functionality, and responsive show/hide
 
-.drawer-show .main {
+.drawer-show .dashboard-main {
   transform: translate3d($drawer-width, 0, 0);
 
   &::after {

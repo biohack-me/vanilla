@@ -5,11 +5,15 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
-import { colorOut } from "@library/styles/styleHelpersColors";
-import { borders, paddings, singleBorder, unit, userSelect } from "@library/styles/styleHelpers";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { singleBorder, userSelect } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
 import { shadowHelper } from "@library/styles/shadowHelpers";
-import { translateX } from "csx";
+import { translateX, percent, px, important } from "csx";
+import { modalVariables } from "@library/modal/modalStyles";
 
 export const tooltipVariables = useThemeCache(() => {
     const makeThemeVars = variableFactory("toolTips");
@@ -17,7 +21,8 @@ export const tooltipVariables = useThemeCache(() => {
 
     // Main colors
     const sizes = makeThemeVars("sizes", {
-        default: 205,
+        min: 150,
+        max: 250,
     });
 
     const nub = makeThemeVars("nub", {
@@ -37,25 +42,41 @@ export const toolTipClasses = useThemeCache(() => {
     const shadow = shadowHelper();
 
     const noPointerContent = style("content", {
-        $nest: {
+        position: "relative",
+        display: "inline-flex",
+        ...{
             "& *": {
                 pointerEvents: "none",
             },
         },
     });
 
+    const noPointerTrigger = style("noPointerTrigger", {
+        pointerEvents: important("initial"),
+        position: "absolute",
+        top: percent(50),
+        left: percent(50),
+        minWidth: px(45),
+        minHeight: px(45),
+        transform: "translate(-50%, -50%)",
+        zIndex: 1,
+    });
+
     const box = style("box", {
         position: "absolute",
-        fontSize: unit(globalVars.fonts.size.medium),
-        width: unit(vars.sizes.default),
-        color: colorOut(globalVars.mainColors.fg),
-        backgroundColor: colorOut(globalVars.mainColors.bg),
-        lineHeight: globalVars.lineHeights.base,
-        ...borders(),
-        ...paddings({
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("medium"),
+            lineHeight: globalVars.lineHeights.base,
+        }),
+        minWidth: styleUnit(vars.sizes.min),
+        maxWidth: styleUnit(vars.sizes.max),
+        backgroundColor: ColorsUtils.colorOut(globalVars.mainColors.bg),
+        ...Mixins.border(),
+        ...Mixins.padding({
             all: globalVars.fonts.size.medium,
         }),
         ...shadow.dropDown(),
+        zIndex: modalVariables().sizing.zIndex + 1,
     });
 
     const nubPosition = style("nubPosition", {
@@ -64,20 +85,20 @@ export const toolTipClasses = useThemeCache(() => {
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
-        width: unit(vars.nub.width * 2),
-        height: unit(vars.nub.width * 2),
+        width: styleUnit(vars.nub.width * 2),
+        height: styleUnit(vars.nub.width * 2),
         transform: translateX("-50%"),
-        marginLeft: unit(vars.nub.width),
+        marginLeft: styleUnit(vars.nub.width),
         pointerEvents: "none",
-        zIndex: 1,
+        zIndex: modalVariables().sizing.zIndex + 2,
         ...userSelect(),
     });
 
     const nub = style("nub", {
         position: "relative",
         display: "block",
-        width: unit(vars.nub.width),
-        height: unit(vars.nub.width),
+        width: styleUnit(vars.nub.width),
+        height: styleUnit(vars.nub.width),
         borderTop: singleBorder({
             width: globalVars.border.width,
         }),
@@ -85,9 +106,9 @@ export const toolTipClasses = useThemeCache(() => {
             width: globalVars.border.width,
         }),
         boxShadow: globalVars.overlay.dropShadow,
-        background: colorOut(globalVars.mainColors.bg),
+        background: ColorsUtils.colorOut(globalVars.mainColors.bg),
         zIndex: 1,
-        $nest: {
+        ...{
             [`&.isUp`]: {
                 transform: `rotate(-45deg)`,
             },
@@ -102,5 +123,6 @@ export const toolTipClasses = useThemeCache(() => {
         nub,
         nubPosition,
         noPointerContent,
+        noPointerTrigger,
     };
 });

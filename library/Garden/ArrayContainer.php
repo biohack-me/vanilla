@@ -25,7 +25,7 @@ class ArrayContainer extends \ArrayObject implements ContainerInterface {
      * @param bool $lazy Whether or not to lazy instantiate objects that aren't in the container.
      */
     public function __construct($lazy = false) {
-        parent::__construct(null, 0, 'ArrayIterator');
+        parent::__construct([], 0, 'ArrayIterator');
         $this->lazy = $lazy;
     }
 
@@ -44,8 +44,7 @@ class ArrayContainer extends \ArrayObject implements ContainerInterface {
      *
      * @param string $id Identifier of the entry to look for.
      *
-     * @throws NotFoundException  No entry was found for this identifier.
-     * @throws ContainerException Error while retrieving the entry.
+     * @throws ContainerNotFoundException  No entry was found for this identifier.
      *
      * @return mixed Entry.
      */
@@ -73,6 +72,6 @@ class ArrayContainer extends \ArrayObject implements ContainerInterface {
     public function has($id) {
         $id = $this->normalizeID($id);
 
-        return isset($id) || ($this->lazy && class_exists($id));
+        return $this->offsetExists($id) || ($this->lazy && class_exists($id));
     }
 }

@@ -1,6 +1,4 @@
-<?php if (!defined('APPLICATION')) {
-    exit();
-      }
+<?php
 /**
  * Dashboard database structure.
  *
@@ -10,6 +8,13 @@
  * @since 2.0
  */
 
+use Vanilla\Dashboard\UserPointsModel;
+use Vanilla\Theme\ThemeCache;
+use Vanilla\Theme\ThemeServiceHelper;
+
+if (!defined('APPLICATION')) {
+    exit();
+}
 if (!isset($Drop)) {
     $Drop = false;
 }
@@ -35,7 +40,15 @@ $Construct
     ->primaryKey('RoleID')
     ->column('Name', 'varchar(100)')
     ->column('Description', 'varchar(500)', true)
-    ->column('Type', [RoleModel::TYPE_GUEST, RoleModel::TYPE_UNCONFIRMED, RoleModel::TYPE_APPLICANT, RoleModel::TYPE_MEMBER, RoleModel::TYPE_MODERATOR, RoleModel::TYPE_ADMINISTRATOR], true)
+    ->column('Type', [
+        RoleModel::TYPE_GUEST,
+        RoleModel::TYPE_UNCONFIRMED,
+        RoleModel::TYPE_APPLICANT,
+        RoleModel::TYPE_MEMBER,
+        RoleModel::TYPE_MODERATOR,
+        RoleModel::TYPE_ADMINISTRATOR
+    ], true)
+    ->column('Sync', 'varchar(20)', '')
     ->column('Sort', 'int', true)
     ->column('Deletable', 'tinyint(1)', '1')
     ->column('CanSession', 'tinyint(1)', '1')
@@ -131,6 +144,19 @@ if ($SystemUserID) {
         $SystemUserID = false;
         removeFromConfig('Garden.SystemUserID');
     }
+
+    // Make sure our profile image respects SSL settings.
+    $profileUrl = $SysUser->Photo ?? '';
+    $ownSiteHttp = 'http://'.\Gdn::request()->getHostAndPort();
+    if ($profileUrl && strpos($profileUrl, $ownSiteHttp) === 0 && \Gdn::config('Garden.AllowSSL')) {
+        \Gdn::sql()->update(
+            'User',
+            [
+                'Photo' => preg_replace("/^http/", "https", $profileUrl),
+            ],
+            [ 'UserID' => $SystemUserID]
+        )->put();
+    }
 }
 
 if (!$SystemUserID) {
@@ -213,11 +239,60 @@ if (!$UserRoleExists) {
     }
 }
 
+$Construct
+    ->table('roleRequestMeta')
+    ->column('roleID', 'int', false, 'primary')
+    ->column('type', ['application', 'invitation'], false, 'primary')
+    ->column('name', 'varchar(150)')
+    ->column('body', 'text')
+    ->column('format', 'varchar(10)')
+    ->column('attributesSchema', 'text')
+    ->column('attributes', 'json', true)
+
+    ->column('dateInserted', 'datetime')
+    ->column('insertUserID', 'int')
+    ->column('insertIPAddress', 'ipaddress', true)
+    ->column('dateUpdated', 'datetime', true)
+    ->column('updateUserID', 'int', true)
+    ->column('updateIPAddress', 'ipaddress', true)
+    ->set($Explicit, $Drop);
+
+$Construct
+    ->table('roleRequest')
+    ->primaryKey('roleRequestID')
+    ->column('type', ['application', 'invitation'])
+    ->column('roleID', 'int', false, ['unique'])
+    ->column('userID', 'int', false, ['unique', 'key'])
+
+    ->column('status', ['pending', 'approved', 'denied'])
+    ->column('dateOfStatus', 'datetime')
+    ->column('statusUserID', 'int')
+    ->column('statusIPAddress', 'ipaddress', true)
+    ->column('dateExpires', 'datetime', true)
+    ->column('attributes', 'json', true)
+
+    ->column('dateInserted', 'datetime')
+    ->column('insertUserID', 'int')
+    ->column('insertIPAddress', 'ipaddress', true)
+    ->column('dateUpdated', 'datetime', true)
+    ->column('updateUserID', 'int', true)
+    ->column('updateIPAddress', 'ipaddress', true)
+
+    ->set($Explicit, $Drop);
+
 // User Meta Table
 $Construct->table('UserMeta')
     ->column('UserID', 'int', false, 'primary')
     ->column('Name', 'varchar(100)', false, ['primary', 'index'])
     ->column('Value', 'text', true)
+    ->set($Explicit, $Drop);
+
+// Similar to the user meta table, but without the need to cache the entire dataset.
+$Construct
+    ->table('userAttributes')
+    ->column('userID', 'int', false, 'primary')
+    ->column('key', 'varchar(100)', false, ['primary', 'index'])
+    ->column('attributes', 'json', true)
     ->set($Explicit, $Drop);
 
 // User Points Table
@@ -237,8 +312,24 @@ $Construct->table('UserAuthentication')
     ->column('UserID', 'int', false, 'key')
     ->set($Explicit, $Drop);
 
-$Construct->table('UserAuthenticationProvider')
-    ->column('AuthenticationKey', 'varchar(64)', false, 'primary')
+$Construct->table('UserAuthenticationProvider');
+
+if ($Construct->tableExists("UserAuthenticationProvider") && !$Construct->columnExists("UserAuthenticationProviderID")) {
+    $userAuthenticationProvider = $SQL->prefixTable("UserAuthenticationProvider");
+    $addAuthenticationProviderID = <<<SQL
+alter table {$userAuthenticationProvider}
+drop primary key,
+add `UserAuthenticationProviderID` int not null auto_increment primary key first
+SQL;
+
+    $Construct->executeQuery($addAuthenticationProviderID);
+    $Construct->reset();
+}
+
+$Construct
+    ->table('UserAuthenticationProvider')
+    ->primaryKey('UserAuthenticationProviderID')
+    ->column('AuthenticationKey', 'varchar(64)', false, 'unique')
     ->column('AuthenticationSchemeAlias', 'varchar(32)', false)
     ->column('Name', 'varchar(50)', true)
     ->column('URL', 'varchar(255)', true)
@@ -253,12 +344,13 @@ $Construct->table('UserAuthenticationProvider')
     ->column('Attributes', 'text', true)
     ->column('Active', 'tinyint', '1')
     ->column('IsDefault', 'tinyint', 0)
+    ->column('Visible', 'tinyint', 1)
     ->set($Explicit, $Drop);
 
 $Construct->table('UserAuthenticationNonce')
     ->column('Nonce', 'varchar(100)', false, 'primary')
     ->column('Token', 'varchar(128)', false)
-    ->column('Timestamp', 'timestamp', false, 'index')
+    ->column('Timestamp', 'timestamp', ['Null' => false, 'Default' => 'current_timestamp'], 'index')
     ->set($Explicit, $Drop);
 
 $Construct->table('UserAuthenticationToken')
@@ -268,7 +360,7 @@ $Construct->table('UserAuthenticationToken')
     ->column('TokenSecret', 'varchar(64)', false)
     ->column('TokenType', ['request', 'access'], false)
     ->column('Authorized', 'tinyint(1)', false)
-    ->column('Timestamp', 'timestamp', false ,'index')
+    ->column('Timestamp', 'timestamp', ['Null' => false, 'Default' => 'current_timestamp'], 'index')
     ->column('Lifetime', 'int', false)
     ->set($Explicit, $Drop);
 
@@ -304,7 +396,6 @@ if (c('Garden.SSO.SynchRoles')) {
         ['RemoveEmpty' => true]
     );
 }
-
 
 $Construct->table('Session');
 
@@ -600,6 +691,11 @@ if ($SQL->getWhere('ActivityType', ['Name' => 'Applicant'])->numRows() == 0) {
     $SQL->insert('ActivityType', ['AllowComments' => '0', 'Name' => 'Applicant', 'FullHeadline' => '%1$s applied for membership.', 'ProfileHeadline' => '%1$s applied for membership.', 'Notify' => '1', 'Public' => '0']);
 }
 
+// roleRequest activity
+if ($SQL->getWhere('ActivityType', ['Name' => 'roleRequest'])->numRows() == 0) {
+    $SQL->insert('ActivityType', ['AllowComments' => '0', 'Name' => 'roleRequest', 'Notify' => '1', 'Public' => '0']);
+}
+
 $WallPostType = $SQL->getWhere('ActivityType', ['Name' => 'WallPost'])->firstRow(DATASET_TYPE_ARRAY);
 if (!$WallPostType) {
     $WallPostTypeID = $SQL->insert('ActivityType', ['AllowComments' => '1', 'ShowIcon' => '1', 'Name' => 'WallPost', 'FullHeadline' => '%3$s wrote on %2$s %5$s.', 'ProfileHeadline' => '%3$s wrote:']);
@@ -797,8 +893,17 @@ $Construct->table('Spammer')
     ->column('CountDeletedSpam', 'usmallint', 0)
     ->set($Explicit, $Drop);
 
+$Construct->table('Media');
+
+// There used to be a required storage method column in the table.
+// It was removed in https://github.com/vanilla/vanilla/pull/3389
+// Clean it up so it doesn't cause problems during upgrades
+$transientKeyExists = $Construct->columnExists('StorageMethod');
+if ($transientKeyExists) {
+    $Construct->dropColumn('StorageMethod');
+}
+
 $Construct
-    ->table('Media')
     ->primaryKey('MediaID')
     ->column('Name', 'varchar(255)')
     ->column('Path', 'varchar(255)')
@@ -814,6 +919,9 @@ $Construct
     ->column('ThumbWidth', 'usmallint', null)
     ->column('ThumbHeight', 'usmallint', null)
     ->column('ThumbPath', 'varchar(255)', null)
+
+    // Lowercase to match new schemas.
+    ->column('foreignUrl', 'varchar(255)', true, 'unique')
     ->set(false, false);
 
 // Merge backup.
@@ -878,6 +986,7 @@ $Construct
     ->column("reactionValue", "int", false)
     ->column("insertUserID", "int", false, ["index"])
     ->column("dateInserted", "datetime")
+    ->column('foreignID', 'varchar(32)', true, 'index')
     ->set($Explicit, $Drop);
 
 $Construct
@@ -888,6 +997,16 @@ $Construct
     ->column("recordType", "varchar(64)", false, ["index", "unique.record"])
     ->column("insertUserID", "int", false, ["index"])
     ->column("dateInserted", "datetime")
+    ->set($Explicit, $Drop);
+
+$Construct
+    ->table("remoteResource")
+    ->primaryKey("remoteResourceID")
+    ->column("url", "varchar(255)", false, ["index", "unique"])
+    ->column("content", "mediumtext", true)
+    ->column("lastError", "text", true)
+    ->column("dateInserted", "datetime")
+    ->column("dateUpdated", "datetime", false, ["index"])
     ->set($Explicit, $Drop);
 
 // If the AllIPAddresses column exists, attempt to migrate legacy IP data to the UserIP table.
@@ -1014,3 +1133,21 @@ if (Gdn::config()->get("Robots.Rules") === false && $sitemapsRobotsRules = Gdn::
     Gdn::config()->set("Robots.Rules", $sitemapsRobotsRules);
     Gdn::config()->remove("Sitemap.Robots.Rules");
 }
+
+
+// Save current theme value into the visible themes. This way existing sites will continue to see them even if they get hidden.
+
+/**
+ * @var ThemeServiceHelper $themeHelper
+ */
+$themeHelper = Gdn::getContainer()->get(ThemeServiceHelper::class);
+$themeHelper->saveCurrentThemeToVisible();
+
+
+// Clear out the theme cache in case any file based themes were updated.
+/** @var ThemeCache $themeCache */
+$themeCache = Gdn::getContainer()->get(ThemeCache::class);
+$themeCache->clear();
+
+// Ensure we have a secret setup in the site context.
+Gdn::config()->touch("Context.Secret", betterRandomString(32, "Aa0"));

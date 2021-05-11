@@ -4,145 +4,115 @@
  * @license GPL-2.0-only
  */
 
-import { percent } from "csx";
-import { ColorValues, paddings, unit } from "@library/styles/styleHelpers";
-import {
-    FontFamilyProperty,
-    FontSizeProperty,
-    FontWeightProperty,
-    LineHeightProperty,
-    MaxWidthProperty,
-    OverflowXProperty,
-    TextOverflowProperty,
-    TextShadowProperty,
-    TextTransformProperty,
-    WhiteSpaceProperty,
-    TextAlignProperty,
-} from "csstype";
-import { NestedCSSProperties, TLength } from "typestyle/lib/types";
-import { colorOut } from "@library/styles/styleHelpersColors";
-
-const fontFallbacks = [
-    "-apple-system",
-    "BlinkMacSystemFont",
-    "HelveticaNeue-Light",
-    "Segoe UI",
-    "Helvetica Neue",
-    "Helvetica",
-    "Raleway",
-    "Arial",
-    "sans-serif",
-    "Apple Color Emoji",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol",
-];
-
-export function fontFamilyWithDefaults(fontFamilies: string[]): string {
-    return fontFamilies
-        .concat(fontFallbacks)
-        .map(font => (font.includes(" ") && !font.includes('"') ? `"${font}"` : font))
-        .join(", ");
-}
+import { ColorHelper, important, percent, px } from "csx";
+import { styleUnit } from "@library/styles/styleUnit";
+import { CSSObject } from "@emotion/css";
+import { TLength } from "@library/styles/styleShim";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { formElementsVariables } from "@library/forms/formElementStyles";
+import { globalVariables } from "@library/styles/globalStyleVars";
+import { paddingOffsetBasedOnBorderRadius } from "@library/forms/paddingOffsetFromBorderRadius";
+import { EMPTY_SPACING } from "@library/styles/cssUtilsTypes";
+import { Mixins } from "@library/styles/Mixins";
 
 export function inputLineHeight(height: number, paddingTop: number, fullBorderWidth: number) {
-    return unit(height - (2 * paddingTop + fullBorderWidth));
+    return styleUnit(height - (2 * paddingTop + fullBorderWidth));
 }
 
 export const textInputSizingFromSpacing = (fontSize: number, paddingTop: number, fullBorderWidth: number) => {
     return {
-        fontSize: unit(fontSize),
+        fontSize: styleUnit(fontSize),
         width: percent(100),
         lineHeight: 1.5,
-        ...paddings({
-            top: unit(paddingTop),
-            bottom: unit(paddingTop),
-            left: unit(paddingTop * 2),
-            right: unit(paddingTop * 2),
+        ...Mixins.padding({
+            ...EMPTY_SPACING,
+            top: styleUnit(paddingTop),
+            bottom: styleUnit(paddingTop),
+            left: styleUnit(paddingTop * 2),
+            right: styleUnit(paddingTop * 2),
         }),
     };
 };
 
-export const textInputSizingFromFixedHeight = (height: number, fontSize: number, fullBorderWidth: number) => {
-    const paddingTop = (height - fullBorderWidth - fontSize * 1.5) / 2;
+export const getVerticalPaddingForTextInput = (height: number, fontSize: number, fullBorderWidth: number) => {
+    return (height - fullBorderWidth - fontSize * 1.5) / 2;
+};
+
+export const getHorizontalPaddingForTextInput = (height: number, fontSize: number, fullBorderWidth: number) => {
+    return getVerticalPaddingForTextInput(height, fontSize, fullBorderWidth) * 2;
+};
+
+export const textInputSizingFromFixedHeight = (
+    height: number,
+    fontSize: number,
+    fullBorderWidth: number,
+    borderRadius?: number | string,
+): CSSObject => {
+    const paddingVertical = getVerticalPaddingForTextInput(height, fontSize, fullBorderWidth);
+    const paddingHorizontal = getHorizontalPaddingForTextInput(height, fontSize, fullBorderWidth);
+
+    const formElementVars = formElementsVariables();
+
+    const paddingOffsets = paddingOffsetBasedOnBorderRadius({
+        radius: borderRadius ?? globalVariables().borderType.formElements.default.radius,
+        extraPadding: formElementVars.spacing.fullBorderRadius.extraHorizontalPadding,
+        height: height,
+    });
+
     return {
-        fontSize: unit(fontSize),
+        fontSize: styleUnit(fontSize),
         width: percent(100),
         lineHeight: 1.5,
-        ...paddings({
-            top: unit(paddingTop),
-            bottom: unit(paddingTop),
-            left: unit(paddingTop * 2),
-            right: unit(paddingTop * 2),
+        minHeight: styleUnit(height),
+        ...Mixins.padding({
+            vertical: styleUnit(px(paddingVertical)),
+            left: px(paddingHorizontal + paddingOffsets.left ?? 0),
+            right: px(paddingHorizontal + paddingOffsets.right ?? 0),
         }),
     };
-};
-
-export interface IFont {
-    color?: ColorValues;
-    size?: FontSizeProperty<TLength>;
-    weight?: FontWeightProperty | number;
-    lineHeight?: LineHeightProperty<TLength>;
-    shadow?: TextShadowProperty;
-    align?: TextAlignProperty;
-    family?: FontFamilyProperty[];
-    transform?: TextTransformProperty;
-}
-
-export const fonts = (props: IFont): NestedCSSProperties => {
-    if (props) {
-        const fontSize = props.size !== undefined ? unit(props.size) : undefined;
-        const fontWeight = props.weight !== undefined ? props.weight : undefined;
-        const color = props.color !== undefined ? colorOut(props.color) : undefined;
-        const lineHeight = props.lineHeight !== undefined ? props.lineHeight : undefined;
-        const textAlign = props.align !== undefined ? props.align : undefined;
-        const textShadow = props.shadow !== undefined ? props.shadow : undefined;
-        const fontFamily = props.family !== undefined ? fontFamilyWithDefaults(props.family) : undefined;
-        const textTransform = props.transform !== undefined ? props.transform : undefined;
-        return {
-            color,
-            fontSize,
-            fontWeight,
-            lineHeight,
-            textAlign,
-            textShadow,
-            fontFamily,
-            textTransform,
-        };
-    } else {
-        return {};
-    }
 };
 
 // must be nested
-export const placeholderStyles = (styles: NestedCSSProperties) => {
+export const placeholderStyles = (styles: CSSObject): CSSObject => {
     return {
         "&::-webkit-input-placeholder": {
-            $unique: true,
             ...styles,
         },
         "&::-moz-placeholder": {
-            $unique: true,
             ...styles,
         },
         "&::-ms-input-placeholder": {
-            $unique: true,
             ...styles,
         },
     };
 };
 
-export const singleLineEllipsis = () => {
+export const autoFillReset = (fg?: ColorHelper, bg?: ColorHelper) => {
     return {
-        whiteSpace: "nowrap" as WhiteSpaceProperty,
-        textOverflow: "ellipsis" as TextOverflowProperty,
-        overflowX: "hidden" as OverflowXProperty,
-        maxWidth: percent(100) as MaxWidthProperty<TLength>,
+        "&&&:-webkit-autofill, &&&&:-webkit-autofill:hover, &&&&:-webkit-autofill:focus": {
+            ["-webkit-text-fill-color"]: important(ColorsUtils.colorOut(fg) as string),
+            ["-webkit-box-shadow"]: important(`0 0 0px 1000px ${ColorsUtils.colorOut(bg)} inset`),
+            ["transition"]: important(`background-color 5000s ease-in-out 0s`),
+        },
+        "&&&:-webkit-autofill": {
+            fontSize: important("inherit"),
+        },
     };
 };
-export const longWordEllipsis = () => {
+
+export const singleLineEllipsis = (): CSSObject => {
     return {
-        textOverflow: "ellipsis" as TextOverflowProperty,
-        overflowX: "hidden" as OverflowXProperty,
-        maxWidth: percent(100) as MaxWidthProperty<TLength>,
+        whiteSpace: "nowrap",
+        textOverflow: "ellipsis",
+        overflow: "hidden",
+        maxWidth: "100%",
+    };
+};
+
+export const longWordEllipsis = (): CSSObject => {
+    return {
+        textOverflow: "ellipsis",
+        overflowX: "hidden",
+        maxWidth: percent(100),
     };
 };

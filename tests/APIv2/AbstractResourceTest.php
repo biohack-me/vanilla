@@ -7,8 +7,13 @@
 
 namespace VanillaTests\APIv2;
 
+use Garden\Http\HttpResponse;
+use Garden\Web\Exception\ClientException;
 use Vanilla\Formatting\FormatCompatibilityService;
 
+/**
+ * A base test class for testing any API v2 RESTful resource.
+ */
 abstract class AbstractResourceTest extends AbstractAPIv2Test {
 
     /**
@@ -72,6 +77,23 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     }
 
     /**
+     * Call `GET /:id/edit`
+     *
+     * @param mixed $rowOrID The PK value or a row.
+     * @return \Garden\Http\HttpResponse
+     */
+    protected function getEdit($rowOrID): HttpResponse {
+        if (is_array($rowOrID)) {
+            $id = $rowOrID[$this->pk];
+        } else {
+            $id = $rowOrID;
+        }
+
+        $r = $this->api()->get("{$this->baseUrl}/$id/edit");
+        return $r;
+    }
+
+    /**
      * Test GET /resource/<id>.
      */
     public function testGet() {
@@ -115,6 +137,23 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     }
 
     /**
+     * You shouldn't be allowed to post with a bad format.
+     */
+    public function testPostBadFormat(): void {
+        $record = $this->record();
+        if (!array_key_exists('format', $record)) {
+            // The test doesn't apply to this resource so just arbitrarily pass.
+            $this->assertTrue(true);
+            return;
+        }
+        $record['format'] = 'invalid';
+
+        $this->expectException(ClientException::class);
+        $this->expectExceptionCode(422);
+        $result = $this->api()->post($this->baseUrl, $record);
+    }
+
+    /**
      * Test PATCH /resource/<id> with a full record overwrite.
      */
     public function testPatchFull() {
@@ -134,6 +173,24 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
     }
 
     /**
+     * A PATCH with an invalid format should have validation problems.
+     *
+     * @depends testGetEdit
+     */
+    public function testPatchInvalidFormat(): void {
+        $row = $this->testGetEdit();
+        if (!array_key_exists('format', $row)) {
+            $this->assertTrue(true);
+            return;
+        }
+        $row['format'] = 'invalid';
+
+        $this->expectException(ClientException::class);
+        $this->expectExceptionCode(422);
+        $r = $this->api()->patch("{$this->baseUrl}/{$row[$this->pk]}", $row);
+    }
+
+    /**
      * Test GET /resource/<id>/edit.
      *
      * @param array|null $record A record to use for comparison.
@@ -147,9 +204,7 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
             $row = $record;
         }
 
-        $r = $this->api()->get(
-            "{$this->baseUrl}/{$row[$this->pk]}/edit"
-        );
+        $r = $this->getEdit($row);
 
         $this->assertEquals(200, $r->getStatusCode());
         $this->assertRowsEqual(arrayTranslate($record, $this->editFields), $r->getBody());
@@ -278,7 +333,7 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
 
         $this->assertEquals(200, $r->getStatusCode());
 
-        $newRow = $this->api()->get("{$this->baseUrl}/{$row[$this->pk]}/edit");
+        $newRow = $this->getEdit($row);
         $this->assertSame($patchRow[$field], $newRow[$field]);
     }
 
@@ -313,7 +368,7 @@ abstract class AbstractResourceTest extends AbstractAPIv2Test {
      */
     public function testIndex() {
         $indexUrl = $this->indexUrl();
-        $originalIndex = $this->api()->get($indexUrl);
+        $originalIndex = $this->api()->get($indexUrl, ['limit' => 100]);
         $this->assertEquals(200, $originalIndex->getStatusCode());
 
         $originalRows = $originalIndex->getBody();

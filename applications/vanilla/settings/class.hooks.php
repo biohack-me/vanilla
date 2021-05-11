@@ -10,11 +10,15 @@
 
 use Garden\Container\Container;
 use Garden\Container\Reference;
+use Vanilla\DiscussionTypeHandler;
+use Vanilla\Forum\Modules\DiscussionListModule;
+use Vanilla\Theme\ThemeSectionModel;
+use Vanilla\Widgets\WidgetService;
 
 /**
  * Vanilla's event handlers.
  */
-class VanillaHooks implements Gdn_IPlugin {
+class VanillaHooks extends Gdn_Plugin {
 
     /**
      * Handle the container init event to register things with the container.
@@ -25,10 +29,24 @@ class VanillaHooks implements Gdn_IPlugin {
         $dic->rule(\Vanilla\Navigation\BreadcrumbModel::class)
             ->addCall('addProvider', [new Reference(\Vanilla\Forum\Navigation\ForumBreadcrumbProvider::class)])
         ;
-
         $dic->rule(\Vanilla\Menu\CounterModel::class)
             ->addCall('addProvider', [new Reference(\Vanilla\Forum\Menu\UserCounterProvider::class)])
         ;
+
+        $dic->rule(ThemeSectionModel::class)
+            ->addCall('registerLegacySection', [t('Forum')]);
+
+        $dic
+            ->rule(\Vanilla\DiscussionTypeConverter::class)
+            ->addCall('addTypeHandler', [new Reference(DiscussionTypeHandler::class)]);
+
+        $mf = \Vanilla\Models\ModelFactory::fromContainer($dic);
+        $mf->addModel('category', CategoryModel::class, 'cat');
+        $mf->addModel('discussion', DiscussionModel::class, 'd');
+        $mf->addModel('comment', CommentModel::class, 'c');
+
+        $dic->rule(PermissionModel::class)
+            ->addCall('addJunctionModel', ['Category', new Reference(CategoryModel::class)]);
     }
 
     /**
@@ -102,6 +120,12 @@ class VanillaHooks implements Gdn_IPlugin {
      */
     public function deleteUserData($userID, $options = [], &$data = null) {
         $sql = Gdn::sql();
+
+        $deleteMethod = $options['DeleteMethod'] ?? false;
+        $isMethodKeep = $deleteMethod && $deleteMethod === 'keep';
+        if (!$isMethodKeep) {
+            Gdn::userModel()->getDelete('UserPoints', ['UserID' => $userID], $data);
+        }
 
         // Remove discussion watch records and drafts.
         $sql->delete('UserDiscussion', ['UserID' => $userID]);
@@ -276,6 +300,7 @@ class VanillaHooks implements Gdn_IPlugin {
             // Break apart our tags and lowercase them all for comparisons.
             $tags = TagModel::splitTags($tagsString);
             $tags = array_map('strtolower', $tags);
+            /** @psalm-suppress EmptyArrayAccess $reservedTags */
             $reservedTags = array_map('strtolower', $reservedTags);
             $maxTags = c('Vanilla.Tagging.Max', 5);
 
@@ -285,7 +310,7 @@ class VanillaHooks implements Gdn_IPlugin {
                 $sender->Validation->addValidationResult('Tags', '@'.sprintf(t('These tags are reserved and cannot be used: %s'), $names));
             }
             if (!TagModel::validateTags($tags)) {
-                $sender->Validation->addValidationResult('Tags', '@'.t('ValidateTag', 'Tags cannot contain commas.'));
+                $sender->Validation->addValidationResult('Tags', '@'.t('ValidateTag', 'Tags cannot contain commas or underscores.'));
             }
             if (count($tags) > $maxTags) {
                 $sender->Validation->addValidationResult('Tags', '@'.sprintf(t('You can only specify up to %s tags.'), $maxTags));
@@ -303,7 +328,14 @@ class VanillaHooks implements Gdn_IPlugin {
         $discussionID = val('DiscussionID', $sender->EventArguments, 0);
         $categoryID = valr('Fields.CategoryID', $sender->EventArguments, 0);
         $rawFormTags = val('Tags', $formPostValues, '');
+        $newDiscussion = $formPostValues['IsNewDiscussion'] ?? false;
         $formTags = TagModel::splitTags($rawFormTags);
+
+        // Don't change tags if there's no "Tags" field (this prevents tags from being lost when moving discussion to
+        // a new category).
+        if (!isset($formPostValues['Tags']) && !$newDiscussion) {
+            return;
+        }
 
         // If we're associating with categories
         $categorySearch = c('Vanilla.Tagging.CategorySearch', false);
@@ -386,7 +418,7 @@ class VanillaHooks implements Gdn_IPlugin {
                 // The tags should be set on the data.
                 $tags = array_column($Sender->data('Tags', []), 'FullName', 'TagID');
                 $xtags = $Sender->data('XTags', []);
-                foreach (TagModel::instance()->defaultTypes() as $key => $row) {
+                foreach (TagModel::instance()->getAllowedTagTypes() as $key) {
                     if (isset($xtags[$key])) {
                         $xtags2 = array_column($xtags[$key], 'FullName', 'TagID');
                         foreach ($xtags2 as $id => $name) {
@@ -610,7 +642,6 @@ class VanillaHooks implements Gdn_IPlugin {
         $options = val('Options', $sender->EventArguments, []);
         $options = is_array($options) ? $options : [];
         $content = &$sender->EventArguments['Content'];
-
         $this->deleteUserData($userID, $options, $content);
     }
 
@@ -840,19 +871,6 @@ class VanillaHooks implements Gdn_IPlugin {
     }
 
     /**
-     * Add the discussion search to the search.
-     *
-     * @since 2.0.0
-     * @package Vanilla
-     *
-     * @param object $sender SearchModel
-     */
-    public function searchModel_search_handler($sender) {
-        $searchModel = new VanillaSearchModel();
-        $searchModel->search($sender);
-    }
-
-    /**
      * @param NavModule $sender
      */
     public function siteNavModule_init_handler($sender) {
@@ -865,8 +883,22 @@ class VanillaHooks implements Gdn_IPlugin {
         $sender->addGroup(t('Favorites'), 'favorites', '', 3);
 
         if (Gdn::session()->isValid()) {
-            $sender->addLink(t('My Bookmarks'), '/discussions/bookmarked', 'favorites.bookmarks', '', [], ['icon' => 'star', 'badge' => Gdn::session()->User->CountBookmarks]);
-            $sender->addLink(t('My Discussions'), '/discussions/mine', 'favorites.discussions', '', [], ['icon' => 'discussion', 'badge' => Gdn::session()->User->CountDiscussions]);
+            $sender->addLink(
+                t('My Bookmarks'),
+                '/discussions/bookmarked',
+                'favorites.bookmarks',
+                '',
+                [],
+                ['icon' => 'star', 'badge' => Gdn::session()->User->CountBookmarks]
+            );
+            $sender->addLink(
+                t('My Discussions'),
+                '/discussions/mine',
+                'favorites.discussions',
+                '',
+                [],
+                ['icon' => 'discussion', 'badge' => Gdn::session()->User->CountDiscussions]
+            );
             $sender->addLink(t('Drafts'), '/drafts', 'favorites.drafts', '', [], ['icon' => 'compose', 'badge' => Gdn::session()->User->CountDrafts]);
         }
 
@@ -899,10 +931,11 @@ class VanillaHooks implements Gdn_IPlugin {
         $sender->setTabView('Comments', 'profile', 'Discussion', 'Vanilla');
 
         $pageSize = c('Vanilla.Discussions.PerPage', 30);
-        list($offset, $limit) = offsetLimit($page, $pageSize);
+        [$offset, $limit] = offsetLimit($page, $pageSize);
 
         $commentModel = new CommentModel();
-        $comments = $commentModel->getByUser2($sender->User->UserID, $limit, $offset, $sender->Request->get('lid'));
+        /** @var Gdn_DataSet $comments */
+        $comments = $commentModel->getByUser2($sender->User->UserID, $limit, $offset, $sender->Request->get('lid'), null, 'desc', 'PermsDiscussionsView');
         $totalRecords = $offset + $commentModel->LastCommentCount + 1;
 
         // Build a pager
@@ -960,10 +993,10 @@ class VanillaHooks implements Gdn_IPlugin {
         $sender->setTabView('Discussions', 'Profile', 'Discussions', 'Vanilla');
         $sender->CountCommentsPerPage = c('Vanilla.Comments.PerPage', 30);
 
-        list($offset, $limit) = offsetLimit($page, c('Vanilla.Discussions.PerPage', 30));
+        [$offset, $limit] = offsetLimit($page, c('Vanilla.Discussions.PerPage', 30));
 
         $discussionModel = new DiscussionModel();
-        $discussions = $discussionModel->getByUser($sender->User->UserID, $limit, $offset, false, Gdn::session()->UserID);
+        $discussions = $discussionModel->getByUser($sender->User->UserID, $limit, $offset, false, Gdn::session()->UserID, 'PermsDiscussionsView');
         $countDiscussions = $offset + $discussionModel->LastDiscussionCount + 1;
 
         $sender->setData('UnfilteredDiscussionsCount', $discussionModel->LastDiscussionCount);

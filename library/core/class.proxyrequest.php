@@ -70,7 +70,6 @@ class ProxyRequest {
      *
      * @param boolean $loud
      * @param array $requestDefaults
-     * @return type
      */
     public function __construct($loud = false, $requestDefaults = null) {
         $this->Loud = $loud;
@@ -209,11 +208,11 @@ class ProxyRequest {
      *     'Simulate'             => FALSE       // Don't actually request, just set up
      *     'ProtocolMask'         => Mask of CURLPROTO_* values
      *
-     * @param array /string $options URL, or array options
+     * @param array|string|null $options URL, or array options
      * @param array $queryParams GET/POST parameters
      * @param array $files List of files to upload
      * @param array $extraHeaders Any additional headers to tack on
-     * @return type
+     * @return string|array
      */
     public function request($options = null, $queryParams = null, $files = null, $extraHeaders = null) {
 
@@ -387,7 +386,7 @@ class ProxyRequest {
         $logContext = [
             'requestUrl' => $url,
             'requestMethod' => $requestMethod
-        ];
+        ] + ($options['LogContext'] ?? []) + [Logger::FIELD_CHANNEL => Logger::CHANNEL_SYSTEM];
 
         /*
          * ProxyRequest can masquerade as the current user, so collect and encode
@@ -427,7 +426,7 @@ class ProxyRequest {
         curl_setopt($handler, CURLOPT_HEADER, false);
         curl_setopt($handler, CURLINFO_HEADER_OUT, true);
         curl_setopt($handler, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($handler, CURLOPT_USERAGENT, val('HTTP_USER_AGENT', $_SERVER, 'Vanilla/'.c('Vanilla.Version')));
+        curl_setopt($handler, CURLOPT_USERAGENT, val('HTTP_USER_AGENT', $_SERVER, 'Vanilla/'.APPLICATION_VERSION));
         curl_setopt($handler, CURLOPT_CONNECTTIMEOUT, $connectTimeout);
         curl_setopt($handler, CURLOPT_HEADERFUNCTION, [$this, 'CurlHeader']);
         curl_setopt($handler, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
@@ -539,7 +538,7 @@ class ProxyRequest {
                 if (!is_array($postData) && !is_object($postData)) {
                     $sendExtraHeaders['Content-Length'] = strlen($postData);
                 } else {
-                    $tempPostData = http_build_str($postData);
+                    $tempPostData = http_build_query($postData);
                     $sendExtraHeaders['Content-Length'] = strlen($tempPostData);
                 }
 

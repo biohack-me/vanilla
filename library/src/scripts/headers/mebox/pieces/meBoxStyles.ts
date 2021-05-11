@@ -5,18 +5,20 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { debugHelper, flexHelper, unit } from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { debugHelper, flexHelper } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { titleBarVariables } from "@library/headers/titleBarStyles";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
+import { titleBarVariables } from "@library/headers/TitleBar.variables";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
 
 export const meBoxClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const formVars = formElementsVariables();
     const titleBarVars = titleBarVariables();
     const debug = debugHelper("meBox");
-    const mediaQueries = layoutVariables().mediaQueries();
+    const mediaQueries = panelLayoutVariables().mediaQueries();
     const flex = flexHelper();
     const style = styleFactory("meBox");
 
@@ -25,31 +27,24 @@ export const meBoxClasses = useThemeCache(() => {
             ...debug.name(),
             display: "flex",
             alignItems: "center",
-            height: unit(titleBarVars.sizing.height),
+            height: styleUnit(titleBarVars.sizing.height),
         },
         mediaQueries.oneColumnDown({
-            height: unit(titleBarVars.sizing.mobile.height),
+            height: styleUnit(titleBarVars.sizing.mobile.height),
         }),
     );
 
     const buttonContent = style("buttonContent", {
         ...flex.middle(),
-        width: unit(formVars.sizing.height),
-        maxWidth: unit(formVars.sizing.height),
-        flexBasis: unit(formVars.sizing.height),
-        height: unit(titleBarVars.meBox.sizing.buttonContents),
-        borderRadius: unit(globalVars.border.radius),
+        width: styleUnit(formVars.sizing.height),
+        maxWidth: styleUnit(formVars.sizing.height),
+        flexBasis: styleUnit(formVars.sizing.height),
+        height: styleUnit(titleBarVars.meBox.sizing.buttonContents),
+        borderRadius: styleUnit(globalVars.border.radius),
     });
-
-    const rootFlexClass = (count: number) => {
-        return style("footFlexClass", {
-            flexBasis: unit(count * formElementsVariables().sizing.height),
-        });
-    };
 
     return {
         root,
         buttonContent,
-        rootFlexClass,
     };
 });

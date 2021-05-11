@@ -35,7 +35,7 @@ if ($NumApplicants == 0) : ?>
                     <td>
                         <div class="user-info">
                             <div class="username"><?php echo htmlspecialchars($User->Name); ?></div>
-                            <div class="info user-email"><?php echo anchor($User->Email, 'mailto:'.$User->Email); ?></div>
+                            <div class="info user-email"><?php echo anchor(htmlspecialchars($User->Email), 'mailto:'.$User->Email); ?></div>
                         </div>
                     </td>
                     <td>
@@ -60,7 +60,7 @@ if ($NumApplicants == 0) : ?>
                         <div class="btn-group">
                         <?php
                         echo anchor(dashboardSymbol('checkmark'), '/user/approve/'.$User->UserID, 'ApproveApplicant btn btn-icon', ['aria-label' => t('Approve'), 'title' => t('Approve')]);
-                        echo anchor(dashboardSymbol('delete'), '/user/decline/'.$User->UserID.'/'.$Session->transientKey(), 'DeclineApplicant btn btn-icon', ['aria-label' => t('Decline'), 'title' => t('Decline')]);
+                        echo anchor(dashboardSymbol('delete'), '/user/decline/'.$User->UserID.'/'.$Session->transientKey(), 'DeclineApplicant btn btn-icon', ['aria-label' => t('Deny Applicant'), 'title' => t('Deny Applicant')]);
                         ?>
                         </div>
                     </td>

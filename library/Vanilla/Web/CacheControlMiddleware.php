@@ -15,6 +15,14 @@ use Gdn_Session as SessionInterface;
  * Dispatcher middleware for handling caching headers.
  */
 class CacheControlMiddleware {
+    /** @var string The name of the cache control header. */
+    const HEADER_CACHE_CONTROL = 'Cache-Control';
+
+    /** @var string Disable auto-vary for sessioned users. */
+    const META_NO_VARY = 'noVary';
+
+    /** @var string Maximum cache age. */
+    const MAX_CACHE = 'public, max-age=31536000';
 
     /** @var string Standard Cache-Control header string for public, cacheable content. */
     const PUBLIC_CACHE = 'public, max-age=120';
@@ -59,7 +67,7 @@ class CacheControlMiddleware {
     }
 
     /**
-     * Invoke the smart ID middleware on a request.
+     * Invoke the cache control middleware on a request.
      *
      * @param RequestInterface $request The incoming request.
      * @param callable $next The next middleware.
@@ -68,19 +76,19 @@ class CacheControlMiddleware {
     public function __invoke(RequestInterface $request, callable $next) {
         $response = Data::box($next($request));
 
-        if (!$response->hasHeader('Cache-Control')) {
+        if (!$response->hasHeader(self::HEADER_CACHE_CONTROL)) {
             $response->setHeader(
-                'Cache-Control',
+                self::HEADER_CACHE_CONTROL,
                 $this->session->isValid() || $request->getMethod() !== 'GET' ?  self::NO_CACHE : self::PUBLIC_CACHE
             );
         }
 
-        if ($response->getHeader('Cache-Control') !== self::NO_CACHE) {
-            // Unless we havy NO_CACHE set make sure to set the vary header.
+        if ($response->getHeader(self::HEADER_CACHE_CONTROL) !== self::NO_CACHE && !$response->getMeta(self::META_NO_VARY)) {
+            // Unless we have NO_CACHE set make sure to set the vary header.
             $response->setHeader('Vary', self::VARY_COOKIE);
         }
 
-        foreach (static::getHttp10Headers($response->getHeader('Cache-Control')) as $key => $value) {
+        foreach (static::getHttp10Headers($response->getHeader(self::HEADER_CACHE_CONTROL)) as $key => $value) {
             $response->setHeader($key, $value);
         }
 
@@ -98,7 +106,7 @@ class CacheControlMiddleware {
             safeHeader("$key: $value");
         }
         if ($cacheControl === self::NO_CACHE) {
-            header('Vary: '.self::VARY_COOKIE);
+            safeHeader('Vary: '.self::VARY_COOKIE);
         }
     }
 }

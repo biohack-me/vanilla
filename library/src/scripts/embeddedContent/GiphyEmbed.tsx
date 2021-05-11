@@ -5,8 +5,8 @@
 
 import React from "react";
 import { IBaseEmbedProps } from "@library/embeddedContent/embedService";
-import { EmbedContainer } from "@library/embeddedContent/EmbedContainer";
-import { EmbedContent } from "@library/embeddedContent/EmbedContent";
+import { EmbedContainer } from "@library/embeddedContent/components/EmbedContainer";
+import { EmbedContent } from "@library/embeddedContent/components/EmbedContent";
 
 interface IProps extends IBaseEmbedProps {
     giphyID: string;
@@ -30,8 +30,8 @@ export function GiphyEmbed(props: IProps): JSX.Element {
     const src = `https://giphy.com/embed/${props.giphyID}`;
 
     return (
-        <EmbedContainer className="embedGiphy" inEditor={props.inEditor}>
-            <EmbedContent type={props.embedType} inEditor={props.inEditor}>
+        <EmbedContainer className="embedGiphy">
+            <EmbedContent type={props.embedType}>
                 <div className="embedExternal-ratio" style={ratioStyle}>
                     <iframe src={src} className="giphy-embed embedGiphy-iframe" />
                 </div>

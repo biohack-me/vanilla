@@ -6,19 +6,19 @@
 import React from "react";
 import ReactDOM from "react-dom";
 import { t } from "@library/utility/appUtils";
-import { FOCUS_CLASS } from "@library/embeddedContent/embedService";
+import { EMBED_FOCUS_CLASS } from "@library/embeddedContent/embedConstants";
 import { escapeHTML, setData, getData } from "@vanilla/dom-utils";
-import FocusableEmbedBlot from "@rich-editor/quill/blots/abstract/FocusableEmbedBlot";
 import { IEmbedValue } from "@rich-editor/quill/blots/embeds/ExternalEmbedBlot";
 import AttachmentLoading from "@library/content/attachments/AttachmentLoading";
 import { mimeTypeToAttachmentType } from "@library/content/attachments/attachmentUtils";
+import { SelectableEmbedBlot } from "@rich-editor/quill/blots/abstract/SelectableEmbedBlot";
 
 const LOADER_DATA_KEY = "loadingDataKey";
 
 /**
  * A loading blot. This should not be created on its own. Instead it should be created throught the ExternalEmbedBlot
  */
-export default class LoadingBlot extends FocusableEmbedBlot {
+export default class LoadingBlot extends SelectableEmbedBlot {
     public static blotName = "embed-loading";
     public static className = "js-embedLoader";
     public static tagName = "div";
@@ -74,7 +74,7 @@ export default class LoadingBlot extends FocusableEmbedBlot {
                 progressEventEmitter={value.loaderData.progressEventEmitter}
             />,
             div,
-            () => div.classList.remove(FOCUS_CLASS),
+            () => div.classList.remove(EMBED_FOCUS_CLASS),
         );
         return div;
     }
@@ -84,11 +84,11 @@ export default class LoadingBlot extends FocusableEmbedBlot {
      */
     private static createImageLoader() {
         const div = super.create();
-        div.classList.remove(FOCUS_CLASS);
+        div.classList.remove(EMBED_FOCUS_CLASS);
         div.classList.add("js-embed");
         div.classList.add("embedLinkLoader");
         div.innerHTML = `<div class='embedLoader'>
-                            <div class='embedLoader-box ${FOCUS_CLASS}' aria-label='${t(
+                            <div class='embedLoader-box ${EMBED_FOCUS_CLASS}' aria-label='${t(
             "Loading...",
         )}'><div class='embedLoader-loader'></div>
                             </div>
@@ -101,12 +101,12 @@ export default class LoadingBlot extends FocusableEmbedBlot {
      */
     private static createLinkLoader(linkText: string) {
         const div = super.create();
-        div.classList.remove(FOCUS_CLASS);
+        div.classList.remove(EMBED_FOCUS_CLASS);
         div.classList.add("js-embed");
         div.classList.add("embedLinkLoader");
 
         const sanitizedText = escapeHTML(linkText);
-        div.innerHTML = `<a href="#" class="embedLinkLoader-link ${FOCUS_CLASS}">${sanitizedText}&nbsp;<span aria-hidden="true" class='embedLinkLoader-loader'></span></a>`;
+        div.innerHTML = `<a href="#" class="embedLinkLoader-link ${EMBED_FOCUS_CLASS}">${sanitizedText}&nbsp;<span aria-hidden="true" class='embedLinkLoader-loader'></span></a>`;
         return div;
     }
 }

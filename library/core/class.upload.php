@@ -10,6 +10,9 @@
  * @since 2.0
  */
 
+use Garden\EventManager;
+use Vanilla\Utility\StringUtils;
+
 /**
  * Handles file uploads.
  */
@@ -27,6 +30,12 @@ class Gdn_Upload extends Gdn_Pluggable {
     /** @var \Vanilla\FileUtils */
     protected $fileUtils;
 
+    /** @var array|null */
+    private $uploadWebPaths;
+
+    /** @var EventManager */
+    private $eventManager;
+
     /**
      * Class constructor.
      */
@@ -35,6 +44,7 @@ class Gdn_Upload extends Gdn_Pluggable {
         parent::__construct();
         $this->ClassName = 'Gdn_Upload';
 
+        $this->eventManager = Gdn::getContainer()->get(EventManager::class);
         $this->fileUtils = Gdn::getContainer()->get(\Vanilla\FileUtils::class);
     }
 
@@ -226,20 +236,10 @@ class Gdn_Upload extends Gdn_Pluggable {
      *
      * @param string $formatted The formatted filesize.
      * @return int The number of bytes in the string.
+     * @deprecated Use StringUtils::unformatSize
      */
     public static function unformatFileSize($formatted) {
-        $units = ['B' => 1, 'K' => 1024, 'M' => 1024 * 1024, 'G' => 1024 * 1024 * 1024, 'T' => 1024 * 1024 * 1024 * 1024];
-
-        if (preg_match('/([0-9.]+)\s*([A-Z]*)/i', $formatted, $matches)) {
-            $number = floatval($matches[1]);
-            $unit = strtoupper(substr($matches[2], 0, 1));
-            $mult = val($unit, $units, 1);
-
-            $result = round($number * $mult, 0);
-            return $result;
-        } else {
-            return false;
-        }
+        return StringUtils::unformatSize($formatted);
     }
 
     /**
@@ -263,29 +263,21 @@ class Gdn_Upload extends Gdn_Pluggable {
     }
 
     /**
+     * Generate a target name for a file.
      *
-     *
-     * @param $targetFolder
+     * @param mixed $targetFolder
      * @param string $extension
      * @param bool $chunk
      * @return string
+     *
+     * @deprecated Use \Vanilla\FileUtils::generateUniqueUploadPath()
      */
     public function generateTargetName($targetFolder, $extension = 'jpg', $chunk = false) {
         if (!$extension) {
             $extension = trim(pathinfo($this->_UploadedFile['name'], PATHINFO_EXTENSION), '.');
         }
 
-        do {
-            if ($chunk) {
-                $name = randomString(12);
-                $subdir = sprintf('%03d', mt_rand(0, 999)).'/';
-            } else {
-                $name = randomString(12);
-                $subdir = '';
-            }
-            $path = "$targetFolder/{$subdir}$name.$extension";
-        } while (file_exists($path));
-        return $path;
+        return \Vanilla\FileUtils::generateUniqueUploadPath((string) $extension, (bool) $chunk, '', (string) $targetFolder);
     }
 
     /**
@@ -326,14 +318,15 @@ class Gdn_Upload extends Gdn_Pluggable {
                 mkdir(dirname($target), 0777, true);
             }
 
-            if (stringBeginsWith($source, PATH_UPLOADS)) {
-                rename($source, $target);
+            if ($copy) {
+                $result = copy($source, $target);
+            } elseif (stringBeginsWith($source, PATH_UPLOADS)) {
+                $result = rename($source, $target);
             } else {
-                $isUpload = $this->fileUtils->isUploadedFile($source);
-                $result = ($copy && $isUpload) ? copy($source, $target) : $this->fileUtils->moveUploadedFile($source, $target);
-                if (!$result) {
-                    throw new Exception(sprintf(t('Failed to save uploaded file to target destination (%s).'), $target));
-                }
+                $result = $this->fileUtils->moveUploadedFile($source, $target);
+            }
+            if (!$result) {
+                throw new Exception(sprintf(t('Failed to save uploaded file to target destination (%s).'), $target));
             }
         }
 
@@ -352,19 +345,15 @@ class Gdn_Upload extends Gdn_Pluggable {
     }
 
     /**
-     * Returns the url prefix for a given type.
+     * Get all base upload directories.
      *
-     * If there is a plugin that wants to store uploads at a different location or in a different way then they register
-     * themselves by subscribing to the Gdn_Upload_GetUrls_Handler event. After that they will be available here.
+     * The default and most common directory is https://mysite.com/forum/uploads.
      *
-     * @param string $type The type of upload to get the prefix for.
-     * @return string The url prefix.
+     * @return array
      */
-    public static function urls($type = null) {
-        static $urls = null;
-
-        if ($urls === null) {
-            $urls = [
+    public function getUploadWebPaths(): array {
+        if ($this->uploadWebPaths === null) {
+            $this->uploadWebPaths = [
                 '' => asset('/uploads', true),
                 'static://v' => rtrim(asset('/', true), '/')
             ];
@@ -372,28 +361,73 @@ class Gdn_Upload extends Gdn_Pluggable {
             $sender = new stdClass();
             $sender->Returns = [];
             $sender->EventArguments = [];
-            $sender->EventArguments['Urls'] =& $urls;
+            $sender->EventArguments['Urls'] =& $this->uploadWebPaths;
+            $this->eventManager->fire('Gdn_Upload_GetUrls', $sender, $sender->EventArguments);
+        }
+        return $this->uploadWebPaths;
+    }
 
-            Gdn::pluginManager()->callEventHandlers($sender, 'Gdn_Upload', 'GetUrls');
+    /**
+     * Check if a URL is one of our own web paths.
+     *
+     * @param string $url
+     *
+     * @return bool
+     */
+    public function isOwnWebPath(string $url): bool {
+        $parsedUrl = parse_url($url);
+        foreach ($this->getUploadWebPaths() as $_ => $ownUrl) {
+            $parsedOwnUrl = parse_url($ownUrl);
+
+            $isSameHost = strcasecmp($parsedUrl['host'] ?? '', $parsedOwnUrl['host']) === 0;
+            $hasRootPath = stringBeginsWith($parsedUrl['path'] ?? '', $parsedOwnUrl['path'], true);
+            if ($isSameHost && $hasRootPath) {
+                return true;
+            }
         }
 
-        if ($type === null) {
-            return $urls;
-        }
-        if (isset($urls[$type])) {
-            return $urls[$type];
-        }
         return false;
     }
 
     /**
+     * Get an upload web path for a particular type.
+     *
+     * @param string $type
+     *
+     * @return string|null
+     */
+    public function getUploadWebPath(string $type): ?string {
+        return $this->getUploadWebPaths()[$type] ?? null;
+    }
+
+    /**
+     * Returns the url prefix for a given type.
+     *
+     * If there is a plugin that wants to store uploads at a different location or in a different way then they register
+     * themselves by subscribing to the Gdn_Upload_GetUrls_Handler event. After that they will be available here.
+     *
+     * @param string $type The type of upload to get the prefix for.
+     * @return string|array|false An array of URL prefixes or a single URL prefix if it's type is passed.
+     * @deprecated getUploadWebPaths or getUploadWebPath
+     */
+    public static function urls($type = null) {
+        /** @var Gdn_Upload $upload */
+        $upload = \Gdn::getContainer()->get(Gdn_Upload::class);
+        if ($type === null) {
+            return $upload->getUploadWebPaths();
+        } else {
+            return $upload->getUploadWebPath($type) ?? false;
+        }
+    }
+
+    /**
      * Check to see whether the user has selected a file for uploading.
-     * 
+     *
      * @param $inputName The input name of the file.
      * @return bool Whether a file has been selected for the fiels.
      */
     public function isUpload($inputName) {
-        return val('name', val($inputName, $_FILES, '')) !== '';
+        return val('name', val($inputName, $_FILES, ''), '') !== '';
     }
 
     /**
@@ -401,49 +435,68 @@ class Gdn_Upload extends Gdn_Pluggable {
      */
     public function validateUpload($inputName, $throwException = true) {
         $ex = false;
+        $isUpload = self::isUpload($inputName);
 
-        if (!array_key_exists($inputName, $_FILES) || (!$this->fileUtils->isUploadedFile($_FILES[$inputName]['tmp_name']) && getValue('error', $_FILES[$inputName], 0) == 0)) {
-            // Check the content length to see if we exceeded the max post size.
-            $contentLength = Gdn::request()->getValueFrom('server', 'CONTENT_LENGTH');
-            $maxPostSize = self::unformatFileSize(ini_get('post_max_size'));
-            if ($contentLength > $maxPostSize) {
-                $ex = sprintf(t('Gdn_Upload.Error.MaxPostSize', 'The file is larger than the maximum post size. (%s)'), self::formatFileSize($maxPostSize));
-            } else {
-                $ex = t('The file failed to upload.');
-            }
-        } else {
-            switch ($_FILES[$inputName]['error']) {
-                case 1:
-                case 2:
-                    $maxFileSize = self::unformatFileSize(ini_get('upload_max_filesize'));
-                    $ex = sprintf(t('Gdn_Upload.Error.PhpMaxFileSize', 'The file is larger than the server\'s maximum file size. (%s)'), self::formatFileSize($maxFileSize));
-                    break;
-                case 3:
-                case 4:
+        if ($isUpload) {
+            if (!array_key_exists($inputName, $_FILES) ||
+                (!$this->fileUtils->isUploadedFile($_FILES[$inputName]['tmp_name']) && getValue('error', $_FILES[$inputName], 0) == 0)) {
+                // Check the content length to see if we exceeded the max post size.
+                $contentLength = Gdn::request()->getValueFrom('server', 'CONTENT_LENGTH');
+                $maxPostSize = self::unformatFileSize(ini_get('post_max_size'));
+                if ($contentLength > $maxPostSize) {
+                    $ex = sprintf(
+                        t('Gdn_Upload.Error.MaxPostSize', 'The file is larger than the maximum post size. (%s)'),
+                        self::formatFileSize($maxPostSize)
+                    );
+                } else {
                     $ex = t('The file failed to upload.');
-                    break;
-                case 6:
-                    $ex = t('The temporary upload folder has not been configured.');
-                    break;
-                case 7:
-                    $ex = t('Failed to write the file to disk.');
-                    break;
-                case 8:
-                    $ex = t('The upload was stopped by extension.');
-                    break;
+                }
+            } else {
+                switch ($_FILES[$inputName]['error']) {
+                    case 1:
+                    case 2:
+                        $maxFileSize = self::unformatFileSize(ini_get('upload_max_filesize'));
+                        $ex = sprintf(
+                            t('Gdn_Upload.Error.PhpMaxFileSize', 'The file is larger than the server\'s maximum file size. (%s)'),
+                            self::formatFileSize($maxFileSize)
+                        );
+                        break;
+                    case 3:
+                    case 4:
+                        $ex = t('The file failed to upload.');
+                        break;
+                    case 6:
+                        $ex = t('The temporary upload folder has not been configured.');
+                        break;
+                    case 7:
+                        $ex = t('Failed to write the file to disk.');
+                        break;
+                    case 8:
+                        $ex = t('The upload was stopped by extension.');
+                        break;
+                }
             }
         }
 
         $foo = self::formatFileSize($this->_MaxFileSize);
 
         // Check the maxfilesize again just in case the value was spoofed in the form.
-        if (!$ex && $this->_MaxFileSize > 0 && filesize($_FILES[$inputName]['tmp_name']) > $this->_MaxFileSize) {
-            $ex = sprintf(t('Gdn_Upload.Error.MaxFileSize', 'The file is larger than the maximum file size. (%s)'), self::formatFileSize($this->_MaxFileSize));
-        } elseif (!$ex) {
-            // Make sure that the file extension is allowed.
-            $extension = pathinfo($_FILES[$inputName]['name'], PATHINFO_EXTENSION);
-            if (!inArrayI($extension, $this->_AllowedFileExtensions)) {
-                $ex = sprintf(t('You cannot upload files with this extension (%s). Allowed extension(s) are %s.'), htmlspecialchars($extension), implode(', ', $this->_AllowedFileExtensions));
+        if ($isUpload) {
+            if (!$ex && $this->_MaxFileSize > 0 && filesize($_FILES[$inputName]['tmp_name']) > $this->_MaxFileSize) {
+                $ex = sprintf(
+                    t('Gdn_Upload.Error.MaxFileSize', 'The file is larger than the maximum file size. (%s)'),
+                    self::formatFileSize($this->_MaxFileSize)
+                );
+            } elseif (!$ex) {
+                // Make sure that the file extension is allowed.
+                $extension = pathinfo($_FILES[$inputName]['name'], PATHINFO_EXTENSION);
+                if (!inArrayI($extension, $this->_AllowedFileExtensions)) {
+                    $ex = sprintf(
+                        t('You cannot upload files with this extension (%s). Allowed extension(s) are %s.'),
+                        htmlspecialchars($extension),
+                        implode(', ', $this->_AllowedFileExtensions)
+                    );
+                }
             }
         }
 
@@ -456,8 +509,8 @@ class Gdn_Upload extends Gdn_Pluggable {
             }
         } else {
             // If all validations were successful, return the tmp name/location of the file.
-            $this->_UploadedFile = $_FILES[$inputName];
-            return $this->_UploadedFile['tmp_name'];
+            $this->_UploadedFile = $_FILES[$inputName] ?? null;
+            return $this->_UploadedFile['tmp_name'] ?? null;
         }
     }
 }

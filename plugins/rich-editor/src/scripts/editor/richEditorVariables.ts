@@ -7,7 +7,8 @@
 import { formElementsVariables } from "@library/forms/formElementStyles";
 import { standardAnimations } from "@library/styles/animationHelpers";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { viewHeight } from "csx";
 
 export const richEditorVariables = useThemeCache(() => {
@@ -66,7 +67,7 @@ export const richEditorVariables = useThemeCache(() => {
     });
 
     const pilcrow = makeThemeVars("pilcrow", {
-        offset: 9,
+        offset: 0,
         fontSize: 14,
         animation: {
             duration: ".3s",

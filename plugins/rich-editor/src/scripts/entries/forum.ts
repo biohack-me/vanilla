@@ -19,16 +19,21 @@ const MOUNTED_CLASS = "js-isMounted";
 async function setupEditor() {
     const editorMountPoints = document.querySelectorAll(".richEditor");
     if (editorMountPoints.length > 0) {
+        const body = document.getElementsByTagName("body");
+        if (body) {
+            body[0].classList.add("hasRichEditor");
+        }
         const mountEditor = await import(/* webpackChunkName: "mountEditor" */ "@rich-editor/mountEditor");
-        editorMountPoints.forEach(mountPoint => {
+        editorMountPoints.forEach((mountPoint) => {
             if (!mountPoint.classList.contains(MOUNTED_CLASS)) {
                 mountPoint.classList.add(MOUNTED_CLASS);
+                const descriptionID = mountPoint.attributes["aria-describedby"].nodeValue || undefined;
                 const popup = mountPoint.closest(".Popup");
                 if (popup) {
                     popup.classList.add("hasRichEditor");
                 }
 
-                mountEditor.default(mountPoint);
+                mountEditor.default(mountPoint, descriptionID);
             }
         });
     }

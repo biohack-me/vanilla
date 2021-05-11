@@ -17,6 +17,9 @@ if (!defined('PATH_UPLOADS')) {
 }
 
 // You should not change these paths.
+define('PATH_DIST', PATH_ROOT.'/dist');
+define('PATH_ADDONS_THEMES', PATH_ROOT.'/addons/themes');
+define('PATH_ADDONS_ADDONS', PATH_ROOT.'/addons/addons');
 define('PATH_APPLICATIONS', PATH_ROOT.'/applications');
 define('PATH_PLUGINS', PATH_ROOT.'/plugins');
 define('PATH_THEMES', PATH_ROOT.'/themes');
@@ -28,6 +31,7 @@ define('DELIVERY_TYPE_ALL', 'ALL'); // Deliver an entire page
 define('DELIVERY_TYPE_ASSET', 'ASSET'); // Deliver all content for the requested asset
 define('DELIVERY_TYPE_VIEW', 'VIEW'); // Deliver only the view
 define('DELIVERY_TYPE_BOOL', 'BOOL'); // Deliver only the success status (or error) of the request
+/**  @deprecated - Use dashboard\views\utility\raw.twig */
 define('DELIVERY_TYPE_NONE', 'NONE'); // Deliver nothing
 define('DELIVERY_TYPE_MESSAGE', 'MESSAGE'); // Just deliver messages.
 define('DELIVERY_TYPE_DATA', 'DATA'); // Just deliver the data.
@@ -64,9 +68,6 @@ define('TRACE_INFO', 'Info');
 define('TRACE_ERROR', 'Error');
 define('TRACE_WARNING', 'Warning');
 define('TRACE_NOTICE', 'Notice');
-
-// Environment
-define('ENVIRONMENT_PHP_VERSION', '7.1');
 
 if (!defined('E_USER_DEPRECATED')) {
     define('E_USER_DEPRECATED', E_USER_WARNING);

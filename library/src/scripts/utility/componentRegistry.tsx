@@ -3,11 +3,10 @@
  * @license GPL-2.0-only
  */
 
+import { resetThemeCache } from "@library/styles/themeCache";
+import { IComponentMountOptions, IMountable, mountReact, mountReactMultiple } from "@vanilla/react-utils";
+import { logDebug, logWarning } from "@vanilla/utils";
 import React from "react";
-import { ComponentClass } from "react";
-import { logWarning, logError } from "@vanilla/utils";
-import { mountReact } from "@vanilla/react-utils";
-import { AppContext } from "@library/AppContext";
 
 let useTheme = true;
 
@@ -16,13 +15,36 @@ let useTheme = true;
  */
 export function disableComponentTheming() {
     useTheme = false;
+    resetThemeCache();
+}
+
+/**
+ * Enable theming for the site. This is useful for sections like the dashboard.
+ */
+export function enableComponentTheming() {
+    useTheme = true;
+    resetThemeCache();
+}
+
+export function isComponentThemingEnabled() {
+    return useTheme;
+}
+
+export interface IRegisteredComponent {
+    Component: React.ComponentType<any>;
+    mountOptions?: IComponentMountOptions;
 }
 
 /**
  * The currently registered Components.
  * @private
  */
-const _components = {};
+const _components: {
+    [key: string]: IRegisteredComponent;
+} = {};
+
+let _pageComponent: React.ComponentType<any> | null = null;
+let _mountedPage = false;
 
 /**
  * Register a component in the Components registry.
@@ -30,8 +52,21 @@ const _components = {};
  * @param name The name of the component.
  * @param component The component to register.
  */
-export function addComponent(name: string, component: React.ComponentType<any>) {
-    _components[name.toLowerCase()] = component;
+export function addComponent(name: string, Component: React.ComponentType<any>, mountOptions?: IComponentMountOptions) {
+    _components[name.toLowerCase()] = {
+        Component,
+        mountOptions,
+    };
+}
+
+/**
+ * Register a component in the Components registry.
+ *
+ * @param name The name of the component.
+ * @param component The component to register.
+ */
+export function addPageComponent(Component: React.ComponentType<any>) {
+    _pageComponent = Component;
 }
 
 /**
@@ -50,7 +85,7 @@ export function componentExists(name: string): boolean {
  * @param name The name of the component.
  * @returns Returns the component or **undefined** if there is no registered component.
  */
-export function getComponent(name: string): ComponentClass | undefined {
+export function getComponent(name: string): IRegisteredComponent | undefined {
     return _components[name.toLowerCase()];
 }
 
@@ -61,8 +96,23 @@ export function getComponent(name: string): ComponentClass | undefined {
  *
  * @param parent - The parent element to search. This element is not included in the search.
  */
-export function _mountComponents(parent: Element) {
-    parent.querySelectorAll("[data-react]").forEach(node => {
+export async function _mountComponents(parent: Element) {
+    const awaiting: Array<Promise<any>> = [];
+    const parentPage = parent.querySelector("#app");
+    let mountables: IMountable[] = [];
+
+    if (parentPage instanceof HTMLElement && _pageComponent !== null && !_mountedPage) {
+        _mountedPage = true;
+        let PageComponentToMount = _pageComponent;
+        mountables.push({
+            target: parentPage,
+            component: <PageComponentToMount />,
+        });
+    }
+
+    let elementsToUnhide: Element[] = [];
+
+    parent.querySelectorAll("[data-react]").forEach((node) => {
         if (!(node instanceof HTMLElement)) {
             logWarning("Attempting to mount a data-react component on an invalid element", node);
             return;
@@ -73,20 +123,48 @@ export function _mountComponents(parent: Element) {
         if (typeof props === "string") {
             props = JSON.parse(props);
         }
+        const registeredComponent = getComponent(name);
 
-        const Component = getComponent(name);
+        if (!registeredComponent) {
+            return;
+        }
+        const children = node.innerHTML;
+        node.innerHTML = "";
 
-        if (Component) {
-            mountReact(
-                <AppContext variablesOnly noTheme={!useTheme}>
-                    <Component {...props} />
-                </AppContext>,
-                node,
-                undefined,
-                { overwrite: true },
+        node.removeAttribute("data-react");
+        node.removeAttribute("data-props");
+
+        if (node.getAttribute("data-unhide") === "true") {
+            elementsToUnhide.push(node);
+        }
+
+        const reactNode = <registeredComponent.Component {...props} contents={children} />;
+
+        if (registeredComponent.mountOptions?.bypassPortalManager) {
+            awaiting.push(
+                new Promise<void>((resolve) => {
+                    mountReact(reactNode, node, () => resolve(), registeredComponent.mountOptions);
+                }),
             );
         } else {
-            logError("Could not find component %s.", name);
+            mountables.push({
+                component: reactNode,
+                target: node,
+                overwrite: registeredComponent.mountOptions?.overwrite ?? false,
+            });
         }
     });
+
+    awaiting.push(
+        new Promise<void>((resolve) => {
+            mountReactMultiple(mountables, () => {
+                elementsToUnhide.forEach((element) => {
+                    element.removeAttribute("style");
+                });
+                resolve();
+            });
+        }),
+    );
+
+    await Promise.all(awaiting);
 }

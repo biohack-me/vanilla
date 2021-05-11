@@ -7,15 +7,23 @@
 namespace VanillaTests\APIv2;
 
 use Garden\Web\Exception\ClientException;
-use PHPUnit\Framework\AssertionFailedError;
+use Garden\Web\Exception\ForbiddenException;
+use UserModel;
+use UsersApiController;
+use Vanilla\Events\DirtyRecordTrait;
+use Vanilla\Events\EventAction;
+use Vanilla\Models\DirtyRecordModel;
+use Vanilla\Models\PermissionFragmentSchema;
 use Vanilla\Web\PrivateCommunityMiddleware;
-use VanillaTests\Fixtures\Uploader;
+use VanillaTests\Fixtures\TestUploader;
+use VanillaTests\UsersAndRolesApiTestTrait;
 
 /**
  * Test the /api/v2/users endpoints.
  */
 class UsersTest extends AbstractResourceTest {
-    use TestPutFieldTrait;
+    use TestPutFieldTrait, AssertLoggingTrait, TestPrimaryKeyRangeFilterTrait, TestSortingTrait,
+        TestFilterDirtyRecordsTrait, UsersAndRolesApiTestTrait;
 
     /** @var int A value to ensure new records are unique. */
     protected static $recordCounter = 1;
@@ -36,10 +44,12 @@ class UsersTest extends AbstractResourceTest {
      */
     public function __construct($name = null, array $data = [], $dataName = '') {
         $this->baseUrl = '/users';
+        $this->resourceName = 'user';
         $this->record = [
             'name' => null,
             'email' => null
         ];
+        $this->sortFields = ['dateInserted', 'dateLastActive', 'name', 'userID'];
 
         parent::__construct($name, $data, $dataName);
     }
@@ -47,7 +57,7 @@ class UsersTest extends AbstractResourceTest {
     /**
      * Disable email before running tests.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
 
         $this->configuration = static::container()->get('Config');
@@ -56,6 +66,13 @@ class UsersTest extends AbstractResourceTest {
         /* @var PrivateCommunityMiddleware $middleware */
         $middleware = static::container()->get(PrivateCommunityMiddleware::class);
         $middleware->setIsPrivate(false);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function tearDown(): void {
+        parent::tearDown();
     }
 
     /**
@@ -114,6 +131,10 @@ class UsersTest extends AbstractResourceTest {
                 case 'emailConfirmed':
                 case 'bypassSpam':
                     $value = !$value;
+                    break;
+                case 'password':
+                    $value = md5(microtime());
+                    break;
             }
             $row[$key] = $value;
         }
@@ -147,7 +168,7 @@ class UsersTest extends AbstractResourceTest {
      * Test confirm email is successful.
      */
     public function testConfirmEmailSucceed() {
-        /** @var \UserModel $userModel */
+        /** @var UserModel $userModel */
         $userModel = self::container()->get('UserModel');
 
         $emailKey = ['confirmationCode' =>'test123'];
@@ -163,13 +184,12 @@ class UsersTest extends AbstractResourceTest {
 
     /**
      * Test confirm email fails.
-     *
-     * @expectedException \Exception
-     * @expectedExceptionMessage We couldn't confirm your email.
-     * Check the link in the email we sent you or try sending another confirmation email.
      */
     public function testConfirmEmailFail() {
-        /** @var \UserModel $userModel */
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('We couldn\'t confirm your email. Check the link in the email we sent you or try sending another confirmation email.');
+
+        /** @var UserModel $userModel */
         $userModel = self::container()->get('UserModel');
 
         $emailKey = ['confirmationCode' =>'test123'];;
@@ -200,15 +220,18 @@ class UsersTest extends AbstractResourceTest {
         $expected = [
             "userID" => 0,
             "name" => "Guest",
-            "photoUrl" => \UserModel::getDefaultAvatarUrl(),
+            "photoUrl" => UserModel::getDefaultAvatarUrl(),
             "dateLastActive" => null,
             "isAdmin" => false,
             "countUnreadNotifications" => 0,
+            "countUnreadConversations" => 0,
             "permissions" => [
                 "activity.view",
                 "discussions.view",
                 "profiles.view",
             ],
+            "email" => null,
+            "ssoID" => null,
         ];
         $actual = $response->getBody();
 
@@ -231,7 +254,7 @@ class UsersTest extends AbstractResourceTest {
      * Test getting current user info when the user is a valid member.
      */
     public function testMeMember() {
-        /** @var \UserModel $userModel */
+        /** @var UserModel $userModel */
         $userModel = self::container()->get('UserModel');
         $userID = $this->api()->getUserID();
         $user = $userModel->getID($userID, DATASET_TYPE_ARRAY);
@@ -244,9 +267,12 @@ class UsersTest extends AbstractResourceTest {
             "userID" => $userID,
             "name" => $user["Name"],
             "photoUrl" => userPhotoUrl($user),
+            'email' => $user['Email'],
+            'ssoID' => null,
             "dateLastActive" => $dateLastActive,
             "isAdmin" => true,
             "countUnreadNotifications" => 0,
+            "countUnreadConversations" => 0,
             "permissions" => [
                 "activity.delete",
                 "activity.view",
@@ -281,7 +307,89 @@ class UsersTest extends AbstractResourceTest {
         ];
         $actual = $response->getBody();
 
-        $this->assertEquals($expected, $actual);
+        $this->assertArraySubsetRecursive($expected, $actual);
+    }
+
+    /**
+     * To catch this regression.
+     * @see https://github.com/vanilla/support/issues/4039
+     */
+    public function testNoJunctionsPermissions() {
+        // There should not be an error.
+        $userID = $this->api()->getUserID();
+        $this->api()->get("/users/$userID/permissions", ['expand' => 'junctions']);
+        $this->assertTrue(true);
+    }
+
+    /**
+     * Test the users me endpoint with some custom roles.
+     */
+    public function testPermissions() {
+        $customCategory = $this->api()->post('/categories', [
+            'name' => 'Custom Perms',
+            'urlCode' => 'test-permissions-api',
+        ])->getBody();
+
+        $customRole = $this->api()->post('/roles', [
+            'name' => 'Custom Role',
+            'type' => 'member',
+            'permissions' => [
+                [
+                    'type' => PermissionFragmentSchema::TYPE_GLOBAL,
+                    'permissions' => [
+                        'community.manage' => true,
+                    ],
+                ],
+                // I would add some root category permissions here, but it's not possible to insert them through the API.
+                // https://github.com/vanilla/vanilla/issues/10184
+                [
+                    'type' => 'category',
+                    'id' => $customCategory['categoryID'],
+                    'permissions' => [
+                        "comments.add" => true,
+                        "comments.delete" => true,
+                        "comments.edit" => true,
+                        "discussions.add" => true,
+                        "discussions.manage" => false,
+                        "discussions.moderate" => false,
+                    ],
+                ],
+            ],
+        ])->getBody();
+
+        $user = $this->api()->post('/users', [
+            "email" => "testy@test.com",
+            "emailConfirmed" => true,
+            "name" => "TestTest",
+            "password" => "password",
+            "roleID" => [
+                $customRole['roleID'],
+            ],
+        ])->getBody();
+
+        $permissions = $this->api()->get('/users/' . $user['userID'] . '/permissions')->getBody();
+
+        $this->assertEquals([
+            'isAdmin' => false,
+            'permissions' => [
+                [
+                    'type' => PermissionFragmentSchema::TYPE_GLOBAL,
+                    'permissions' => [
+                        'community.manage' => true,
+                    ],
+                ],
+                [
+                    'type' => 'category',
+                    'id' => $customCategory['categoryID'],
+                    'permissions' => [
+                        "comments.add" => true,
+                        "comments.delete" => true,
+                        "comments.edit" => true,
+                        "discussions.add" => true,
+                    ],
+                ],
+            ]
+        ], $permissions);
     }
 
     /**
@@ -349,6 +457,7 @@ class UsersTest extends AbstractResourceTest {
         unset($newRow['photo']);
 
         $this->assertRowsEqual($newRow, $r->getBody());
+        $this->assertLog(['event' => EventAction::eventName($this->resourceName, EventAction::UPDATE)]);
 
         return $r->getBody();
     }
@@ -399,12 +508,12 @@ class UsersTest extends AbstractResourceTest {
     public function testPostPhoto() {
         $user = $this->testGet();
 
-        Uploader::resetUploads();
-        $photo = Uploader::uploadFile('photo', PATH_ROOT.'/tests/fixtures/apple.jpg');
+        TestUploader::resetUploads();
+        $photo = TestUploader::uploadFile('photo', PATH_ROOT.'/tests/fixtures/apple.jpg');
         $response = $this->api()->post("{$this->baseUrl}/{$user['userID']}/photo", ['photo' => $photo]);
 
         $this->assertEquals(201, $response->getStatusCode());
-        $this->assertInternalType('array', $response->getBody());
+        $this->assertIsArray($response->getBody());
 
         $responseBody = $response->getBody();
         $this->assertArrayHasKey('photoUrl', $responseBody);
@@ -515,7 +624,7 @@ class UsersTest extends AbstractResourceTest {
                 'Garden.Registration.NameUnique' => true,
                 'Garden.Registration.EmailUnique' => true,
             ], function () use ($user) {
-                $this->logger->clear();
+                $this->getTestLogger()->clear();
                 $r = $this->api()->post('/users/request-password', ['email' => $user['name']]);
             });
             $this->fail('You shouldn\'t be able to reset a password with a username.');
@@ -527,7 +636,7 @@ class UsersTest extends AbstractResourceTest {
             'Garden.Registration.NameUnique' => true,
             'Garden.Registration.EmailUnique' => false,
         ], function () use ($user) {
-            $this->logger->clear();
+            $this->getTestLogger()->clear();
             $r = $this->api()->post('/users/request-password', ['email' => $user['name']]);
             $this->assertLog(['event' => 'password_reset_skipped', 'email' => $user['email']]);
         });
@@ -541,13 +650,46 @@ class UsersTest extends AbstractResourceTest {
     }
 
     /**
+     * A moderator should be able to ban a member.
+     */
+    public function testBanWithPermission() {
+        $this->createUserFixtures('testBanWithPermission');
+        $this->api()->setUserID($this->moderatorID);
+        $r = $this->api()->put("/users/{$this->memberID}/ban", ['banned' => true]);
+        $this->assertTrue($r['banned']);
+    }
+
+    /**
+     * A moderator should not be able to ban an administrator.
+     */
+    public function testBanWithoutPermission() {
+        $this->createUserFixtures('testBanWithoutPermission');
+        $this->api()->setUserID($this->moderatorID);
+        $this->expectException(ForbiddenException::class);
+        $this->expectExceptionMessage('You are not allowed to ban a user that has higher permissions than you.');
+        $r = $this->api()->put("/users/{$this->adminID}/ban", ['banned' => true]);
+    }
+
+    /**
+     * A moderator should not be able to ban another moderator.
+     */
+    public function testBanSamePermissionRank() {
+        $this->createUserFixtures('testBanSamePermissionRank');
+        $moderatorID = $this->moderatorID;
+        $this->createUserFixtures('testBanSamePermissionRank2');
+        $this->api()->setUserID($this->moderatorID);
+        $this->expectException(ForbiddenException::class);
+        $this->expectExceptionMessage('You are not allowed to ban a user with the same permission level as you.');
+        $r = $this->api()->put("/users/{$moderatorID}/ban", ['banned' => true]);
+    }
+
+    /**
      * Perform a registration and verify the result.
      *
      * @param array $fields
      */
     private function verifyRegistration(array $fields) {
         $registration = $this->api()->post('/users/register', $fields)->getBody();
-
         $user = $this->runWithAdminUser(function () use ($registration) {
             return $this->api()->get("/users/{$registration[$this->pk]}")->getBody();
         });
@@ -557,4 +699,69 @@ class UsersTest extends AbstractResourceTest {
         $this->assertEquals($registration, $registeredUser);
     }
 
+    /**
+     * Test the users role filter.
+     */
+    public function testRoleFilter(): void {
+        $roleID = $this->getRoles()['Moderator'];
+
+        $users = $this->api()->get('/users', ['roleID' => $roleID])->getBody();
+        $this->assertNotEmpty($users);
+        foreach ($users as $user) {
+            $this->assertTrue(in_array($roleID, array_column($user['roles'], 'roleID')), 'The user does not satisfy the roleID filter.');
+        }
+    }
+
+    /**
+     * Test GET /:ID with a member role
+     */
+    public function testGetUserViewProfileOnly() {
+        $user = $this->testPost();
+        $user2 = $this->testPost();
+
+        /** @var UserModel $userModel */
+        $userModel =  static::container()->get(UserModel::class);
+        $userModel->setField($user2['userID'], 'ShowEmail', 1);
+
+        $this->api()->setUserID($user['userID']);
+
+        $response = $this->api()->get("/users/{$user2['userID']}")->getBody();
+
+        /** @var UsersApiController $userApiController */
+        $userApiController = static::container()->get(UsersApiController::class);
+        $viewProfileSchema = $userApiController->viewProfileSchema();
+        $viewProfileSchema->validate($response);
+
+        $this->assertArrayHasKey('name', $response);
+        $this->assertArrayHasKey('email', $response);
+        $this->assertArrayHasKey('photoUrl', $response);
+        $this->assertArrayHasKey('roles', $response);
+        $this->assertArrayHasKey('dateInserted', $response);
+        $this->assertArrayHasKey('dateLastActive', $response);
+        $this->assertArrayHasKey('countDiscussions', $response);
+        $this->assertArrayHasKey('countComments', $response);
+
+        $this->assertArrayNotHasKey('banned', $response);
+    }
+
+    /**
+     * Ensure that there are dirtyRecords for a specific resource.
+     */
+    protected function triggerDirtyRecords() {
+        $this->resetTable('dirtyRecord');
+        $user = $this->createUser();
+        $this->givePoints($user["userID"], 10);
+    }
+
+    /**
+     * Get the resource type.
+     *
+     * @return array
+     */
+    protected function getResourceInformation(): array {
+        return [
+            "resourceType" => "user",
+            "primaryKey" => "userID"
+        ];
+    }
 }

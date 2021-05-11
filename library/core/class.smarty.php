@@ -9,6 +9,8 @@
  * @since 2.0
  */
 
+use Vanilla\SmartyBC;
+
 /**
  * Vanilla implementation of Smarty templating engine.
  */
@@ -33,9 +35,10 @@ class Gdn_Smarty implements \Vanilla\Contracts\Web\LegacyViewHandlerInterface {
         }
 
         // Get an ID for the body.
-        $bodyIdentifier = strtolower($controller->ApplicationFolder.'_'.$controllerName.'_'.Gdn_Format::alphaNumeric(strtolower($controller->RequestMethod)));
+        $methodStr = Gdn_Format::alphaNumeric(strtolower($controller->RequestMethod));
+        $bodyIdentifier = strtolower($controller->ApplicationFolder.'_'.$controllerName).'_'.$methodStr;
         $smarty->assign('BodyID', htmlspecialchars($bodyIdentifier));
-        //$Smarty->assign('Config', Gdn::config());
+        $smarty->assign('DataDrivenTitleBar', Gdn::config("Feature.DataDrivenTitleBar.Enabled", false));
 
         // Assign some information about the user.
         $session = Gdn::session();
@@ -73,7 +76,7 @@ class Gdn_Smarty implements \Vanilla\Contracts\Web\LegacyViewHandlerInterface {
             }
         }
 
-        $bodyClass = val('CssClass', $controller->Data, '', true);
+        $bodyClass = val('CssClass', $controller->Data, '');
         $sections = Gdn_Theme::section(null, 'get');
         if (is_array($sections)) {
             foreach ($sections as $section) {
@@ -109,6 +112,145 @@ class Gdn_Smarty implements \Vanilla\Contracts\Web\LegacyViewHandlerInterface {
         // Assign the controller data last so the controllers override any default data.
         $smarty->assign($controller->Data);
 
+        $this->enableSecurity($smarty);
+    }
+
+    /**
+     * Render the given view.
+     *
+     * @param string $path The path to the view's file.
+     * @param Gdn_Controller $controller The controller that is rendering the view.
+     */
+    public function render($path, $controller) {
+        $smarty = $this->smarty();
+        $this->init($path, $controller);
+        $compileID = $smarty->compile_id;
+        if (defined('CLIENT_NAME')) {
+            $compileID = CLIENT_NAME;
+        }
+
+        if (strpos($path, ':') === false) {
+            $smarty->setTemplateDir(dirname($path));
+        } else {
+            list($type, $arg) = explode(':', $path, 2);
+            if ($type === 'file') {
+                $smarty->setTemplateDir(dirname($arg));
+            } elseif (!empty($controller->Theme)) {
+                $smarty->setTemplateDir([
+                    PATH_THEMES."/{$controller->Theme}/views",
+                    PATH_ADDONS_THEMES."/{$controller->Theme}/views",
+                ]);
+            }
+        }
+
+        $smarty->display($path, null, $compileID);
+    }
+
+    /**
+     *
+     *
+     * @return Smarty The smarty object used for rendering.
+     */
+    public function smarty() {
+        if (is_null($this->_Smarty)) {
+            $smarty = new SmartyBC();
+
+            $smarty->setCacheDir(PATH_CACHE.'/Smarty/cache');
+            $smarty->setCompileDir(PATH_CACHE.'/Smarty/compile');
+            $smarty->addPluginsDir(PATH_LIBRARY.'/SmartyPlugins');
+            $smarty->setDebugTemplate(PATH_APPLICATIONS.'/dashboard/views/debug.tpl');
+            $smarty->registerPlugin('function', 'debug_vars', [$this, 'debugVars'], false);
+
+//         Gdn::pluginManager()->Trace = TRUE;
+            Gdn::pluginManager()->callEventHandlers($smarty, 'Gdn_Smarty', 'Init');
+
+            $this->_Smarty = $smarty;
+        }
+        return $this->_Smarty;
+    }
+
+    /**
+     * See if the provided template causes any errors.
+     *
+     * @param string $path Path of template file to test.
+     * @return boolean TRUE if template loads successfully.
+     */
+    public function testTemplate($path) {
+        $smarty = $this->smarty();
+        $this->init($path, Gdn::controller());
+        $compileID = $smarty->compile_id;
+        if (defined('CLIENT_NAME')) {
+            $compileID = CLIENT_NAME;
+        }
+
+        $return = true;
+        try {
+            $result = $smarty->fetch($path, null, $compileID);
+            // echo wrap($Result, 'textarea', array('style' => 'width: 900px; height: 400px;'));
+            $return = ($result == '' || strpos($result, '<title>Fatal Error</title>') > 0 || strpos($result, '<h1>Something has gone wrong.</h1>') > 0) ? false : true;
+        } catch (Exception $ex) {
+            $return = false;
+        }
+        return $return;
+    }
+
+    /**
+     * Output template variables.
+     *
+     * @param mixed $params
+     * @param Smarty_Internal_TemplateBase $smarty
+     * @return string
+     */
+    public function debugVars($params, $smarty) {
+        $debug = new Smarty_Internal_Debug();
+        $ptr = $debug->get_debug_vars($smarty);
+        $vars = self::sanitizeVariables($ptr->tpl_vars);
+        ksort($vars);
+
+        $sm = new Smarty();
+        $sm->assign('assigned_vars', $vars);
+        return $sm->fetch(PATH_APPLICATIONS.'/dashboard/views/debug_vars.tpl');
+    }
+
+    /**
+     * Sanitize template variables to remove or obscure sensitive information.
+     *
+     * @param array $vars
+     * @param int $level
+     * @return array
+     */
+    public static function sanitizeVariables(array $vars, int $level = 0): array {
+        $remove = ['password', 'accesstoken', 'fingerprint', 'updatetoken'];
+        $obscure = [
+            'insertipaddress', 'updateipaddress', 'lastipaddress', 'allipaddresses', 'dateofbirth', 'hashmethod',
+            'email', 'firstemail', 'lastemail',
+        ];
+
+        $r = [];
+
+        foreach ($vars as $key => $value) {
+            $lkey = strtolower($key);
+            if (in_array($lkey, $remove, true) || ($level === 0 && $key === 'Assets')) {
+                continue;
+            } elseif (in_array($lkey, $obscure, true)) {
+                $r[$key] = '***OBSCURED***';
+            } elseif (is_array($value)) {
+                $r[$key] = self::sanitizeVariables($value, $level + 1);
+            } elseif ($value instanceof stdClass) {
+                $r[$key] = (object)self::sanitizeVariables((array)$value, $level + 1);
+            } else {
+                $r[$key] = $value;
+            }
+        }
+        return $r;
+    }
+
+    /**
+     * Enable the security features on a Smarty object.
+     *
+     * @param Smarty $smarty
+     */
+    public function enableSecurity(Smarty $smarty): void {
         $security = new SmartySecurityVanilla($smarty);
 
         $security->php_handling = Smarty::PHP_REMOVE;
@@ -140,70 +282,5 @@ class Gdn_Smarty implements \Vanilla\Contracts\Web\LegacyViewHandlerInterface {
         );
 
         $smarty->enableSecurity($security);
-
-    }
-
-    /**
-     * Render the given view.
-     *
-     * @param string $path The path to the view's file.
-     * @param Controller $controller The controller that is rendering the view.
-     */
-    public function render($path, $controller) {
-        $smarty = $this->smarty();
-        $this->init($path, $controller);
-        $compileID = $smarty->compile_id;
-        if (defined('CLIENT_NAME')) {
-            $compileID = CLIENT_NAME;
-        }
-
-        $smarty->setTemplateDir(dirname($path));
-        $smarty->display($path, null, $compileID);
-    }
-
-    /**
-     *
-     *
-     * @return Smarty The smarty object used for rendering.
-     */
-    public function smarty() {
-        if (is_null($this->_Smarty)) {
-            $smarty = new SmartyBC();
-
-            $smarty->setCacheDir(PATH_CACHE.'/Smarty/cache');
-            $smarty->setCompileDir(PATH_CACHE.'/Smarty/compile');
-            $smarty->addPluginsDir(PATH_LIBRARY.'/SmartyPlugins');
-
-//         Gdn::pluginManager()->Trace = TRUE;
-            Gdn::pluginManager()->callEventHandlers($smarty, 'Gdn_Smarty', 'Init');
-
-            $this->_Smarty = $smarty;
-        }
-        return $this->_Smarty;
-    }
-
-    /**
-     * See if the provided template causes any errors.
-     *
-     * @param type $path Path of template file to test.
-     * @return boolean TRUE if template loads successfully.
-     */
-    public function testTemplate($path) {
-        $smarty = $this->smarty();
-        $this->init($path, Gdn::controller());
-        $compileID = $smarty->compile_id;
-        if (defined('CLIENT_NAME')) {
-            $compileID = CLIENT_NAME;
-        }
-
-        $return = true;
-        try {
-            $result = $smarty->fetch($path, null, $compileID);
-            // echo wrap($Result, 'textarea', array('style' => 'width: 900px; height: 400px;'));
-            $return = ($result == '' || strpos($result, '<title>Fatal Error</title>') > 0 || strpos($result, '<h1>Something has gone wrong.</h1>') > 0) ? false : true;
-        } catch (Exception $ex) {
-            $return = false;
-        }
-        return $return;
     }
 }

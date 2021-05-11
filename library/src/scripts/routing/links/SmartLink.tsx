@@ -6,13 +6,15 @@
 
 import React from "react";
 import { NavLink, NavLinkProps } from "react-router-dom";
-import { makeLocationDescriptorObject, LinkContext } from "@library/routing/links/LinkContextProvider";
+import { makeLocationDescriptorObject, LinkContext, useLinkContext } from "@library/routing/links/LinkContextProvider";
 import { sanitizeUrl } from "@vanilla/utils";
 import { LocationDescriptor } from "history";
+import { siteUrl } from "@library/utility/appUtils";
 
-interface IProps extends NavLinkProps {
+export interface ISmartLinkProps extends NavLinkProps {
     tabIndex?: number;
     to: LocationDescriptor;
+    disabled?: boolean;
 }
 
 /**
@@ -31,27 +33,41 @@ interface IProps extends NavLinkProps {
  * To = https://test.com/root/someUrl/deeper/nested
  * Result = https://test.com/root/someUrl/deeper/nested (full refresh)
  */
-export default function SmartLink(props: IProps) {
+export default React.forwardRef(function SmartLink(props: ISmartLinkProps, ref: React.Ref<HTMLAnchorElement>) {
     const { replace, ...passthru } = props;
+    const context = useLinkContext();
 
-    return (
-        <LinkContext.Consumer>
-            {context => {
-                const href = context.makeHref(props.to);
-                if (context.isDynamicNavigation(href)) {
-                    return (
-                        <NavLink
-                            {...passthru}
-                            to={makeLocationDescriptorObject(props.to, href)}
-                            activeClassName="isCurrent"
-                            tabIndex={props.tabIndex ? props.tabIndex : 0}
-                            replace={replace}
-                        />
-                    );
-                } else {
-                    return <a {...passthru} href={sanitizeUrl(href)} tabIndex={props.tabIndex ? props.tabIndex : 0} />;
-                }
-            }}
-        </LinkContext.Consumer>
-    );
-}
+    // Filter out undefined props
+    for (const prop in passthru) {
+        if (!passthru[prop]) {
+            delete passthru[prop];
+        }
+    }
+
+    const href = context.makeHref(props.to);
+    if (context.isDynamicNavigation(href)) {
+        return (
+            <NavLink
+                rel={props.target === "_blank" ? "noreferer noopener ugc" : undefined}
+                {...passthru}
+                innerRef={ref}
+                to={makeLocationDescriptorObject(props.to, href)}
+                activeClassName="isCurrent"
+                tabIndex={props.tabIndex ? props.tabIndex : 0}
+                replace={replace}
+            />
+        );
+    } else {
+        const isForeign = !href.startsWith(siteUrl(""));
+        return (
+            <a
+                {...passthru}
+                ref={ref}
+                href={sanitizeUrl(href)}
+                tabIndex={props.tabIndex ? props.tabIndex : 0}
+                target={isForeign ? "_blank" : undefined}
+                rel={isForeign ? "noopener noreferrer" : props.rel}
+            />
+        );
+    }
+});

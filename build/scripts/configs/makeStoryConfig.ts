@@ -4,12 +4,11 @@
  * @license GPL-2.0-only
  */
 
-import { Configuration } from "webpack";
+import webpack, { Configuration } from "webpack";
 import { makeBaseConfig } from "./makeBaseConfig";
 import EntryModel from "../utility/EntryModel";
-// tslint:disable
-const TSDocgenPlugin = require("react-docgen-typescript-webpack-plugin");
-const merge = require("webpack-merge");
+import { svgLoader } from "./svgLoader";
+import WebpackBar from "webpackbar";
 
 /**
  * Create the storybook configuration.
@@ -17,21 +16,70 @@ const merge = require("webpack-merge");
  * @param section - The section of the app to build. Eg. forum | admin | knowledge.
  */
 export async function makeStoryConfig(baseStorybookConfig: Configuration, entryModel: EntryModel) {
-    baseStorybookConfig.module!.rules.push({
-        test: /\.story\.tsx?$/,
-        loaders: [
+    const baseConfig = await makeBaseConfig(entryModel, "storybook");
+
+    // Apply our module resolutions.
+    baseStorybookConfig.resolve = baseConfig.resolve;
+
+    // Ensure our environmental variable is applied.
+    baseStorybookConfig.plugins?.push(
+        new webpack.DefinePlugin({
+            ["process.env.NODE_ENV"]: "'test'",
+        }),
+    );
+
+    // We need to process SCSS files.
+    baseStorybookConfig.module?.rules?.push({
+        test: /\.scss$/,
+        use: [
             {
-                loader: require.resolve("@storybook/addon-storysource/loader"),
-                options: { parser: "typescript" },
+                loader: "style-loader",
+                options: {
+                    injectType: "singletonStyleTag",
+                    insert: function insertAtTop(element: HTMLElement) {
+                        const parent = document.head;
+                        parent.prepend(element);
+                    },
+                },
+            },
+
+            {
+                loader: "css-loader",
+                options: {
+                    sourceMap: true,
+                    url: false,
+                },
+            },
+            {
+                loader: "sass-loader",
+                options: {
+                    implementation: require("sass"), // Use dart sass
+                },
             },
         ],
-        enforce: "pre",
     });
-    const baseConfig: Configuration = await makeBaseConfig(entryModel, "storybook");
-    baseConfig.mode = "development";
-    baseConfig.optimization = {
-        splitChunks: false,
-    };
-    // baseConfig.plugins!.push(new TSDocgenPlugin());
-    return merge(baseStorybookConfig, baseConfig as any);
+
+    baseStorybookConfig.module?.rules?.unshift({
+        test: /\/(design|resources)\/.*\.(css|ttf)$/,
+        loader: "file-loader",
+        options: {
+            name: "[path][name]-[contenthash].[ext]",
+        },
+    });
+
+    const fileLoaderRule = baseStorybookConfig.module?.rules?.find((rule) =>
+        ((rule as any)?.test as any)?.test?.(".svg"),
+    );
+    if (fileLoaderRule) {
+        (fileLoaderRule as any).exclude = /vanilla-icons/;
+    }
+
+    baseStorybookConfig.module?.rules?.unshift(svgLoader());
+
+    baseStorybookConfig.module?.rules?.push({
+        test: /\.html$/,
+        use: "raw-loader",
+    });
+
+    return baseStorybookConfig;
 }

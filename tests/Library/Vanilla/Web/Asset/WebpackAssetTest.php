@@ -22,7 +22,7 @@ class WebpackAssetTest extends TestCase {
     /**
      * @inheritdoc
      */
-    public function setUp() {
+    public function setUp(): void {
         $this->fs = vfsStream::setup();
     }
 
@@ -39,9 +39,7 @@ class WebpackAssetTest extends TestCase {
         ]);
         $asset = new WebpackAsset(
             new Request(),
-            ".min.js",
-            "test",
-            "bootstrap"
+            '/dist/test/bootstrap.min.js'
         );
         $url = $fs->url();
         $asset->setFsRoot($url);
@@ -50,30 +48,35 @@ class WebpackAssetTest extends TestCase {
 
         $asset = new WebpackAsset(
             new Request(),
-            ".min.js",
-            "test",
-            "badAsset"
+            '/dist/test/badAsset.min.js'
         );
-        $asset->setFsRoot($fs->url());
-        $this->assertFalse($asset->existsOnFs());
+    }
+
+    /**
+     * Test our static property.
+     */
+    public function testStatic() {
+        $asset = new WebpackAsset(
+            new Request(),
+            "/dist/test/something.min.js"
+        );
+
+        $this->assertTrue($asset->isStatic());
     }
 
     /**
      * Test that web patches are properly generated.
      *
      * @param Request $req
-     * @param string $buster
+     * @param string $path
      * @param string $expected
      *
      * @dataProvider webPathProvider
      */
-    public function testWebPath(Request $req, string $buster, string $expected) {
+    public function testWebPath(Request $req, string $path, string $expected) {
         $asset = new WebpackAsset(
             $req,
-            WebpackAsset::SCRIPT_EXTENSION,
-            "testSec",
-            "test",
-            $buster
+            $path
         );
         $this->assertEquals($expected, $asset->getWebPath());
     }
@@ -82,29 +85,30 @@ class WebpackAssetTest extends TestCase {
      * Provider for for testWebPath
      */
     public function webPathProvider(): array {
+        $assetPath = "/dist/testSec/test.min.js";
         return [
             [
                 (new Request()),
-                "",
-                "http://example.com/dist/testSec/test.min.js",
+                $assetPath,
+                "http://example.com$assetPath"
             ],
             [
                 (new Request())->setAssetRoot("/someRoot"),
-                "",
-                "http://example.com/someRoot/dist/testSec/test.min.js",
+                $assetPath,
+                "http://example.com/someRoot$assetPath",
             ],
             [
                 (new Request())->setHost("me.com"),
-                "cacheBuster",
-                "http://me.com/dist/testSec/test.min.js?h=cacheBuster",
+                $assetPath,
+                "http://me.com$assetPath",
             ],
             [
                 (new Request())->setHost("me.com")
                     ->setPath("/path-should-be-ignored")
                     ->setRoot("/root-should-be-ignored")
                     ->setAssetRoot("/assetRoot"),
-                "cacheBuster",
-                "http://me.com/assetRoot/dist/testSec/test.min.js?h=cacheBuster",
+                $assetPath,
+                "http://me.com/assetRoot$assetPath",
             ],
         ];
     }

@@ -5,7 +5,7 @@
 
 module.exports = {
     parser: "@typescript-eslint/parser",
-    plugins: ["@typescript-eslint", "react", "react-hooks", "jsx-a11y", "lodash"],
+    plugins: ["@typescript-eslint", "@vanilla", "react", "react-hooks", "jsx-a11y", "lodash"],
     extends: [
         "eslint:recommended",
         "plugin:react/recommended",
@@ -24,10 +24,25 @@ module.exports = {
         },
     },
     rules: {
+        // Just distasteful
+        "no-prototype-builtins": "off",
+        "@typescript-eslint/no-inferrable-types": "off",
+        "@typescript-eslint/ban-ts-ignore": "off",
+        "no-self-assign": "off",
+        "no-case-declarations": "off",
+        "prefer-const": "off",
+        "require-atomic-updates": "off",
+        "react/prop-types": "off", // We use typescript
+
         // We have typescript for these.
         "no-undef": "off",
         "getter-return": "off",
         "no-dupe-class-members": "off",
+
+        // General JS restrictions
+        "no-console": ["error", { allow: ["warn", "error"] }],
+        "no-debugger": ["error"],
+        "no-alert": ["error"],
 
         // Typescript specific rules
         "@typescript-eslint/ban-types": [
@@ -40,12 +55,16 @@ module.exports = {
                     Number: "Avoid using the `Number` type. Did you mean `number`?",
                     String: "Avoid using the `String` type. Did you mean `string`?",
                     Symbol: "Avoid using the `Symbol` type. Did you mean `symbol`?",
+                    object: false,
+                    "{}": false
                 },
             },
         ],
+        "@typescript-eslint/array-type": ["error", { default: 'array-simple' }],
+        "@typescript-eslint/ban-ts-comment": "off",
         "@typescript-eslint/camelcase": "off",
-        "@typescript-eslint/array-type": ["error", "array-simple"],
-        "@typescript-eslint/interface-name-prefix": ["error", "always"],
+        "@typescript-eslint/explicit-module-boundary-types": "off",
+        "@typescript-eslint/no-empty-function": "off",
         "@typescript-eslint/no-empty-interface": "off",
         "@typescript-eslint/no-parameter-properties": "off",
         "@typescript-eslint/no-use-before-define": "off",
@@ -59,6 +78,7 @@ module.exports = {
 
         // A11Y
         "jsx-a11y/html-has-lang": "off", // https://github.com/evcohen/eslint-plugin-jsx-a11y/issues/565
+        "react/jsx-no-target-blank": "off", // Our <SmartLink /> handles this. Detection is janky.
 
         // I want to be able to turn these on the future.
         // but they each have a lot of files to fix and should be their own PR.
@@ -70,6 +90,9 @@ module.exports = {
         // React hooks
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
+
+        // Vanilla Custom
+        "@vanilla/no-unconventional-imports": "error",
 
         // Lodash
         // Ensure we always do single package lodash imports.

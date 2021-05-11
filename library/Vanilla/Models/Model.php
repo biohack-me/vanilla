@@ -11,11 +11,22 @@ use Garden\Schema\Schema;
 use Garden\Schema\ValidationException;
 use Vanilla\Exception\Database\NoResultsException;
 use Vanilla\InjectableInterface;
+use Vanilla\Utility\ArrayUtils;
 
 /**
  * Basic model class.
  */
 class Model implements InjectableInterface {
+
+    public const OPT_LIMIT = "limit";
+    public const OPT_OFFSET = "offset";
+    public const OPT_SELECT = "select";
+    public const OPT_ORDER = 'order';
+    public const OPT_MODE = 'mode';
+    public const OPT_REPLACE = 'replace';
+    public const OPT_IGNORE = 'ignore';
+    public const OPT_META = 'meta';
+    public const OPT_JOINS = 'joins';
 
     /** @var \Gdn_Database */
     private $database;
@@ -26,8 +37,18 @@ class Model implements InjectableInterface {
     /** @var string */
     private $table;
 
+    /**
+     * @var string[]
+     */
+    private $primaryKey;
+
     /** @var Schema */
     protected $writeSchema;
+
+    /**
+     * @var Schema
+     */
+    private $databaseSchema;
 
     /**
      * Basic model constructor.
@@ -36,6 +57,7 @@ class Model implements InjectableInterface {
      */
     public function __construct(string $table) {
         $this->table = $table;
+        $this->setPrimaryKey($table.'ID');
     }
 
     /**
@@ -47,6 +69,34 @@ class Model implements InjectableInterface {
     protected function configureReadSchema(Schema $schema): Schema {
         // Child classes can make adjustments as necessary.
         return $schema;
+    }
+
+    /**
+     * Get the schema used to validate selects.
+     *
+     * @return Schema
+     */
+    public function getReadSchema(): Schema {
+        if ($this->readSchema === null) {
+            $schema = $this->getDatabaseSchema();
+            $this->configureReadSchema($schema);
+            $this->readSchema = $schema;
+        }
+        return $this->readSchema;
+    }
+
+    /**
+     * Get the schema used to validate inserts and updates.
+     *
+     * @return Schema
+     */
+    public function getWriteSchema(): Schema {
+        if ($this->writeSchema === null) {
+            $schema = $this->getDatabaseSchema();
+            $this->configureWriteSchema($schema);
+            $this->writeSchema = $schema;
+        }
+        return $this->writeSchema;
     }
 
     /**
@@ -70,29 +120,22 @@ class Model implements InjectableInterface {
      * @return bool True.
      */
     public function delete(array $where, array $options = []): bool {
-        // Lazy load schemas.
-        $this->ensureSchemas();
-        $limit = $options["limit"] ?? false;
+        $limit = $options[self::OPT_LIMIT] ?? false;
 
-        $this->sql()->delete($this->table, $where, $limit);
+        $this->createSql()->delete($this->table, $where, $limit);
         // If fully executed without an exception bubbling up, consider this a success.
         return true;
     }
 
     /**
      * Make sure we have configured schemas available to the instance.
+     *
+     * @deprecated Use `getReadSchema()` and `getWriteSchema()` instead.
+     * @codeCoverageIgnore
      */
     protected function ensureSchemas() {
-        if ($this->readSchema === null || $this->writeSchema === null) {
-            $schema = $this->database->simpleSchema($this->table);
-
-            if (!($this->readSchema instanceof Schema)) {
-                $this->readSchema = $this->configureReadSchema(clone $schema);
-            }
-            if (!($this->writeSchema instanceof Schema)) {
-                $this->writeSchema = $this->configureWriteSchema(clone $schema);
-            }
-        }
+        $this->getReadSchema();
+        $this->getWriteSchema();
     }
 
     /**
@@ -106,33 +149,63 @@ class Model implements InjectableInterface {
      *    - offset (int): Row offset before capturing the result.
      * @return array Rows matching the conditions and within the parameters specified in the options.
      * @throws ValidationException If a row fails to validate against the schema.
+     * @todo Document support for the "order" option.
+     * @todo Add support for a "page" option to set the limit.
      */
-    public function get(array $where = [], array $options = []): array {
-        // Lazy load schemas.
-        $this->ensureSchemas();
-
-        $orderFields = $options["orderFields"] ?? "";
+    public function select(array $where = [], array $options = []): array {
+        $orderFields = $options[self::OPT_ORDER] ?? ($options["orderFields"] ?? []);
         $orderDirection = $options["orderDirection"] ?? "asc";
-        $limit = $options["limit"] ?? false;
-        $offset = $options["offset"] ?? 0;
-        $selects =  $options["select"] ?? [];
+        $limit = $options[self::OPT_LIMIT] ?? false;
+        $offset = $options[self::OPT_OFFSET] ?? 0;
+        $selects = $options[self::OPT_SELECT] ?? [];
 
-        $sqlDriver = $this->sql();
+        $sqlDriver = $this->createSql();
 
         if (!empty($selects)) {
+            if (is_string($selects)) {
+                $selects = ArrayUtils::explodeTrim(',', $selects);
+            }
+            $selects = $this->translateSelects($selects);
+
             $sqlDriver->select($selects);
         }
+
+        $joins = $options[self::OPT_JOINS] ?? false;
+        if ($joins) {
+            $this->applyJoins($joins, $sqlDriver);
+        }
+
         $result = $sqlDriver->getWhere($this->table, $where, $orderFields, $orderDirection, $limit, $offset)
             ->resultArray();
 
         if (empty($selects)) {
-            $schema = Schema::parse([":a" => $this->readSchema]);
+            $schema = $this->getReadSchema();
         } else {
-            $schema = Schema::parse([":a" =>  Schema::parse($selects)->add($this->readSchema)]);
+            $selectExpressions = $sqlDriver->parseSelectExpression($selects);
+            $selectFinalFieldNames = [];
+            foreach ($selectExpressions as $selectExpression) {
+                $selectFinalFieldNames[] = $selectExpression['Alias'] ?: $selectExpression['Field'];
+            }
+
+            $schema = Schema::parse($selectFinalFieldNames)->add($this->getReadSchema());
         }
-        $result = $schema->validate($result);
+        foreach ($result as &$row) {
+            $row = $schema->validate($row);
+        }
 
         return $result;
+    }
+
+    /**
+     * An alias of `select()`.
+     *
+     * @param array $where
+     * @param array $options
+     * @return array
+     * @deprecated Use Model::select
+     */
+    public function get(array $where = [], array $options = []): array {
+        return $this->select($where, $options);
     }
 
     /**
@@ -140,8 +213,56 @@ class Model implements InjectableInterface {
      *
      * @return string
      */
-    protected function getTable(): string {
+    public function getTable(): string {
         return $this->table;
+    }
+
+    /**
+     * Get the primary key columns.
+     *
+     * @return array
+     */
+    public function getPrimaryKey(): array {
+        return $this->primaryKey;
+    }
+
+    /**
+     * Set the primary key columns.
+     *
+     * @param string $columns
+     */
+    protected function setPrimaryKey(string ...$columns): void {
+        $this->primaryKey = $columns;
+    }
+
+    /**
+     * Return an array suitable for a where clause for a primary key.
+     *
+     * @param mixed $id
+     * @param mixed $ids
+     * @return array
+     */
+    public function primaryWhere($id, ...$ids): array {
+        $values = array_merge([$id], $ids);
+        $where = [];
+        foreach ($this->getPrimaryKey() as $i => $column) {
+            $where[$column] = $values[$i] ?? null;
+        }
+        return $where;
+    }
+
+    /**
+     * Extract the primary key out of a row.
+     *
+     * @param array $row The row to pluck.
+     * @return array Returns an array suitable to pass as a where parameter.
+     */
+    public function pluckPrimaryWhere(array $row): array {
+        $where = [];
+        foreach ($this->getPrimaryKey() as $column) {
+            $where[$column] = $row[$column];
+        }
+        return $where;
     }
 
     /**
@@ -158,8 +279,8 @@ class Model implements InjectableInterface {
      * @throws NoResultsException If no rows could be found.
      */
     public function selectSingle(array $where = [], array $options = []): array {
-        $options["limit"] = 1;
-        $rows = $this->get($where, $options);
+        $options[self::OPT_LIMIT] = 1;
+        $rows = $this->select($where, $options);
         if (empty($rows)) {
             throw new NoResultsException("No rows matched the provided criteria.");
         }
@@ -171,17 +292,33 @@ class Model implements InjectableInterface {
      * Add a resource row.
      *
      * @param array $set Field values to set.
-     * @return mixed ID of the inserted row.
+     * @param array $options An array of options to affect the insert.
+     * @return int|true ID of the inserted row.
      * @throws Exception If an error is encountered while performing the query.
      */
-    public function insert(array $set) {
-        // Lazy load schemas.
-        $this->ensureSchemas();
+    public function insert(array $set, array $options = []) {
+        $options += [
+            self::OPT_REPLACE => false,
+            self::OPT_IGNORE => false,
+        ];
 
-        $set = $this->writeSchema->validate($set);
-        $result = $this->sql()->insert($this->table, $set);
+        $set = $this->getWriteSchema()->validate($set);
+
+        $sql = $this->createSql();
+        if ($options[self::OPT_REPLACE]) {
+            $sql->options('Replace', true);
+        } elseif ($options[self::OPT_IGNORE]) {
+            $sql->options('Ignore', true);
+        }
+        $result = $sql->insert($this->table, $set);
         if ($result === false) {
+            // @codeCoverageIgnoreStart
             throw new Exception("An unknown error was encountered while inserting the row.");
+            // @codeCoverageIgnoreEnd
+        }
+        // This is a bit of a kludge, but we want a true integer because we are otherwise string with schemas.
+        if (is_numeric($result)) {
+            $result = (int)$result;
         }
         return $result;
     }
@@ -198,10 +335,21 @@ class Model implements InjectableInterface {
      *
      * @return \Gdn_SQLDriver
      */
-    protected function sql(): \Gdn_SQLDriver {
+    protected function createSql(): \Gdn_SQLDriver {
         $sql = clone $this->database->sql();
         $sql->reset();
         return $sql;
+    }
+
+    /**
+     * Alias of `createSql()`.
+     *
+     * @return \Gdn_SQLDriver
+     * @deprecated
+     * @codeCoverageIgnore
+     */
+    protected function sql(): \Gdn_SQLDriver {
+        return $this->createSql();
     }
 
     /**
@@ -209,16 +357,63 @@ class Model implements InjectableInterface {
      *
      * @param array $set Field values to set.
      * @param array $where Conditions to restrict the update.
+     * @param array $options Options to control the update.
      * @throws Exception If an error is encountered while performing the query.
      * @return bool True.
      */
-    public function update(array $set, array $where): bool {
-        // Lazy load schemas.
-        $this->ensureSchemas();
-
-        $set = $this->writeSchema->validate($set, true);
-        $this->sql()->put($this->table, $set, $where);
+    public function update(array $set, array $where, array $options = []): bool {
+        $set = $this->getWriteSchema()->validate($set, true);
+        $this->createSql()->put($this->table, $set, $where);
         // If fully executed without an exception bubbling up, consider this a success.
         return true;
+    }
+
+    /**
+     * Translate selects with some additional support.
+     *
+     * @param array $selects
+     * @return array
+     */
+    private function translateSelects(array $selects): array {
+        $negatives = [];
+        foreach ($selects as $select) {
+            if ($select[0] === '-') {
+                $negatives[] = substr($select, 1);
+            }
+        }
+
+        if (!empty($negatives)) {
+            $columns = array_keys($this->getReadSchema()->getField('properties'));
+            $selects = array_values(array_diff($columns, $negatives));
+        }
+        return $selects;
+    }
+
+    /**
+     * Get or generate the schema returned by the database.
+     *
+     * @return Schema
+     */
+    private function getDatabaseSchema(): Schema {
+        if ($this->databaseSchema === null) {
+            $this->databaseSchema = $this->database->simpleSchema($this->getTable());
+        }
+        return $this->databaseSchema;
+    }
+
+    /**
+     * Apply joins to sql query.
+     *
+     * @param array $joins
+     * @param \Gdn_SQLDriver $sqlDriver
+     */
+    protected function applyJoins(array $joins, \Gdn_SQLDriver $sqlDriver): void {
+        foreach ($joins as $join) {
+            $tableName = $join['tableName'] ?? '';
+            $on = $join['on'] ?? '';
+            $joinType = $join['joinType'] ?? '';
+
+            $sqlDriver->join($tableName, $on, $joinType);
+        }
     }
 }

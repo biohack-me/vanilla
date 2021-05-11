@@ -68,8 +68,9 @@ class Gdn_CookieIdentity {
     public function init($config = null) {
         if (is_null($config)) {
             $config = Gdn::config('Garden.Cookie');
-        } elseif (is_string($config))
+        } elseif (is_string($config)) {
             $config = Gdn::config($config);
+        }
 
         $defaultConfig = array_replace(
             ['PersistExpiry' => '30 days', 'SessionExpiry' => '2 days'],
@@ -83,7 +84,10 @@ class Gdn_CookieIdentity {
         $currentHost = Gdn::request()->host();
         if (!stringEndsWith($currentHost, trim($this->CookieDomain, '.'))) {
             $this->CookieDomain = '';
-            trigger_error('Config "Garden.Cookie.Domain" is incompatible with the current host.', E_USER_WARNING);
+            trigger_error(
+                sprintf('Config "Garden.Cookie.Domain" is incompatible with the current host (%s vs %s).', $currentHost, $this->CookieDomain),
+                E_USER_NOTICE
+            );
         }
 
         $this->CookieHashMethod = val('HashMethod', $config, $defaultConfig['HashMethod']);
@@ -500,7 +504,7 @@ class Gdn_CookieIdentity {
                     'cookie_jwt_error',
                     Logger::ERROR,
                     $e->getMessage(),
-                    ['jwt' => $jwt]
+                    ['jwt' => $jwt, Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                 );
             }
         }

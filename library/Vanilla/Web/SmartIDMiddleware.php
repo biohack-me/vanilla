@@ -7,6 +7,7 @@
 
 namespace Vanilla\Web;
 
+use Garden\BasePathTrait;
 use Garden\Web\Exception\ClientException;
 use Garden\Web\Exception\NotFoundException;
 use Garden\Web\RequestInterface;
@@ -17,12 +18,11 @@ use Garden\Web\RequestInterface;
  * This middleware replaces smart ID expressions in the request with their IDs and passes on the middleware.
  */
 class SmartIDMiddleware {
+    use BasePathTrait;
+
     const SMART = '$';
 
-    /**
-     * @var string The base path to match in order to apply smart IDs.
-     */
-    private $basePath = '/';
+    private const FULL_SMART_REGEX = '`^\$([^:]+)\.([^:]+:.+)$`';
 
     /**
      * @var \Gdn_SQLDriver
@@ -40,9 +40,19 @@ class SmartIDMiddleware {
     private $pks = [];
 
     /**
-     * @var string a cached regular expression to match a field against the known smart ID PK columns.
+     * @var array An array of field name suffixes that allow for fully qualified smart IDs.
+     */
+    private $fullSuffixes = [];
+
+    /**
+     * @var string A cached regular expression to match a field against the known smart ID PK columns.
      */
     private $pksRegex;
+
+    /**
+     * @var string A cached regular expression to match a field against a smart ID suffix.
+     */
+    private $fullSuffixesRegex;
 
     /**
      * SmartIDMiddleware constructor.
@@ -51,8 +61,9 @@ class SmartIDMiddleware {
      * @param \Gdn_SQLDriver $sql Used to look up smart IDs.
      */
     public function __construct(string $basePath = '/', \Gdn_SQLDriver $sql) {
-        $this->basePath = $basePath;
+        $this->setBasePath($basePath);
         $this->sql = clone $sql;
+        $this->addFullSuffix('ID');
     }
 
     /**
@@ -119,7 +130,7 @@ class SmartIDMiddleware {
      * @return mixed Returns the response of the inner middleware.
      */
     public function __invoke(RequestInterface $request, callable $next) {
-        if (strcasecmp(substr($request->getPath(), 0, strlen($this->basePath)), $this->basePath) === 0) {
+        if ($this->inBasePath($request->getPath())) {
             $this->replaceQuery($request);
             $this->replaceBody($request);
             $this->replacePath($request);
@@ -194,11 +205,27 @@ class SmartIDMiddleware {
      *
      * @return string Returns a regular expression string.
      */
-    private function getPKsRegex() {
+    private function getPKsRegex(): string {
         if (!$this->pksRegex) {
             $this->pksRegex = '`('.implode('|', array_keys($this->pks)).')$`i';
         }
         return $this->pksRegex;
+    }
+
+    /**
+     * Get a regular expression that matches fields that allow fully qualified regular expressions.
+     *
+     * @return string
+     */
+    private function getFullRegex(): string {
+        if (!$this->fullSuffixesRegex) {
+            if (empty($this->fullSuffixes)) {
+                $this->fullSuffixesRegex = '`^$`';
+            } else {
+                $this->fullSuffixesRegex = '`(' . implode('|', array_keys($this->fullSuffixes)) . ')$`';
+            }
+        }
+        return $this->fullSuffixesRegex;
     }
 
     /**
@@ -208,16 +235,23 @@ class SmartIDMiddleware {
      * @return array|false Returns the replaced array of **false** if no replacements were made.
      */
     private function replaceArray($arr) {
-        if (empty($arr)) {
+        if (empty($arr) || !is_array($arr)) {
             return false;
         }
 
         $regex = $this->getPKsRegex();
+        $fullRegex = $this->getFullRegex();
 
-        array_walk_recursive($arr, function (&$value, $key) use ($regex, &$changed) {
-            if ($value && is_string($value) && $value[0] === static::SMART && preg_match($regex, $key, $m)) {
-                $value = $this->replaceSmartID($m[1], $value);
-                $changed = true;
+        array_walk_recursive($arr, function (&$value, $key) use ($regex, $fullRegex, &$changed) {
+            if ($value && is_string($value) && $value[0] === static::SMART) {
+                if (preg_match($regex, $key, $m)) {
+                    // This is a column based smart ID.
+                    $value = $this->replaceSmartID($m[1], $value);
+                    $changed = true;
+                } elseif (preg_match($fullRegex, $key) && preg_match(self::FULL_SMART_REGEX, $value, $m)) {
+                    $value = $this->replaceSmartID($m[1], self::SMART.$m[2]);
+                    $changed = true;
+                }
             }
         });
 
@@ -235,7 +269,7 @@ class SmartIDMiddleware {
      * @param string $smartID The smart ID to lookup.
      * @return mixed Returns the resulting value of the smart ID.
      */
-    private function replaceSmartID(string $pk, string $smartID) {
+    public function replaceSmartID(string $pk, string $smartID) {
         list($column, $value) = explode(':', ltrim($smartID, static::SMART)) + ['', ''];
         list($pk, $columns, $resolver) = $this->pks[strtolower($pk)];
 
@@ -253,22 +287,46 @@ class SmartIDMiddleware {
     }
 
     /**
-     * Get the base path.
+     * Add a column name suffix that is allowed for specifying a fully qualified smart ID.
      *
-     * @return string Returns the basePath.
+     * @param string $suffix
+     * @return $this
      */
-    public function getBasePath(): string {
-        return $this->basePath;
+    public function addFullSuffix(string $suffix) {
+        $this->fullSuffixes[$suffix] = true;
+        $this->fullSuffixesRegex = '';
+        return $this;
     }
 
     /**
-     * Set the base path.
+     * Remove a column suffix that is allowed for specifying a fully qualified smart UD.
      *
-     * @param string $basePath The new value.
+     * @param string $suffix
      * @return $this
      */
-    public function setBasePath(string $basePath) {
-        $this->basePath = $basePath;
+    public function removeFullSuffix(string $suffix) {
+        unset($this->fullSuffixes[$suffix]);
+        $this->fullSuffixesRegex = '';
         return $this;
+    }
+
+    /**
+     * Whether or not the middleware has a fully qualified suffix defined.
+     *
+     * @param string $suffix
+     * @return bool
+     */
+    public function hasFullSuffix(string $suffix): bool {
+        return isset($this->fullSuffixes[$suffix]);
+    }
+
+    /**
+     * Basic validation of whether or not a value meets the basic smart ID format.
+     *
+     * @param string $value
+     * @return bool
+     */
+    public static function valueIsSmartID(string $value): bool {
+        return !empty($value) && $value[0] === self::SMART;
     }
 }

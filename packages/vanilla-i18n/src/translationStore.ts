@@ -1,3 +1,5 @@
+import { logError, logWarning } from "@vanilla/utils";
+
 /**
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
@@ -7,7 +9,23 @@ interface ITranslations {
     [key: string]: string;
 }
 
-let translationStore: ITranslations = {};
+let translationStore: ITranslations | null = null;
+
+let internalTranslationDebugValue = false;
+
+/**
+ * Get or set the debug flag.
+ *
+ * @param newValue - The new value of debug.
+ * @returns the current debug setting.
+ */
+export function translationDebug(newValue?: boolean): boolean {
+    if (newValue !== undefined) {
+        internalTranslationDebugValue = newValue;
+    }
+
+    return internalTranslationDebugValue;
+}
 
 /**
  * Load a set of key value pairs as translation resources.
@@ -20,7 +38,7 @@ export function loadTranslations(translations: ITranslations) {
  * Clear all translation resources.
  */
 export function clearTranslations() {
-    translationStore = {};
+    translationStore = null;
 }
 
 /**
@@ -37,11 +55,33 @@ export function translate(str: string, defaultTranslation?: string): string {
         return str.substr(1);
     }
 
+    const fallback = defaultTranslation !== undefined ? defaultTranslation : str;
+
+    if (!translationStore) {
+        // Test environment allows top level static initialization.
+        const message = `Attempted to translate a value '${str}' before the translation store was initialized.`;
+        switch (process.env.NODE_ENV) {
+            case "production":
+                logWarning(message);
+                break;
+            case "development":
+                throw new Error(message + " Don't use t() in the top level of a file or a static property.");
+            case "test":
+                // Tests (like storybook and unit testing) don't need to actually bootstrap a full translation store all the time.
+                break;
+        }
+        return fallback;
+    }
+
     if (translationStore[str] !== undefined) {
         return translationStore[str];
     }
 
-    return defaultTranslation !== undefined ? defaultTranslation : str;
+    if (translationDebug()) {
+        return "☢️☢️☢️" + fallback + "☢️☢️☢️";
+    } else {
+        return fallback;
+    }
 }
 
 /**

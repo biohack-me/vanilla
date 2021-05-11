@@ -72,8 +72,8 @@ class VanillaSettingsController extends Gdn_Controller {
             'Plugins.editor.ForceWysiwyg',
             'ImageUpload.Limits.Enabled',
             'ImageUpload.Limits.Width',
-            'ImageUpload.Limits.Height'
-
+            'ImageUpload.Limits.Height',
+            'Vanilla.Email.FullPost',
         ]);
 
         // Fire an filter event gather extra form HTML for specific format items.
@@ -149,7 +149,6 @@ class VanillaSettingsController extends Gdn_Controller {
         $configurationModel = new Gdn_ConfigurationModel($validation);
         $configurationModel->setField([
             'Vanilla.Archive.Date',
-            'Vanilla.Archive.Exclude'
         ]);
 
         // Set the model on the form.
@@ -159,23 +158,26 @@ class VanillaSettingsController extends Gdn_Controller {
         if ($this->Form->authenticatedPostBack() === false) {
             $this->Form->setData($configurationModel->Data);
         } else {
-            // Define some validation rules for the fields being saved
-            $configurationModel->Validation->applyRule('Vanilla.Archive.Date', 'Date');
+            // Define some validation rules for the fields being saved.
+            $configurationModel->Validation->addRule('dateish', function ($value) {
+                if (empty($value)) {
+                    return $value;
+                }
+                try {
+                    $dt = new \DateTimeImmutable($value, new \DateTimeZone('UTC'));
+                    return $value;
+                } catch (\Exception $ex) {
+                    return new \Vanilla\Invalid('%s is not a valid date string.');
+                }
+            });
+            $configurationModel->Validation->applyRule('Vanilla.Archive.Date', 'dateish');
 
             // Grab old config values to check for an update.
             $archiveDateBak = Gdn::config('Vanilla.Archive.Date');
-            $archiveExcludeBak = (bool)Gdn::config('Vanilla.Archive.Exclude');
 
             // Save new settings
             $saved = $this->Form->save();
             if ($saved !== false) {
-                $archiveDate = Gdn::config('Vanilla.Archive.Date');
-                $archiveExclude = (bool)Gdn::config('Vanilla.Archive.Exclude');
-
-                if ($archiveExclude != $archiveExcludeBak || ($archiveExclude && $archiveDate != $archiveDateBak)) {
-                    $discussionModel = new DiscussionModel();
-                    $discussionModel->updateDiscussionCount('All');
-                }
                 $this->informMessage(t("Your changes have been saved."));
             }
         }
@@ -636,7 +638,7 @@ class VanillaSettingsController extends Gdn_Controller {
      * @param $category
      */
     protected function setupDiscussionTypes($category) {
-        $discussionTypes = DiscussionModel::discussionTypes();
+        $discussionTypes = DiscussionModel::discussionTypes($category);
         $this->setData('DiscussionTypes', $discussionTypes);
 
         if (!$this->Form->isPostBack()) {
@@ -746,6 +748,10 @@ class VanillaSettingsController extends Gdn_Controller {
                 $this->Form->addError('Cannot display as a heading when your parent category is displayed flat.', 'DisplayAs');
             }
 
+            if ($this->Form->getFormValue("CustomPermissions", null) === false) {
+                $this->Form->setFormValue("Permissions", null);
+            }
+
             if ($this->Form->save()) {
                 $category = CategoryModel::categories($categoryID);
                 $this->setData('Category', $category);
@@ -769,7 +775,7 @@ class VanillaSettingsController extends Gdn_Controller {
         $permissions = $permissionModel->getJunctionPermissions(['JunctionID' => $categoryID], 'Category', '', ['AddDefaults' => !$this->Category->CustomPermissions]);
         $permissions = $permissionModel->unpivotPermissions($permissions, true);
 
-        if ($this->deliveryType() == DELIVERY_TYPE_ALL) {
+        if (in_array($this->deliveryType(), [DELIVERY_TYPE_ALL, DELIVERY_TYPE_VIEW])) {
             $this->setData('PermissionData', $permissions, true);
         }
 
@@ -819,7 +825,7 @@ class VanillaSettingsController extends Gdn_Controller {
         if ($parentDisplayAs === 'Flat') {
             $categories = $this->CategoryModel->getTreeAsFlat($parentID, $offset, $limit);
         } else {
-            $categories = $collection->getTree($parentID, ['maxdepth' => 10, 'collapsecategories' => true]);
+            $categories = $collection->getTree($parentID, ['maxdepth' => 10, 'collapsecategories' => true, 'permission' => false]);
         }
 
         $this->addJsFile('categoryfilter.js', 'vanilla');
@@ -934,12 +940,13 @@ class VanillaSettingsController extends Gdn_Controller {
 
         $this->title(t('Categories'));
 
-        // Get category data
+        // Get category data.
+        /** @var Gdn_DataSet $categoryData */
         $categoryData = $this->CategoryModel->getAll();
 
         // Set CanDelete per-category so we can override later if we want.
         $canDelete = checkPermission(['Garden.Community.Manage', 'Garden.Settings.Manage']);
-        array_walk($categoryData->result(), function(&$value) use ($canDelete) {
+        array_walk($categoryData->result(), function (&$value) use ($canDelete) {
             setvalr('CanDelete', $value, $canDelete);
         });
 

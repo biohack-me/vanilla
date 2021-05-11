@@ -4,7 +4,7 @@
  * @license GPL-2.0-only
  */
 
-namespace VanillaTests\fixtures;
+namespace VanillaTests\Fixtures;
 
 use Vanilla\Contracts\Site\SiteSectionInterface;
 use Vanilla\Site\SiteSectionSchema;
@@ -29,6 +29,15 @@ class MockSiteSection implements SiteSectionInterface {
     /** @var string */
     private $sectionGroup;
 
+    /** @var string|int */
+    private $themeID;
+
+    /** @var array $defaultRoute */
+    private $defaultRoute;
+
+    /** @var array $apps */
+    private $apps;
+
     /**
      * MockSiteSection constructor.
      *
@@ -37,19 +46,26 @@ class MockSiteSection implements SiteSectionInterface {
      * @param string $basePath
      * @param string $sectionID
      * @param string $sectionGroup
+     * @param array $defaultRoute
+     * @param string $themeID
      */
     public function __construct(
         string $sectionName,
         string $locale,
         string $basePath,
         string $sectionID,
-        string $sectionGroup
+        string $sectionGroup,
+        array $defaultRoute = [],
+        string $themeID = null
     ) {
         $this->sectionName = $sectionName;
         $this->locale = $locale;
         $this->siteSectionPath = $basePath;
         $this->sectionID = $sectionID;
         $this->sectionGroup = $sectionGroup;
+        $this->defaultRoute = $defaultRoute;
+        $this->apps = ['forum' => true];
+        $this->themeID = $themeID;
     }
     /**
      * @inheritdoc
@@ -91,5 +107,56 @@ class MockSiteSection implements SiteSectionInterface {
      */
     public function jsonSerialize() {
         return SiteSectionSchema::toArray($this);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getDefaultRoute(): array {
+        return $this->defaultRoute;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function applications(): array {
+        return $this->apps;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function applicationEnabled(string $app): bool {
+        return $this->apps[$app] ?? true;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function setApplication(string $app, bool $enable = true) {
+        $this->apps[$app] = $enable;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getAttributes(): array {
+        return [];
+    }
+
+    /**
+     * @return int|string|null
+     */
+    public function getSectionThemeID() {
+        return $this->themeID;
+    }
+
+    /**
+     * Get categoryID associated to site-section.
+     *
+     * @return int|null
+     */
+    public function getCategoryID() {
+        return -1;
     }
 }

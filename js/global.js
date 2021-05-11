@@ -620,9 +620,31 @@ jQuery(document).ready(function($) {
                     $target.addClass(item.Data);
                     break;
                 case 'Ajax':
+                    if (typeof item.Data === 'string') {
+                        ajax = {
+                            url: item.Data,
+                            reprocess: false,
+                            data: {}
+                        };
+                    } else {
+                        ajax = item.Data;
+                    }
+
                     $.ajax({
                         type: "POST",
-                        url: item.Data
+                        url: ajax.url,
+                        data: ajax.data,
+                        success: function (json) {
+                            if (!ajax.reprocess) {
+                                return;
+                            }
+                            if (json === null) {
+                                json = {};
+                            }
+
+                            var informed = gdn.inform(json);
+                            gdn.processTargets(json.Targets, $elem, $parent);
+                        }
                     });
                     break;
                 case 'Append':
@@ -656,7 +678,20 @@ jQuery(document).ready(function($) {
                     $target.replaceWithTrigger(item.Data);
                     break;
                 case 'SlideUp':
-                    $target.slideUp('fast');
+                    let removeTarget = false;
+                    if ((typeof item.Data === "object" && item.Data !== null) && item.Data.remove !== "undefined") {
+                        removeTarget = !!item.Data.remove;
+                    }
+
+                    let slideUpComplete = (function (remove) {
+                        return function () {
+                            if (remove) {
+                                $(this).remove();
+                            }
+                        }
+                    })(removeTarget);
+
+                    $target.slideUp('fast', slideUpComplete);
                     break;
                 case 'SlideDown':
                     $target.slideDown('fast');
@@ -673,9 +708,55 @@ jQuery(document).ready(function($) {
                 case 'Callback':
                     jQuery.proxy(window[item.Data], $target)();
                     break;
+                case "closePopup":
+                    if (typeof $.popup === "function" && typeof $.popup.close === "function") {
+                        var popupID = $target.attr("id");
+                        if (popupID) {
+                            $.popup.close({
+                                popupId: popupID,
+                                sender: $("body").get(0)
+                            })
+                        }
+                    }
+                    break;
+                case "runJob":
+                    gdn.runJob(item.Data);
             }
         }
     };
+
+    gdn.runJob = function(body) {
+        const date = new Date();
+        console.log("Processing... (" + date.toLocaleString() + ")");
+
+        $.ajax({
+            contentType: "application/system+jwt",
+            data: body,
+            timeout: 60000,
+            type: "POST",
+            url: gdn.url("/api/v2/calls/run"),
+            success: function (data, textStatus, jqXHR) {
+                if ((typeof data) === "object" && data.statusType) {
+                    switch (data.statusType) {
+                        case "complete":
+                            gdn.informMessage("Job complete.");
+                            break;
+                        case "incomplete":
+                            if ((typeof data.body) === "string") {
+                                gdn.runJob(data.body);
+                            } else {
+                                gdn.informError("Invalid job response.");
+                            }
+                    }
+                } else {
+                    gdn.informError("Invalid job response.");
+                }
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                gdn.informError("An error occurred while performing the job.");
+            }
+        });
+    }
 
     gdn.requires = function(Library) {
         if (!(Library instanceof Array))
@@ -822,7 +903,6 @@ jQuery(document).ready(function($) {
     }
 
     gdn.stats = function() {
-        // Call directly back to the deployment and invoke the stats handler
         var StatsURL = gdn.url('settings/analyticstick.json');
         var SendData = {
             'TransientKey': gdn.definition('TransientKey'),
@@ -949,7 +1029,9 @@ jQuery(document).ready(function($) {
                 if (css.indexOf('Dismissable') > 0)
                     message = '<a href="#" onclick="return false;" tabindex="0" class="Close"><span>&times;</span></a>' + message;
 
-                message = '<div class="InformMessage">' + message + '</div>';
+                var messageID = gdn.generateString(10);
+                message = '<div class="InformMessage" id="'+messageID+'">' + message + '</div>';
+
                 // Insert any transient keys into the message (prevents csrf attacks in follow-on action urls).
                 message = message.replace(/{TransientKey}/g, gdn.definition('TransientKey'));
                 if (gdn.getMeta('SelfUrl')) {
@@ -961,7 +1043,7 @@ jQuery(document).ready(function($) {
                 }
                 var skip = false;
                 for (var j = 0; j < wrappers.length; j++) {
-                    if ($(wrappers[j]).text() == $(message).text()) {
+                    if ($(wrappers[j]).children().attr('id') === $(message).attr('id')) {
                         skip = true;
                     }
                 }
@@ -1082,7 +1164,7 @@ jQuery(document).ready(function($) {
 
         $.ajax({
             type: "POST",
-            url: gdn.url('/notifications/inform'),
+            url: gdn.getMeta('context')["dynamicPathFolder"] + gdn.url('/notifications/inform'),
             data: {
                 'TransientKey': gdn.definition('TransientKey'),
                 'Path': gdn.definition('Path'),

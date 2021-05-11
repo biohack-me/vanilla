@@ -7,22 +7,15 @@
 
 namespace VanillaTests\APIv2;
 
-use PHPUnit\Framework\TestCase;
 use Vanilla\Formatting\Formats\TextFormat;
 use Vanilla\Utility\CamelCaseScheme;
 use Vanilla\Web\PrivateCommunityMiddleware;
-use VanillaTests\InternalClient;
-use VanillaTests\SiteTestTrait;
-use VanillaTests\TestLogger;
+use VanillaTests\SiteTestCase;
 
-abstract class AbstractAPIv2Test extends TestCase {
-    use SiteTestTrait;
-
-    /**
-     * @var InternalClient
-     */
-    private $api;
-
+/**
+ * Base API test case.
+ */
+abstract class AbstractAPIv2Test extends SiteTestCase {
     /**
      * @var bool Set to false before setUp() to skip the session->start();
      */
@@ -32,11 +25,6 @@ abstract class AbstractAPIv2Test extends TestCase {
      * @var array Fields that are getting formatted using the format column.
      */
     protected $formattedFields = ['body'];
-
-    /**
-     * @var TestLogger
-     */
-    protected $logger;
 
     /**
      * Whether to start a session on setUp() or not.
@@ -50,37 +38,21 @@ abstract class AbstractAPIv2Test extends TestCase {
     /**
      * Create a fresh API client for the test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
-
-        $this->api = static::container()->getArgs(InternalClient::class, [static::container()->get('@baseUrl').'/api/v2']);
 
         if ($this->startSessionOnSetup) {
             $this->setAdminApiUser();
             $this->api->setTransientKey(md5(now()));
         }
-
-        $this->logger = new TestLogger();
-        \Logger::addLogger($this->logger);
     }
 
     /**
      * Destroy the API client that was just used for the test.
      */
-    public function tearDown() {
+    public function tearDown(): void {
         parent::tearDown();
         $this->api = null;
-        \Logger::removeLogger($this->logger);
-        $this->logger = null;
-    }
-
-    /**
-     * Get the API client for internal requests.
-     *
-     * @return InternalClient Returns the API client.
-     */
-    public function api() {
-        return $this->api;
     }
 
     public function assertRowsEqual(array $expected, array $actual) {
@@ -134,25 +106,20 @@ abstract class AbstractAPIv2Test extends TestCase {
         $pagingTestUrl = $resourceUrl.(strpos($resourceUrl, '?') === false ? '?' : '&').'limit=1';
         $resourcePath = parse_url($resourceUrl, PHP_URL_PATH);
 
-        $result = $this->api()->get($pagingTestUrl);
+        $result = $this->api()->get($pagingTestUrl, ['pinOrder' => 'mixed']);
         $link = $result->getHeader('Link');
         $this->assertNotEmpty($link);
         $this->assertTrue(preg_match('/<([^;]*?'.preg_quote($resourcePath, '/').'[^>]+)>; rel="first"/', $link) === 1);
         $this->assertTrue(preg_match('/<([^;]*?'.preg_quote($resourcePath, '/').'[^>]+)>; rel="next"/', $link, $matches) === 1);
 
-        $result = $this->api()->get(str_replace('/api/v2', '', $matches[1]));
+        // Ensure we are getting full url
+        $parsedMatch = parse_url($matches[1]);
+        $this->assertTrue($parsedMatch['scheme'] === 'http' || $parsedMatch['scheme'] === 'https');
+
+        $result = $this->api()->get($resourcePath . '?' . $parsedMatch['query']);
+
         $this->assertEquals(200, $result->getStatusCode());
         $this->assertEquals(1, count($result->getBody()));
-    }
-
-    /**
-     * Assert that something was logged.
-     *
-     * @param array $filter The log filter.
-     */
-    public function assertLog($filter = []) {
-        $item = $this->logger->search($filter);
-        $this->assertNotNull($item, "Could not find expected log: ".json_encode($filter));
     }
 
     /**
@@ -234,33 +201,38 @@ abstract class AbstractAPIv2Test extends TestCase {
     }
 
     /**
-     * Run a callback with the following config and restore the config after.
+     * Execute api request and check results.
      *
-     * @param array $config The config to set.
-     * @param callable $callback The code to run.
-     * @return mixed Returns the result of the callback.
+     * @param string $api API endpoint to call
+     * @param array $params API params to pass
+     * @param array $expectedFields Mapping of expectedField => expectedValues.
+     * @param bool $strictOrder Whether or not the fields should be returned in a strict order.
+     * @param int|null $count Expected count of result items
      */
-    protected function runWithConfig(array $config, callable $callback) {
-        /* @var \Gdn_Configuration $c */
-        $c = $this->container()->get(\Gdn_Configuration::class);
+    public function assertApiResults(string $api, array $params, array $expectedFields, bool $strictOrder = false, int $count = null) {
+        $response = $this->api()->get($api, $params);
+        $this->assertEquals(200, $response->getStatusCode());
 
-        // Create a backup of the config.
-        $bak = [];
-        foreach ($config as $key => $value) {
-            $bak[$key] = $c->get($key, null);
+        $results = $response->getBody();
+
+        foreach ($expectedFields as $expectedField => $expectedValues) {
+            if ($expectedValues === null) {
+                foreach ($results as $result) {
+                    $this->assertArrayNotHasKey($expectedField, $result);
+                }
+            } else {
+                $actualValues = array_column($results, $expectedField);
+                if (!$strictOrder) {
+                    sort($actualValues);
+                    sort($expectedValues);
+                }
+
+                $this->assertEquals($expectedValues, $actualValues);
+            }
         }
 
-        try {
-            foreach ($config as $key => $value) {
-                $c->set($key, $value);
-            }
-
-            $r = $callback();
-            return $r;
-        } finally {
-            foreach ($bak as $key => $value) {
-                $c->set($key, $value);
-            }
+        if (is_int($count)) {
+            $this->assertEquals($count, count($results));
         }
     }
 }

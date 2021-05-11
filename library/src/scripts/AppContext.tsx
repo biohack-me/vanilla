@@ -9,20 +9,43 @@ import getStore from "@library/redux/getStore";
 import { ICoreStoreState } from "@library/redux/reducerRegistry";
 import { ThemeProvider } from "@library/theming/ThemeProvider";
 import { getMeta } from "@library/utility/appUtils";
-import React, { useMemo } from "react";
+import React, { ComponentType, useMemo } from "react";
 import { LiveAnnouncer } from "react-aria-live";
 import { Provider } from "react-redux";
 import { inheritHeightClass } from "@library/styles/styleHelpers";
 import classNames from "classnames";
-import { style } from "typestyle";
+import { style } from "@library/styles/styleShim";
 import { percent } from "csx";
-import { LocaleProvider } from "@vanilla/i18n";
+import { LocaleProvider, ContentTranslationProvider } from "@vanilla/i18n";
+import { SearchContextProvider } from "@library/contexts/SearchContext";
+import { TitleBarDeviceProvider } from "@library/layout/TitleBarContext";
+import { ErrorPage } from "@library/errorPages/ErrorComponent";
+import { BannerContextProviderNoHistory } from "@library/banner/BannerContext";
+import { SearchFormContextProvider } from "@library/search/SearchFormContextProvider";
+import { EntryLinkContextProvider } from "@library/contexts/EntryLinkContext";
+import { WidgetLayout } from "@library/layout/WidgetLayout";
 
 interface IProps {
     children: React.ReactNode;
     variablesOnly?: boolean;
     noTheme?: boolean;
+    noWrap?: boolean;
     errorComponent?: React.ReactNode;
+}
+
+type Composable = ComponentType | [ComponentType, { [key: string]: any }];
+
+let ExtraContextProviders: Composable[] = [];
+
+export function registerContextProvider(provider: Composable) {
+    ExtraContextProviders.unshift(provider);
+}
+
+function composeProviders(providers: Composable[], children) {
+    return providers.reverse().reduce((acc, cur) => {
+        const [Provider, props] = Array.isArray(cur) ? [cur[0], cur[1]] : [cur, {}];
+        return <Provider {...props}>{acc}</Provider>;
+    }, children);
 }
 
 /**
@@ -32,31 +55,41 @@ export function AppContext(props: IProps) {
     const store = useMemo(() => getStore<ICoreStoreState>(), []);
 
     const rootStyle = style({
-        $debugName: "appContext",
+        label: "appContext",
         width: percent(100),
     });
 
-    return (
-        <div className={classNames("js-appContext", rootStyle, inheritHeightClass())}>
-            {/* A wrapper div is required or will cause error when no routes match or in hot reload */}
-            <Provider store={store}>
-                <LocaleProvider>
-                    <LiveAnnouncer>
-                        <ThemeProvider
-                            disabled={props.noTheme}
-                            errorComponent={props.errorComponent || null}
-                            themeKey={getMeta("ui.themeKey", "keystone")}
-                            variablesOnly={props.variablesOnly}
-                        >
-                            <FontSizeCalculatorProvider>
-                                <ScrollOffsetProvider scrollWatchingEnabled={false}>
-                                    <DeviceProvider>{props.children}</DeviceProvider>
-                                </ScrollOffsetProvider>
-                            </FontSizeCalculatorProvider>
-                        </ThemeProvider>
-                    </LiveAnnouncer>
-                </LocaleProvider>
-            </Provider>
-        </div>
+    const content = composeProviders(
+        [
+            [Provider, { store }],
+            LocaleProvider,
+            SearchContextProvider,
+            ContentTranslationProvider,
+            LiveAnnouncer,
+            [ScrollOffsetProvider, { scrollWatchingEnabled: false }],
+            [
+                ThemeProvider,
+                {
+                    disabled: props.noTheme,
+                    errorComponent: <ErrorPage />,
+                    themeKey: getMeta("ui.themeKey", "keystone"),
+                    variablesOnly: props.variablesOnly,
+                },
+            ],
+            FontSizeCalculatorProvider,
+            ...ExtraContextProviders,
+            SearchFormContextProvider,
+            TitleBarDeviceProvider,
+            BannerContextProviderNoHistory,
+            EntryLinkContextProvider,
+            DeviceProvider,
+        ],
+        props.children,
     );
+
+    if (props.noWrap) {
+        return content;
+    } else {
+        return <div className={classNames("js-appContext", rootStyle, inheritHeightClass())}>{content}</div>;
+    }
 }

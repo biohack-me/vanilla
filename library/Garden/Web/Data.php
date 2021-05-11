@@ -1,11 +1,12 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2019 Vanilla Forums Inc.
+ * @copyright 2009-2020 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
 
 namespace Garden\Web;
+
 use Garden\JsonFilterTrait;
 use Traversable;
 
@@ -14,7 +15,7 @@ use Garden\MetaTrait;
 /**
  * Represents the data in a web response.
  */
-class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggregate  {
+class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggregate {
     use MetaTrait, JsonFilterTrait;
 
     private $data;
@@ -24,14 +25,19 @@ class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggr
      *
      * @param mixed $data The main response data.
      * @param array|int $meta Either an array of meta information or an integer HTTP response status.
+     * @param array $headers Headers to apply to the response.
      */
-    public function __construct($data = [], $meta = []) {
+    public function __construct($data = [], $meta = [], $headers = []) {
         $this->data = $data;
 
         if (is_int($meta)) {
             $this->meta = ['status' => $meta];
         } else {
             $this->meta = $meta;
+        }
+
+        foreach ($headers as $headerKey => $header) {
+            $this->setHeader($headerKey, $header);
         }
     }
 
@@ -101,6 +107,19 @@ class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggr
                 $this->mergeMetaArray($data->getMetaArray());
             }
         }
+        return $this;
+    }
+
+    /**
+     * Merge another data array on top of this one.
+     *
+     * This method does a recursive merge so you can specify a deeply nested array here.
+     *
+     * @param array $data The data to merge.
+     * @return $this
+     */
+    public function mergeData(array $data): self {
+        $this->data = array_merge_recursive($this->data, $data);
         return $this;
     }
 
@@ -235,6 +254,8 @@ class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggr
 
     /**
      * Render the response to the output.
+     *
+     * @codeCoverageIgnore
      */
     public function render() {
         http_response_code($this->getStatus());
@@ -323,7 +344,8 @@ class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggr
     /**
      * Box a value into a data object.
      *
-     * If the argument is already a data object then it will simply be returned, otherwise a new data object is created and returned with the argument as its data.
+     * If the argument is already a data object then it will simply be returned, otherwise a new data object is created
+     * and returned with the argument as its data.
      *
      * @param Data|array $data The data to box.
      * @return Data Returns the boxed data.
@@ -336,5 +358,32 @@ class Data implements \JsonSerializable, \ArrayAccess, \Countable, \IteratorAggr
         } else {
             throw new \InvalidArgumentException("Data:box() expects an instance of Data or an array.", 500);
         }
+    }
+
+    /**
+     * Check if the provided response matches the provided response type.
+     *
+     * The {@link $class} is a string representation of the HTTP status code, with 'x' used as a wildcard.
+     *
+     * Class '2xx' = All 200-level responses
+     * Class '30x' = All 300-level responses up to 309
+     *
+     * @param string $class A string representation of the HTTP status code, with 'x' used as a wildcard.
+     * @return boolean Returns `true` if the response code matches the {@link $class}, `false` otherwise.
+     */
+    public function isResponseClass(string $class): bool {
+        $pattern = '`^'.str_ireplace('x', '\d', preg_quote($class, '`')).'$`';
+        $result = preg_match($pattern, $this->getStatus());
+
+        return $result === 1;
+    }
+
+    /**
+     * Determine if the response was successful.
+     *
+     * @return bool Returns `true` if the response was a successful 2xx code.
+     */
+    public function isSuccessful(): bool {
+        return $this->isResponseClass('2xx');
     }
 }

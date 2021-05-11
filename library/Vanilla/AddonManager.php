@@ -8,6 +8,8 @@
 namespace Vanilla;
 
 use Garden\EventManager;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use Vanilla\Contracts;
 
 /**
@@ -20,7 +22,9 @@ use Vanilla\Contracts;
  * - The addon can declare a class ending in "Plugin" and its events will be registered.
  * - Any translations the addon has declared will be loaded for the currently enabled locale.
  */
-class AddonManager implements Contracts\AddonProviderInterface {
+class AddonManager implements LoggerAwareInterface {
+
+    use LoggerAwareTrait;
 
     /// Constants ///
 
@@ -317,7 +321,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
         if (!isset($this->multiCache)) {
             $cachePath = $this->cacheDir.'/'.Addon::TYPE_ADDON.'.php';
             if ($this->isCacheEnabled() && is_readable($cachePath)) {
-                $this->multiCache = require $cachePath;
+                $this->multiCache = FileUtils::getExport($cachePath);
             } else {
                 $this->multiCache = $this->scan(Addon::TYPE_ADDON, $this->isCacheEnabled());
             }
@@ -348,19 +352,15 @@ class AddonManager implements Contracts\AddonProviderInterface {
                 $addon = new Addon($subdir);
                 $key = $addon->getKey();
                 if (!static::validateKey($key)) {
-                    trigger_error("The $type in $subdir has an invalid key: $key.", E_USER_WARNING);
+                    $this->logAddonWarning("The $type in $subdir has an invalid key: $key.");
                 } elseif (!array_key_exists($key, $addons)) {
                     $addons[$key] = $addon;
                 } else {
-                    \Logger::error('Duplicate addon: {key}', [
-                        'key' => $key,
-                        'event' => 'duplicate_addon'
-                    ]);
-                    throw new \Exception("Duplicate addon: {$key}");
+                    throw new \Exception("Duplicate addon: {$key}", 500);
                 }
             } catch (\Exception $ex) {
                 $exceptionMessage = $ex->getMessage();
-                trigger_error("The $type in $subdir is invalid. $exceptionMessage", E_USER_WARNING);
+                $this->logAddonWarning("The $type in $subdir is invalid. $exceptionMessage");
             }
         }
         $this->multiCache = $addons;
@@ -402,10 +402,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
                 } elseif (!array_key_exists($basename, $result)) {
                     $result[$basename] = substr($path, $strlen);
                 } else {
-                    \Logger::error('Duplicate addon: {basename}', [
-                        'basename' => $basename,
-                        'event' => 'duplicate_addon'
-                    ]);
+                    trigger_error("Duplicate addon: $basename", E_USER_WARNING);
                 }
             }
         }
@@ -421,52 +418,8 @@ class AddonManager implements Contracts\AddonProviderInterface {
      */
     private function saveArrayCache($path, $array) {
         if ($this->isCacheEnabled()) {
-            $varString = '<?php return '.var_export($array, true).";\n";
-            $this->filePutContents($this->cacheDir.'/'.$path, $varString);
+            FileUtils::putExport($this->cacheDir.'/'.$path, $array);
         }
-    }
-
-    /**
-     * A version of file_put_contents() that is multi-thread safe.
-     *
-     * @param string $filename Path to the file where to write the data.
-     * @param mixed $data The data to write. Can be either a string, an array or a stream resource.
-     * @param int $mode The permissions to set on a new file.
-     * @return boolean
-     * @category Filesystem Functions
-     * @see http://php.net/file_put_contents
-     */
-    private function filePutContents($filename, $data, $mode = 0644) {
-        $temp = tempnam(dirname($filename), 'atomic');
-
-        if (!($fp = @fopen($temp, 'wb'))) {
-            $temp = dirname($filename).DIRECTORY_SEPARATOR.uniqid('atomic');
-            if (!($fp = @fopen($temp, 'wb'))) {
-                trigger_error("AddonManager::filePutContents(): error writing temporary file '$temp'", E_USER_WARNING);
-                return false;
-            }
-        }
-
-        fwrite($fp, $data);
-        fclose($fp);
-
-        if (!@rename($temp, $filename)) {
-            $r = @unlink($filename);
-            $r &= @rename($temp, $filename);
-            if (!$r) {
-                trigger_error("AddonManager::filePutContents(): error writing file '$filename'", E_USER_WARNING);
-                return false;
-            }
-        }
-        if (function_exists('apc_delete_file')) {
-            // This fixes a bug with some configurations of apc.
-            apc_delete_file($filename);
-        } elseif (function_exists('opcache_invalidate')) {
-            opcache_invalidate($filename);
-        }
-
-        @chmod($filename, $mode);
-        return true;
     }
 
     /**
@@ -480,7 +433,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
             $cachePath = "$type-index.php";
 
             if ($this->isCacheEnabled() && is_readable("$this->cacheDir/$cachePath")) {
-                $this->singleIndex[$type] = require "$this->cacheDir/$cachePath";
+                $this->singleIndex[$type] = FileUtils::getExport("$this->cacheDir/$cachePath");
             } else {
                 $addonDirs = $this->scanAddonDirs($type);
 
@@ -533,7 +486,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
         if ($this->isCacheEnabled()) {
             $cachePath = "{$this->cacheDir}/$type/$addonDirName.php";
             if (is_readable($cachePath)) {
-                $addon = require $cachePath;
+                $addon = FileUtils::getExport($cachePath);
                 $this->singleCache[$type][$addonDirName] = $addon;
                 return $addon === false ? null : $addon;
             }
@@ -541,6 +494,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
         // Look for the addon itself.
         $addon = false;
         foreach ($this->scanDirs[$type] as $scanDir) {
+            $scanPath = PATH_ROOT."$scanDir/$addonDirName";
             if (file_exists(PATH_ROOT."$scanDir/$addonDirName")) {
                 $addon = new Addon("$scanDir/$addonDirName");
                 break;
@@ -1112,7 +1066,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
             }
             $addon = $this->lookupByType($lookup, $type);
             if (empty($addon)) {
-                trigger_error("The $type with key $lookup could not be found and will not be started.");
+                trigger_error("The $type with key $lookup could not be found and will not be started.", E_USER_NOTICE);
             } else {
                 $this->startAddon($addon);
                 $count++;
@@ -1216,7 +1170,7 @@ class AddonManager implements Contracts\AddonProviderInterface {
      * @return AddonManager Returns `$this` for fluent calls.
      */
     public function setCacheDir($cacheDir) {
-        if ($cacheDir !== null && strpos($cacheDir, PATH_ROOT) !== 0 && Gdn::config('Cache.DirRelative', true)) {
+        if ($cacheDir !== null && strpos($cacheDir, PATH_ROOT) !== 0) {
             $cacheDir = PATH_ROOT.$cacheDir;
         }
         $this->cacheDir = $cacheDir;
@@ -1338,6 +1292,19 @@ class AddonManager implements Contracts\AddonProviderInterface {
         }
 
         return $this;
+    }
+
+    /**
+     * Log a warning about a bad addon.
+     *
+     * - Site warning. Have site try to continue running.
+     * - Syslog is critical because these can only be actioned by sysadmins, and may be the result of a bad deploy.
+     *
+     * @param string $message
+     */
+    private function logAddonWarning(string $message) {
+        trigger_error($message, E_USER_WARNING);
+        $this->logger->critical($message);
     }
 
     /**

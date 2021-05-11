@@ -1,7 +1,7 @@
 import React from "react";
 import { IUser, IUserRoles } from "@library/@types/api/users";
 import ConditionalWrap from "@library/layout/ConditionalWrap";
-import { metasClasses } from "@library/styles/metasStyles";
+import { metasClasses } from "@library/metas/Metas.styles";
 import { rolesClasses } from "@library/content/rolesStyles";
 import classNames from "classnames";
 
@@ -25,9 +25,11 @@ export function Roles(props: IProps) {
     const userRoles = roles.map((r, i) => {
         if (i < maxRoleCount) {
             return (
-                <span key={i} className={classNames(classesMeta.meta, classes.role)}>
-                    {r.name}
-                </span>
+                <span
+                    key={i}
+                    className={classNames(classesMeta.meta, classes.role)}
+                    dangerouslySetInnerHTML={{ __html: r.name }}
+                />
             );
         }
     });

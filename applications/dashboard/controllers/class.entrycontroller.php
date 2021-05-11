@@ -146,7 +146,6 @@ class EntryController extends Gdn_Controller {
         $authenticationStep = $authenticator->currentStep();
 
         switch ($authenticationStep) {
-
             // User is already logged in
             case Gdn_Authenticator::MODE_REPEAT:
                 $reaction = $authenticator->repeatResponse();
@@ -161,14 +160,14 @@ class EntryController extends Gdn_Controller {
                     Logger::event(
                         'signin_failure',
                         Logger::WARNING,
-                        '{username} failed to sign in. Some or all credentials were missing.'
+                        '{username} failed to sign in. Some or all credentials were missing.',
+                        [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                     );
                 }
                 break;
 
             // All information is present, authenticate
             case Gdn_Authenticator::MODE_VALIDATE:
-
                 // Attempt to authenticate.
                 try {
                     if (!$this->Request->isAuthenticatedPostBack() && !c('Garden.Embed.Allow')) {
@@ -190,7 +189,8 @@ class EntryController extends Gdn_Controller {
                                 Logger::event(
                                     'signin_failure',
                                     Logger::WARNING,
-                                    '{username} failed to sign in. Permission denied.'
+                                    '{username} failed to sign in. Permission denied.',
+                                    [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                                 );
                                 $reaction = $authenticator->failedResponse();
                                 break;
@@ -200,7 +200,8 @@ class EntryController extends Gdn_Controller {
                                 Logger::event(
                                     'signin_failure',
                                     Logger::WARNING,
-                                    '{username} failed to sign in. Authentication denied.'
+                                    '{username} failed to sign in. Authentication denied.',
+                                    [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                                 );
                                 $reaction = $authenticator->failedResponse();
                                 break;
@@ -210,7 +211,8 @@ class EntryController extends Gdn_Controller {
                                 Logger::event(
                                     'signin_failure',
                                     Logger::WARNING,
-                                    '{username} failed to sign in. More information needed from user.'
+                                    '{username} failed to sign in. More information needed from user.',
+                                    [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                                 );
                                 $this->addCredentialErrorToForm('ErrorInsufficient');
 
@@ -369,7 +371,9 @@ class EntryController extends Gdn_Controller {
 
             $url = str_ireplace('{target}', rawurlencode(url($target, true)), $url);
 
-            if ($this->deliveryType() == DELIVERY_TYPE_ALL && strcasecmp($this->data('Method'), 'POST') != 0) {
+            if (($this->deliveryType() == DELIVERY_TYPE_ALL && strcasecmp($this->data('Method'), 'POST') != 0) ||
+                (defined('TESTMODE_ENABLED') && TESTMODE_ENABLED)
+            ) {
                 redirectTo(url($url, true), 302, false);
             } else {
                 $this->setData('Url', $url);
@@ -425,6 +429,9 @@ class EntryController extends Gdn_Controller {
             ];
             $this->Form->setData($data);
             $this->Form->addHidden('Target', $this->Request->get('Target', '/'));
+        } else {
+            // Disallow some sensitive fields unless the provider puts it in.
+            $this->Form->removeFormValue('UserID');
         }
 
         // SSO providers can check to see if they are being used and modify the data array accordingly.
@@ -462,6 +469,7 @@ class EntryController extends Gdn_Controller {
 
         // Allow a provider to not send an email address but require one be manually entered.
         $userProvidedEmail = false;
+        // If we require an email address.
         if (!UserModel::noEmail()) {
             $emailProvided = $this->Form->getFormValue('Email');
             $emailRequested = $this->Form->getFormValue('EmailVisible');
@@ -503,13 +511,13 @@ class EntryController extends Gdn_Controller {
         }
 
         $isTrustedProvider = $this->data('Trusted');
+        $roles = $this->Form->getFormValue('Roles', $this->Form->getFormValue('roles', null));
 
         // Check if we need to sync roles
-        if (($isTrustedProvider || c('Garden.SSO.SyncRoles')) && $this->Form->getFormValue('Roles', null) !== null) {
+        if (($isTrustedProvider || c('Garden.SSO.SyncRoles')) && $roles !== null) {
             $saveRoles = $saveRolesRegister = true;
 
             // Translate the role names to IDs.
-            $roles = $this->Form->getFormValue('Roles', null);
             $roles = RoleModel::getByName($roles);
             $roleIDs = array_keys($roles);
 
@@ -552,10 +560,11 @@ class EntryController extends Gdn_Controller {
 
                 // Synchronize the user's data.
                 $userModel->save($data, [
-                    'NoConfirmEmail' => true,
-                    'FixUnique' => true,
-                    'SaveRoles' => $saveRoles,
-                    'ValidateName' => !$isTrustedProvider,
+                    UserModel::OPT_NO_CONFIRM_EMAIL => true,
+                    UserModel::OPT_FIX_UNIQUE => true,
+                    UserModel::OPT_SAVE_ROLES => $saveRoles,
+                    UserModel::OPT_VALIDATE_NAME => !$isTrustedProvider,
+                    UserModel::OPT_ROLE_SYNC => $userModel->getConnectRoleSync(),
                 ]);
                 $this->EventArguments['UserID'] = $userID;
                 $this->fireEvent('AfterConnectSave');
@@ -567,18 +576,25 @@ class EntryController extends Gdn_Controller {
             }
 
             // Sign the user in.
+            Gdn::userModel()->fireEvent('BeforeSignIn', ['UserID' => $userID]);
             Gdn::session()->start($userID, true, (bool)$this->Form->getFormValue('RememberMe', c('Garden.SSO.RememberMe', true)));
             Gdn::userModel()->fireEvent('AfterSignIn');
 
             // Send them on their way.
             $this->_setRedirect(Gdn::request()->get('display') === 'popup');
 
-            // If a name of email has been provided
+            // If a name or email has been provided
         } elseif ($this->Form->getFormValue('Name') || $this->Form->getFormValue('Email')) {
             // Decide how to handle our first time connecting.
             $nameUnique = c('Garden.Registration.NameUnique', true);
             $emailUnique = c('Garden.Registration.EmailUnique', true);
             $autoConnect = c('Garden.Registration.AutoConnect');
+
+            // If we allow autoConnect & the SSO provider didn't supply an email address,
+            // we do not allow the autoConnection by throwing an exception.
+            if ($autoConnect && !$emailProvided) {
+                throw new Gdn_UserException("Unable to auto-connect because SSO did not provide an email address.");
+            }
 
             // Decide which name to search for.
             if ($isPostBack && $this->Form->getFormValue('ConnectName')) {
@@ -637,10 +653,11 @@ class EntryController extends Gdn_Controller {
 
                                 // Update the user.
                                 $userModel->save($data, [
-                                    'NoConfirmEmail' => true,
-                                    'FixUnique' => true,
-                                    'SaveRoles' => $saveRoles,
-                                    'ValidateName' => !$isTrustedProvider,
+                                    UserModel::OPT_NO_CONFIRM_EMAIL => true,
+                                    UserModel::OPT_FIX_UNIQUE => true,
+                                    UserModel::OPT_SAVE_ROLES => $saveRoles,
+                                    UserModel::OPT_VALIDATE_NAME => !$isTrustedProvider,
+                                    UserModel::OPT_ROLE_SYNC => $userModel->getConnectRoleSync(),
                                 ]);
                                 $this->EventArguments['UserID'] = $userID;
                                 $this->fireEvent('AfterConnectSave');
@@ -659,6 +676,7 @@ class EntryController extends Gdn_Controller {
                             ]);
 
                             // Sign the user in.
+                            Gdn::userModel()->fireEvent('BeforeSignIn', ['UserID' => $userID]);
                             Gdn::session()->start($userID, true, (bool)$this->Form->getFormValue('RememberMe', c('Garden.SSO.RememberMe', true)));
                             Gdn::userModel()->fireEvent('AfterSignIn');
                             $this->_setRedirect(Gdn::request()->get('display') === 'popup');
@@ -705,11 +723,6 @@ class EntryController extends Gdn_Controller {
                     ['UserID' => 'current', 'Name' => sprintf(t('%s (Current)'), Gdn::session()->User->Name)],
                     $existingUsers
                 );
-            }
-
-            // Pre-populate our ConnectName field with the passed name if we couldn't match it.
-            if (!isset($nameFound) && !$isPostBack) {
-                $this->Form->setFormValue('ConnectName', $this->Form->getFormValue('Name'));
             }
 
             // Block connecting to an existing user if it's disallowed.
@@ -792,6 +805,7 @@ class EntryController extends Gdn_Controller {
                     $this->Form->setFormValue('UserSelect', false);
 
                     // Sign in as the new user.
+                    Gdn::userModel()->fireEvent('BeforeSignIn', ['UserID' => $userID]);
                     Gdn::session()->start($userID, true, (bool)$this->Form->getFormValue('RememberMe', c('Garden.SSO.RememberMe', true)));
                     Gdn::userModel()->fireEvent('AfterSignIn');
 
@@ -872,13 +886,19 @@ class EntryController extends Gdn_Controller {
                             } catch (Gdn_UserException $ex) {
                                 $this->Form->addError($ex);
                             }
+                        } else {
+                            // If we have a user match & there is no password.
+                            $this->Form->addError(t('UserMatchNeedsPassword'));
                         }
                     }
+                } else {
+                    $this->Form->addError('The site does not allow you connect with an existing user.', 'UserSelect');
+                    $user = null;
                 }
             } elseif ($this->Form->errorCount() == 0) {
                 // The user doesn't exist so we need to add another user.
                 $user = $this->Form->formValues();
-                $user['Name'] = $user['ConnectName'];
+                $user['Name'] = $user['ConnectName'] ?? $user['Name'];
                 $user['Password'] = randomString(16); // Required field.
                 $user['HashMethod'] = 'Random';
                 $userID = $userModel->register($user, [
@@ -912,12 +932,22 @@ class EntryController extends Gdn_Controller {
                     $this->Form->setFormValue('UserID', $user['UserID']);
                 }
 
-                // Sign the user in.
-                Gdn::session()->start($this->Form->getFormValue('UserID'), true, (bool)$this->Form->getFormValue('RememberMe', c('Garden.SSO.RememberMe', true)));
-                Gdn::userModel()->fireEvent('AfterSignIn');
+                if (!empty($this->Form->getFormValue('UserID'))) {
+                    // Sign the user in.
+                    Gdn::userModel()->fireEvent('BeforeSignIn', ['UserID' => $this->Form->getFormValue('UserID')]);
+                    Gdn::session()->start(
+                        $this->Form->getFormValue('UserID'),
+                        true,
+                        (bool)$this->Form->getFormValue('RememberMe', c('Garden.SSO.RememberMe', true))
+                    );
+                    Gdn::userModel()->fireEvent('AfterSignIn');
 
-                // Move along.
-                $this->_setRedirect(Gdn::request()->get('display') === 'popup');
+                    // Move along.
+                    $this->_setRedirect(Gdn::request()->get('display') === 'popup');
+                } else {
+                    // This shouldn't happen, but let's display an error to help troubleshoot.
+                    throw new Gdn_UserException("There doesn't seem to be a user to sign in. Something went wrong.");
+                }
             }
         } // End of user choice processing.
 
@@ -1026,23 +1056,23 @@ class EntryController extends Gdn_Controller {
     }
 
     /**
-     * Signin process that multiple authentication methods.
+     * Sign in process that multiple authentication methods.
      *
-     * @access public
-     * @since 2.0.0
-     * @author Tim Gunter
-     *
-     * @param string $method
-     * @param array $arg1
+     * @param string|false $method
+     * @param array|false $arg1
      * @return string Rendered XHTML template.
      */
     public function signIn($method = false, $arg1 = false) {
+        $this->canonicalUrl(url('/entry/signin', true));
         if (!$this->Request->isPostBack()) {
             $this->checkOverride('SignIn', $this->target());
         }
 
         $this->addJsFile('entry.js');
         $this->setData('Title', t('Sign In'));
+        // Add open graph description in case a restricted page is shared.
+        $this->description(Gdn::config('Garden.Description'));
+
         $this->Form->addHidden('Target', $this->target());
         $this->Form->addHidden('ClientHour', date('Y-m-d H:00')); // Use the server's current hour as a default.
 
@@ -1058,9 +1088,22 @@ class EntryController extends Gdn_Controller {
             $this->Form->validateRule('Email', 'ValidateRequired', sprintf(t('%s is required.'), t(UserModel::signinLabelCode())));
             $this->Form->validateRule('Password', 'ValidateRequired');
 
-            if (!$this->Request->isAuthenticatedPostBack() && !c('Garden.Embed.Allow')) {
-                $this->Form->addError('Please try again.');
-                Gdn::session()->ensureTransientKey();
+            if (!$this->Request->isAuthenticatedPostBack()) {
+                $legacyLogin = \Vanilla\FeatureFlagHelper::featureEnabled('legacyEmbedLogin');
+                if ($legacyLogin && c('Garden.Embed.Allow')) {
+                    Logger::event(
+                        'legacy_embed_signin',
+                        Logger::INFO,
+                        'Signed in using the legacy embed method',
+                        [
+                            'login' => $this->Form->getFormValue('Email'),
+                            Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                        ]
+                    );
+                } else {
+                    $this->Form->addError('Please try again.');
+                    Gdn::session()->ensureTransientKey();
+                }
             }
 
             // Check the user.
@@ -1073,7 +1116,15 @@ class EntryController extends Gdn_Controller {
 
                 if (!$user) {
                     $this->addCredentialErrorToForm('@' . sprintf(t('User not found.'), strtolower(t(UserModel::signinLabelCode()))));
-                    Logger::event('signin_failure', Logger::INFO, '{signin} failed to sign in. User not found.', ['signin' => $email]);
+                    Logger::event(
+                        'signin_failure',
+                        Logger::INFO,
+                        'Failed to sign in. User not found: {signin}',
+                        [
+                            'signin' => $email,
+                            Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                        ]
+                    );
                     $this->fireEvent('BadSignIn', [
                         'Email' => $email,
                         'Password' => $this->Form->getFormValue('Password'),
@@ -1097,6 +1148,7 @@ class EntryController extends Gdn_Controller {
                                 Gdn::userModel()->setField(val('UserID', $user), ['Password' => $pw, 'HashMethod' => 'Vanilla']);
                             }
 
+                            Gdn::userModel()->fireEvent('BeforeSignIn', ['UserID' => $user->UserID ?? false]);
                             Gdn::session()->start(val('UserID', $user), true, (bool)$this->Form->getFormValue('RememberMe'));
                             if (!Gdn::session()->checkPermission('Garden.SignIn.Allow')) {
                                 $this->Form->addError('ErrorPermission');
@@ -1122,7 +1174,7 @@ class EntryController extends Gdn_Controller {
                                 'signin_failure',
                                 Logger::WARNING,
                                 '{username} failed to sign in.  Invalid password.',
-                                ['InsertName' => $user->Name]
+                                ['InsertName' => $user->Name, Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                             );
                             $this->fireEvent('BadSignIn', [
                                 'Email' => $email,
@@ -1131,15 +1183,11 @@ class EntryController extends Gdn_Controller {
                                 'Reason' => 'Password',
                             ]);
                         }
-                    } catch (Gdn_SanitizedUserException $ex) {
-                        $errorMessage = $ex->getMessage();
-                        $this->Form->addError($errorMessage);
                     } catch (Gdn_UserException $ex) {
                         $this->Form->addError($ex);
                     }
                 }
             }
-
         } else {
             if ($target = $this->Request->get('Target')) {
                 $this->Form->addHidden('Target', $target);
@@ -1148,258 +1196,6 @@ class EntryController extends Gdn_Controller {
         }
 
         return $this->render();
-    }
-
-    /**
-     * Create secure handshake with remote authenticator.
-     *
-     * @access public
-     * @since 2.0.?
-     * @author Tim Gunter
-     *
-     * @param string $authenticationSchemeAlias (default: 'default')
-     */
-    public function handshake($authenticationSchemeAlias = 'default') {
-
-        try {
-            // Don't show anything if handshaking not turned on by an authenticator
-            if (!Gdn::authenticator()->canHandshake()) {
-                throw new Exception();
-            }
-
-            // Try to load the authenticator
-            $authenticator = Gdn::authenticator()->authenticateWith($authenticationSchemeAlias);
-
-            // Try to grab the authenticator data
-            $payload = $authenticator->getHandshake();
-            if ($payload === false) {
-                Gdn::request()->withURI('dashboard/entry/auth/password');
-
-                return Gdn::dispatcher()->dispatch();
-            }
-        } catch (Exception $e) {
-            Gdn::request()->withURI('/entry/signin');
-
-            return Gdn::dispatcher()->dispatch();
-        }
-
-        $userInfo = [
-            'UserKey' => $authenticator->getUserKeyFromHandshake($payload),
-            'ConsumerKey' => $authenticator->getProviderKeyFromHandshake($payload),
-            'TokenKey' => $authenticator->getTokenKeyFromHandshake($payload),
-            'UserName' => $authenticator->getUserNameFromHandshake($payload),
-            'UserEmail' => $authenticator->getUserEmailFromHandshake($payload),
-        ];
-
-        if (method_exists($authenticator, 'GetRolesFromHandshake')) {
-            $remoteRoles = $authenticator->getRolesFromHandshake($payload);
-            if (!empty($remoteRoles)) {
-                $userInfo['Roles'] = $remoteRoles;
-            }
-        }
-
-        // Manual user sync is disabled. No hand holding will occur for users.
-        $syncScreen = c('Garden.Authenticator.SyncScreen', 'on');
-        switch ($syncScreen) {
-            case 'on':
-
-                // Authenticator events fired inside
-                $this->syncScreen($authenticator, $userInfo, $payload);
-
-                break;
-
-            case 'off':
-            case 'smart':
-                $userID = $this->UserModel->synchronize($userInfo['UserKey'], [
-                    'Name' => $userInfo['UserName'],
-                    'Email' => $userInfo['UserEmail'],
-                    'Roles' => val('Roles', $userInfo),
-                ]);
-
-                if ($userID > 0) {
-                    // Account created successfully.
-
-                    // Finalize the link between the forum user and the foreign userkey
-                    $authenticator->finalize($userInfo['UserKey'], $userID, $userInfo['ConsumerKey'], $userInfo['TokenKey'], $payload);
-
-                    $userEventData = array_merge([
-                        'UserID' => $userID,
-                        'Payload' => $payload,
-                    ], $userInfo);
-                    Gdn::authenticator()->trigger(Gdn_Authenticator::AUTH_CREATED, $userEventData);
-
-                    /// ... and redirect them appropriately
-                    $route = $this->getTargetRoute();
-                    if ($route !== false) {
-                        redirectTo($route);
-                    } else {
-                        redirectTo('/');
-                    }
-
-                } else {
-                    // Account not created.
-                    if ($syncScreen == 'smart') {
-                        $this->informMessage(t('There is already an account in this forum using your email address. Please create a new account, or enter the credentials for the existing account.'));
-                        $this->syncScreen($authenticator, $userInfo, $payload);
-
-                    } else {
-                        // Set the memory cookie to allow signinloopback to shortcircuit remote query.
-                        $cookiePayload = [
-                            'Sync' => 'Failed',
-                        ];
-                        $encodedCookiePayload = dbencode($cookiePayload);
-                        $authenticator->remember($userInfo['ConsumerKey'], $encodedCookiePayload);
-
-                        // This resets vanilla's internal "where am I" to the homepage. Needed.
-                        Gdn::request()->withRoute('DefaultController');
-                        $this->SelfUrl = url(''); //Gdn::request()->path();
-
-                        $this->View = 'syncfailed';
-                        $this->ProviderSite = $authenticator->getProviderUrl();
-                        $this->render();
-                    }
-
-                }
-                break;
-
-        }
-    }
-
-    /**
-     * Attempt to syncronize user data from remote system into Dashboard.
-     *
-     * @access public
-     * @since 2.0.?
-     * @author Tim Gunter
-     *
-     * @param object $authenticator
-     * @param array $userInfo
-     * @param array $payload
-     */
-    public function syncScreen($authenticator, $userInfo, $payload) {
-        $this->addJsFile('entry.js');
-        $this->View = 'handshake';
-        $this->HandshakeScheme = $authenticator->getAuthenticationSchemeAlias();
-        $this->Form->setModel($this->UserModel);
-        $this->Form->addHidden('ClientHour', date('Y-m-d H:00')); // Use the server's current hour as a default
-        $this->Form->addHidden('Target', $this->target());
-
-        $preservedKeys = [
-            'UserKey', 'Token', 'Consumer', 'Email', 'Name', 'Gender', 'HourOffset',
-        ];
-        $userID = 0;
-        $target = $this->target();
-
-        if ($this->Form->isPostBack() === true) {
-            $formValues = $this->Form->formValues();
-            if (val('StopLinking', $formValues)) {
-                $authResponse = Gdn_Authenticator::AUTH_ABORTED;
-
-                $userEventData = array_merge([
-                    'UserID' => $userID,
-                    'Payload' => $payload,
-                ], $userInfo);
-                Gdn::authenticator()->trigger($authResponse, $userEventData);
-
-                $authenticator->deleteCookie();
-                Gdn::request()->withRoute('DefaultController');
-
-                return Gdn::dispatcher()->dispatch();
-
-            } elseif (val('NewAccount', $formValues)) {
-                $authResponse = Gdn_Authenticator::AUTH_CREATED;
-
-                // Try and synchronize the user with the new username/email.
-                $formValues['Name'] = $formValues['NewName'];
-                $formValues['Email'] = $formValues['NewEmail'];
-                $userID = $this->UserModel->synchronize($userInfo['UserKey'], $formValues);
-                $this->Form->setValidationResults($this->UserModel->validationResults());
-
-            } else {
-                $authResponse = Gdn_Authenticator::AUTH_SUCCESS;
-
-                // Try and sign the user in.
-                $passwordAuthenticator = Gdn::authenticator()->authenticateWith('password');
-                $passwordAuthenticator->hookDataField('Email', 'SignInEmail');
-                $passwordAuthenticator->hookDataField('Password', 'SignInPassword');
-                $passwordAuthenticator->fetchData($this->Form);
-
-                $userID = $passwordAuthenticator->authenticate();
-
-                if ($userID < 0) {
-                    $this->Form->addError('ErrorPermission');
-                } elseif ($userID == 0) {
-                    $this->addCredentialErrorToForm('ErrorCredentials');
-                    Logger::event(
-                        'signin_failure',
-                        Logger::WARNING,
-                        '{username} failed to sign in. Invalid credentials.'
-                    );
-                }
-
-                if ($userID > 0) {
-                    $data = $formValues;
-                    $data['UserID'] = $userID;
-                    $data['Email'] = val('SignInEmail', $formValues, '');
-                    $userID = $this->UserModel->synchronize($userInfo['UserKey'], $data);
-                }
-            }
-
-            if ($userID > 0) {
-                // The user has been created successfully, so sign in now
-
-                // Finalize the link between the forum user and the foreign userkey
-                $authenticator->finalize($userInfo['UserKey'], $userID, $userInfo['ConsumerKey'], $userInfo['TokenKey'], $payload);
-
-                $userEventData = array_merge([
-                    'UserID' => $userID,
-                    'Payload' => $payload,
-                ], $userInfo);
-                Gdn::authenticator()->trigger($authResponse, $userEventData);
-
-                /// ... and redirect them appropriately
-                $route = $this->getTargetRoute();
-                if ($route !== false) {
-                    redirectTo($route);
-                }
-            } else {
-                // Add the hidden inputs back into the form.
-                foreach ($formValues as $key => $value) {
-                    if (in_array($key, $preservedKeys)) {
-                        $this->Form->addHidden($key, $value);
-                    }
-                }
-            }
-        } else {
-            $id = Gdn::authenticator()->getIdentity(true);
-            if ($id > 0) {
-                // The user is signed in so we can just go back to the homepage.
-                redirectTo($target);
-            }
-
-            $name = $userInfo['UserName'];
-            $email = $userInfo['UserEmail'];
-
-            // Set the defaults for a new user.
-            $this->Form->setFormValue('NewName', $name);
-            $this->Form->setFormValue('NewEmail', $email);
-
-            // Set the default for the login.
-            $this->Form->setFormValue('SignInEmail', $email);
-            $this->Form->setFormValue('Handshake', 'NEW');
-
-            // Add the handshake data as hidden fields.
-            $this->Form->addHidden('Name', $name);
-            $this->Form->addHidden('Email', $email);
-            $this->Form->addHidden('UserKey', $userInfo['UserKey']);
-            $this->Form->addHidden('Token', $userInfo['TokenKey']);
-            $this->Form->addHidden('Consumer', $userInfo['ConsumerKey']);
-        }
-
-        $this->setData('Name', val('Name', $this->Form->HiddenInputs));
-        $this->setData('Email', val('Email', $this->Form->HiddenInputs));
-
-        $this->render();
     }
 
     /**
@@ -1468,6 +1264,7 @@ class EntryController extends Gdn_Controller {
      *
      * @deprecated since 2.3
      * @return string
+     * @codeCoverageIgnore
      */
     protected function _registrationView() {
         return $this->getRegistrationHandler();
@@ -1515,21 +1312,10 @@ class EntryController extends Gdn_Controller {
                         Gdn::authenticator()->setIdentity($authUserID, true);
                     }
 
-                    // Notification text
-                    $label = t('NewApplicantEmail', 'New applicant:');
-                    $story = anchor(Gdn_Format::text($label . ' ' . $values['Name']), externalUrl('dashboard/user/applicants'));
-
                     $this->EventArguments['AuthUserID'] = $authUserID;
                     $this->EventArguments['Story'] = &$story;
                     $this->fireEvent('RegistrationPending');
                     $this->View = "RegisterThanks"; // Tell the user their application will be reviewed by an administrator.
-
-                    // Grab all of the users that need to be notified.
-                    $data = Gdn::database()->sql()->getWhere('UserMeta', ['Name' => 'Preferences.Email.Applicant'])->resultArray();
-                    $activityModel = new ActivityModel();
-                    foreach ($data as $row) {
-                        $activityModel->add($authUserID, 'Applicant', $story, $row['UserID'], '', '/dashboard/user/applicants', 'Only');
-                    }
 
                     if ($this->deliveryType() !== DELIVERY_TYPE_ALL) {
                         $this->setRedirectTo('/entry/registerthanks');
@@ -1629,6 +1415,7 @@ class EntryController extends Gdn_Controller {
      * @see registerBasic
      * @access private
      * @since 2.0.0
+     * @codeCoverageIgnore
      */
     private function registerCaptcha() {
         $this->registerBasic();
@@ -1638,6 +1425,7 @@ class EntryController extends Gdn_Controller {
      * Connect registration
      *
      * @deprecated since 2.0.18.
+     * @codeCoverageIgnore
      */
     private function registerConnect() {
         throw notFoundException();
@@ -1770,14 +1558,17 @@ class EntryController extends Gdn_Controller {
      * Request password reset.
      *
      * @access public
+     * @throws Gdn_UserException When not an authenticated post back.
      * @since 2.0.0
      */
     public function passwordRequest() {
+        $this->canonicalUrl(url('/entry/passwordrequest', true));
         if (!$this->UserModel->isEmailUnique() && $this->UserModel->isNameUnique()) {
             Gdn::locale()->setTranslation('Email', t('Username'));
         }
 
         if ($this->Form->isPostBack() === true) {
+            $this->Request->isAuthenticatedPostBack(true);
             $this->Form->validateRule('Email', 'ValidateRequired');
 
             if ($this->Form->errorCount() == 0) {
@@ -1816,6 +1607,7 @@ class EntryController extends Gdn_Controller {
      */
     public function passwordReset($userID = '', $passwordResetKey = '') {
         safeHeader('Referrer-Policy: no-referrer');
+        $this->setHeader("Cache-Control", \Vanilla\Web\CacheControlMiddleware::NO_CACHE);
 
         $session = Gdn::session();
 
@@ -1837,7 +1629,8 @@ class EntryController extends Gdn_Controller {
             Logger::event(
                 'password_reset_failure',
                 Logger::NOTICE,
-                '{username} failed to authenticate password reset request.'
+                '{username} failed to authenticate password reset request.',
+                [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
             );
             $this->fireEvent('PasswordResetFailed', [
                 'UserID' => $userID,
@@ -1850,7 +1643,8 @@ class EntryController extends Gdn_Controller {
             Logger::event(
                 'password_reset_failure',
                 Logger::NOTICE,
-                '{username} has an expired reset token.'
+                '{username} has an expired reset token.',
+                [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
             );
             $this->fireEvent('PasswordResetFailed', [
                 'UserID' => $userID,
@@ -1884,13 +1678,15 @@ class EntryController extends Gdn_Controller {
                     Logger::event(
                         'password_reset_failure',
                         Logger::NOTICE,
-                        'Failed to reset the password for {username}. Password is invalid.'
+                        'Failed to reset the password for {username}. Password is invalid.',
+                        [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                     );
                 } elseif ($password != $passwordMatch) {
                     Logger::event(
                         'password_reset_failure',
                         Logger::NOTICE,
-                        'Failed to reset the password for {username}. Passwords did not match.'
+                        'Failed to reset the password for {username}. Passwords did not match.',
+                        [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                     );
                 }
 
@@ -1899,13 +1695,13 @@ class EntryController extends Gdn_Controller {
                     Logger::event(
                         'password_reset',
                         Logger::NOTICE,
-                        '{username} has reset their password.'
+                        '{username} has reset their password.',
+                        [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                     );
                     Gdn::session()->start($user->UserID, true);
                     $this->setRedirectTo('/', false);
                 }
             }
-
         } else {
             $this->setData('Fatal', true);
         }
@@ -1933,7 +1729,7 @@ class EntryController extends Gdn_Controller {
         $emailConfirmed = $this->UserModel->confirmEmail($user, $emailKey);
         $this->Form->setValidationResults($this->UserModel->validationResults());
 
-        $userMatch = ($userID === Gdn::session()->UserID) ? true : false;
+        $userMatch = ((int) $userID === Gdn::session()->UserID) ? true : false;
 
         if (!$userMatch) {
             Gdn::session()->end();
@@ -1982,6 +1778,7 @@ class EntryController extends Gdn_Controller {
      *
      * @param string $authenticationSchemeAlias
      * @param string $transientKey Unique value to prove intent.
+     * @codeCoverageIgnore
      */
     public function leave($authenticationSchemeAlias = 'default', $transientKey = '') {
         deprecated(__FUNCTION__);
@@ -2021,7 +1818,6 @@ class EntryController extends Gdn_Controller {
 
         switch ($reaction) {
             case Gdn_Authenticator::REACT_RENDER:
-
                 break;
 
             case Gdn_Authenticator::REACT_EXIT:
@@ -2065,6 +1861,7 @@ class EntryController extends Gdn_Controller {
      *
      * @deprecated 2017-06-29
      * @return string
+     * @codeCoverageIgnore
      */
     public function redirectTo() {
         deprecated(__FUNCTION__, 'target');
@@ -2089,10 +1886,7 @@ class EntryController extends Gdn_Controller {
     /**
      * Set where to go after signin.
      *
-     * @access public
-     * @since 2.0.0
-     *
-     * @param string $target Where we're requested to go to.
+     * @param string|false $target Where we're requested to go to.
      * @return string URL to actually go to (validated & safe).
      */
     public function target($target = false) {
@@ -2100,21 +1894,19 @@ class EntryController extends Gdn_Controller {
             $target = $this->Form->getFormValue('Target', false);
             if (!$target) {
                 $target = $this->Request->get('Target', $this->Request->get('target', '/'));
+                if (empty($target)) {
+                    $target = '/';
+                }
             }
         }
+        $target = url($target, true);
 
-        // Make sure that the target is a valid url.
-        if (!preg_match('`(^https?://)`', $target)) {
-            $target = '/' . ltrim($target, '/');
-
-            // Never redirect back to signin.
-            if (preg_match('`^/entry/signin`i', $target)) {
-                $target = '/';
-            }
-        }
-
-        if (!isTrustedDomain(url($target, true))) {
-            $target = url(Gdn::router()->getDestination('DefaultController'));
+        // Never redirect back to sign in/out pages.
+        if (($this->Request->getHost() === parse_url($target, PHP_URL_HOST) &&
+            preg_match('`/entry/(?:signin|signout|autosignedout)($|\?)`i', $target)) ||
+            !isTrustedDomain($target)
+        ) {
+            $target = url('/', true);
         }
 
         return $target;

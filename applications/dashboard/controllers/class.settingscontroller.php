@@ -8,7 +8,12 @@
  * @since 2.0
  */
 use Vanilla\Addon;
+use Vanilla\Models\AddonModel;
+use Vanilla\Theme\ThemeServiceHelper;
+use Vanilla\Utility\ArrayUtils;
 use Vanilla\Web\HttpStrictTransportSecurityModel as HstsModel;
+use Vanilla\Theme\FsThemeProvider;
+use Vanilla\Widgets\WidgetService;
 
 /**
  * Handles /settings endpoint.
@@ -16,6 +21,8 @@ use Vanilla\Web\HttpStrictTransportSecurityModel as HstsModel;
 class SettingsController extends DashboardController {
 
     const DEFAULT_AVATAR_FOLDER = 'defaultavatar';
+    const CONFIG_CSP_DOMAINS = "ContentSecurityPolicy.ScriptSrc.AllowedDomains";
+    const CONFIG_TRUSTED_DOMAINS = "Garden.TrustedDomains";
 
     /** @var array Models to automatically instantiate. */
     public $Uses = ['Form', 'Database'];
@@ -31,6 +38,31 @@ class SettingsController extends DashboardController {
 
     /** @var BanModel The ban model. */
     private $_BanModel;
+
+    /**
+     * @var \Vanilla\Models\AddonModel
+     */
+    private $addonModel;
+
+    /** @var WidgetService */
+    private $widgetService;
+
+    /**
+     * SettingsController constructor.
+     */
+    public function __construct() {
+        parent::__construct();
+        $this->addonModel = \Gdn::getContainer()->get(AddonModel::class);
+        $this->widgetService = \Gdn::getContainer()->get(WidgetService::class);
+    }
+
+    /**
+     * Render the labs page.
+     */
+    public function labs() {
+        $this->permission('Garden.Settings.Manage');
+        $this->render('labs');
+    }
 
     /**
      * Highlight menu path. Automatically run on every use.
@@ -473,9 +505,8 @@ class SettingsController extends DashboardController {
     public function branding() {
         $this->permission(['Garden.Community.Manage', 'Garden.Settings.Manage'], false);
         $this->setHighlightRoute('dashboard/settings/branding');
-        $this->title(t('Branding'));
-        $configurationModule = new ConfigurationModule($this);
-        $configurationModule->initialize([
+        $this->title(t('Branding & SEO'));
+        $items = [
             'Garden.HomepageTitle' => [
                 'LabelCode' => t('Homepage Title'),
                 'Control' => 'textbox',
@@ -494,38 +525,48 @@ class SettingsController extends DashboardController {
                 'Control' => 'textbox',
                 'Description' => t("The banner title appears on your site's banner and in your browser's title bar.",
                     "The banner title appears on your site's banner and in your browser's title bar. It should be less than 20 characters. If a banner logo is uploaded, it will replace the banner title on user-facing forum pages. Also, keep in mind some themes may hide this title.")
-
+            ],
+            'Garden.OrgName' => [
+                'LabelCode' => t('Organization'),
+                'Control' => 'textbox',
+                'Description' => t("OrgDescription", "Your organization name is used for SEO microdata and JSON+LD"),
             ],
             'Garden.Logo' => [
-                'LabelCode' => t('Banner Logo'),
-                'Control' => 'imageupload',
-                'Description' => t('LogoDescription', 'The banner logo appears at the top of your site. Some themes may not display this logo.'),
-                'Options' => [
-                    'RemoveConfirmText' => sprintf(t('Are you sure you want to delete your %s?'), t('banner logo'))
-                ]
+                'Label' => t('Banner Logo'),
+                'Control' => 'imageUploadReact',
+                'Description' => t(
+                    'LogoDescription',
+                    'The banner logo appears at the top of your site.'
+                ).' '.t('LogoDisclaimer'),
             ],
             'Garden.MobileLogo' => [
-                'LabelCode' => t('Mobile Banner Logo'),
-                'Control' => 'imageupload',
-                'Description' => t('MobileLogoDescription', 'The mobile banner logo appears at the top of your site. Some themes may not display this logo.'),
-                'Options' => [
-                    'RemoveConfirmText' => sprintf(t('Are you sure you want to delete your %s?'), t('mobile banner logo'))
-                ]
+                'Label' => t('Mobile Banner Logo'),
+                'Control' => 'imageUploadReact',
+                'Description' => t(
+                    'MobileLogoDescription',
+                    'The mobile banner logo appears at the top of your site.'
+                ).' '.t('LogoDisclaimer'),
+            ],
+            'Garden.BannerImage' => [
+                'Label' => t('Banner Image'),
+                'Control' => 'imageUploadReact',
+                'Description' => t('The default banner image across the site. This can be overridden on a per category basis.'),
             ],
             'Garden.FavIcon' => [
                 'LabelCode' => t('Favicon'),
                 'Control' => 'imageupload',
-                'Size' => '16x16',
+                'Size' => '48x48',
                 'OutputType' => 'ico',
                 'Prefix' => 'favicon_',
                 'Crop' => true,
-                'Description' => t('FaviconDescription', "Your site's favicon appears in your browser's title bar. It will be scaled to 16x16 pixels."),
+                'Description' => t(
+                    'FaviconDescription',
+                    "Your site's favicon appears in your browser's title bar. It will be scaled down appropriately."
+                ),
                 'Options' => [
                     'RemoveConfirmText' => sprintf(t('Are you sure you want to delete your %s?'), t('favicon'))
                 ]
             ],
-
-
             'Garden.TouchIcon' => [
                 'LabelCode' => t('Touch Icon'),
                 'Control' => 'imageupload',
@@ -538,14 +579,15 @@ class SettingsController extends DashboardController {
                     'RemoveConfirmText' => sprintf(t('Are you sure you want to delete your %s?'), t('Touch Icon'))
                 ]
             ],
-
             'Garden.ShareImage' => [
-                'LabelCode' => t('Share Image'),
-                'Control' => 'imageupload',
-                'Description' => t('ShareImageDescription', "When someone shares a link from your site we try and grab an image from the page. If there isn't an image on the page then we'll use this image instead. The image should be at least 50&times;50, but we recommend 200&times;200."),
-                'Options' => [
-                    'RemoveConfirmText' => sprintf(t('Are you sure you want to delete your %s?'), t('share image'))
-                ]
+                'Label' => t('Share Image'),
+                'Control' => 'imageUploadReact',
+                'Description' => t(
+                    'ShareImageDescription',
+                    "When someone shares a link from your site we try and grab an image from the page. "
+                    . "If there isn't an image on the page then we'll use this image instead. "
+                    . "The image should be at least 50×50, but we recommend 200×200."
+                ),
             ],
             'Garden.MobileAddressBarColor' => [
                 'LabelCode' => t('Mobile Address Bar Color'),
@@ -554,8 +596,54 @@ class SettingsController extends DashboardController {
                 'Options' => [
                     'AllowEmpty' => true,
                 ]
+            ],
+            'Feature.DeferredLegacyScripts.Enabled' => [
+                'LabelCode' => t('Defer Javascript Loading'),
+                'Control' => 'toggle',
+                'Default' => true,
+                'Description' => t('This setting loads the page before executing Javascript.') . " " .
+                    anchor(t('More information'), 'https://success.vanillaforums.com/kb/articles/140-defer-javascript-loading-feature'),
+                'Options' => [
+                    'UseRealBoolean' => true
+                ]
             ]
-        ]);
+        ];
+        /** @var \Vanilla\Site\SiteSectionModel $siteSectionModel */
+        $siteSectionModel = Gdn::getContainer()->get(\Vanilla\Site\SiteSectionModel::class);
+        $options = $siteSectionModel->getDefaultRoutes();
+        if (count($options) > 0) {
+            $items['Vanilla.Forum.Disabled'] = [
+                'LabelCode' => t('Disable forum pages'),
+                'Control' => 'toggle',
+                'Description' => t("Remove discussion and categories links from menus.<br /> Set discussion and category related pages to return not found page 404."),
+                'Options' => [
+                    'ForumDisabled' => true,
+                ]
+            ];
+        }
+        $configurationModule = new ConfigurationModule($this);
+        $configurationModule->initialize($items);
+        $this->setData('ConfigurationModule', $configurationModule);
+        $this->render();
+    }
+
+    /**
+     * Settings page for user profile redirection.
+     */
+    public function profile() {
+        $this->permission(['Garden.Settings.Manage'], false);
+        $this->setHighlightRoute('dashboard/settings/profile');
+        $this->title(t('User Profile'));
+
+        $items = [
+            'Garden.Profile.RedirectUrl' => [
+                'Control' => 'textbox',
+                'Description' => t("Custom URL to redirect the user instead of rendering Vanilla's profile page.")
+            ]
+        ];
+
+        $configurationModule = new ConfigurationModule($this);
+        $configurationModule->initialize($items);
         $this->setData('ConfigurationModule', $configurationModule);
         $this->render();
     }
@@ -576,7 +664,7 @@ class SettingsController extends DashboardController {
         // Page setup
         $this->title(t('Ban Rules'));
 
-        list($offset, $limit) = offsetLimit($page, 20);
+        [$offset, $limit] = offsetLimit($page, 20);
 
         $banModel = $this->getBanModel();
 
@@ -613,7 +701,18 @@ class SettingsController extends DashboardController {
                         $this->Form->setData($banModel->getID($iD));
                     }
                 }
-                $this->setData('_BanTypes', ['IPAddress' => t('IP Address'), 'Email' => t('Email'), 'Name' => t('Name')]);
+
+                $banTypes = [
+                    'IPAddress' => t('IP Address'),
+                    'Email' => t('Email'),
+                    'Name' => t('Name'),
+                ];
+
+                $eventManager = Gdn::getContainer()->get(\Garden\EventManager::class);
+                $banTypes = $eventManager->fireFilter('settingsController_listBanTypes', $banTypes);
+
+                $this->setData('_BanTypes', $banTypes);
+
                 $this->View = 'Ban';
                 break;
             case 'delete':
@@ -669,6 +768,10 @@ class SettingsController extends DashboardController {
 
             $this->informMessage(t("Your changes were saved successfully."));
         }
+
+        /** @var \Vanilla\Site\SiteSectionModel $siteSectionModel */
+        $siteSectionModel = Gdn::getContainer()->get(\Vanilla\Site\SiteSectionModel::class);
+        $this->setData('defaultRouteOptions', $siteSectionModel->getDefaultRoutes());
 
         // Add warnings for layouts that have been specified by the theme.
         $themeManager = Gdn::themeManager();
@@ -726,7 +829,8 @@ class SettingsController extends DashboardController {
         $validation = new Gdn_Validation();
         $configurationModel = new Gdn_ConfigurationModel($validation);
         $configurationModel->setField([
-            'Garden.TrustedDomains',
+            self::CONFIG_TRUSTED_DOMAINS,
+            self::CONFIG_CSP_DOMAINS,
             'Garden.Format.WarnLeaving',
             HstsModel::MAX_AGE_KEY,
             HstsModel::INCLUDE_SUBDOMAINS_KEY,
@@ -739,22 +843,29 @@ class SettingsController extends DashboardController {
         // If seeing the form for the first time...
         if ($this->Form->authenticatedPostBack() === false) {
             // Format trusted domains as a string
-            $trustedDomains = val('Garden.TrustedDomains', $configurationModel->Data);
+            $trustedDomains = val(self::CONFIG_TRUSTED_DOMAINS, $configurationModel->Data);
             if (is_array($trustedDomains)) {
                 $trustedDomains = implode("\n", $trustedDomains);
             }
 
-            $configurationModel->Data['Garden.TrustedDomains'] = $trustedDomains;
+            $configurationModel->Data[self::CONFIG_TRUSTED_DOMAINS] = $trustedDomains;
 
             // Apply the config settings to the form.
             $this->Form->setData($configurationModel->Data);
         } else {
             // Format the trusted domains as an array based on newlines & spaces
-            $trustedDomains = $this->Form->getValue('Garden.TrustedDomains');
-            $trustedDomains = explodeTrim("\n", $trustedDomains);
+            $trustedDomains = $this->Form->getValue(self::CONFIG_TRUSTED_DOMAINS);
+            $trustedDomains = ArrayUtils::explodeTrim("\n", $trustedDomains);
             $trustedDomains = array_unique(array_filter($trustedDomains));
             $trustedDomains = implode("\n", $trustedDomains);
-            $this->Form->setFormValue('Garden.TrustedDomains', $trustedDomains);
+            $this->Form->setFormValue(self::CONFIG_TRUSTED_DOMAINS, $trustedDomains);
+
+            // Join CSP domains with newlines.
+            $cspDomains = $this->Form->getValue("ContentSecurityPolicy.ScriptSrc.AllowedDomains", '');
+            $cspDomains = explode("\n", $cspDomains);
+            $cspDomains = array_unique(array_filter($cspDomains));
+            $this->Form->setFormValue("ContentSecurityPolicy.ScriptSrc.AllowedDomains", $cspDomains);
+
             $this->Form->setFormValue('Garden.Format.DisableUrlEmbeds', $this->Form->getValue('Garden.Format.DisableUrlEmbeds') !== '1');
 
             $this->Form->setFormValue(HstsModel::INCLUDE_SUBDOMAINS_KEY, $this->Form->getValue(HstsModel::INCLUDE_SUBDOMAINS_KEY) === '1');
@@ -767,7 +878,7 @@ class SettingsController extends DashboardController {
             }
 
             // Reformat array as string so it displays properly in the form
-            $this->Form->setFormValue('Garden.TrustedDomains', $trustedDomains);
+            $this->Form->setFormValue(self::CONFIG_TRUSTED_DOMAINS, $trustedDomains);
         }
 
         $this->render();
@@ -891,20 +1002,24 @@ class SettingsController extends DashboardController {
                 ]
             ],
             'Garden.EmailTemplate.TextColor' => [
-                'Control' => 'color'
+                'LabelCode' => 'Text Color',
+                'Control' => 'color',
             ],
             'Garden.EmailTemplate.BackgroundColor' => [
-                'Control' => 'color'
+                'LabelCode' => 'Background Color',
+                'Control' => 'color',
             ],
             'Garden.EmailTemplate.ContainerBackgroundColor' => [
                 'Control' => 'color',
-                'LabelCode' => 'Page Color'
+                'LabelCode' => 'Page Color',
             ],
             'Garden.EmailTemplate.ButtonTextColor' => [
-                'Control' => 'color'
+                'LabelCode' => 'Button Text Color',
+                'Control' => 'color',
             ],
             'Garden.EmailTemplate.ButtonBackgroundColor' => [
-                'Control' => 'color'
+                'LabelCode' => 'Button Background Color',
+                'Control' => 'color',
             ],
         ]);
 
@@ -1073,6 +1188,13 @@ class SettingsController extends DashboardController {
             }
             $this->jsonTarget("#enable-tagging-toggle", $newToggle);
         }
+
+        if (Gdn::config('Tagging.Discussions.Enabled', false)) {
+            $this->widgetService->registerWidget(TagModule::class);
+        } else {
+            $this->widgetService->unregisterWidget(TagModule::class);
+        }
+
         $this->render('blank', 'utility');
     }
 
@@ -1196,6 +1318,7 @@ class SettingsController extends DashboardController {
 
         Gdn_Theme::section('DashboardHome');
         $this->setData('IsWidePage', true);
+        $this->CssClass .= " dashboard";
 
         $this->render('index');
     }
@@ -1381,9 +1504,7 @@ class SettingsController extends DashboardController {
 
         // Retrieve all available plugins from the plugins directory
         $this->EnabledPlugins = Gdn::pluginManager()->enabledPlugins();
-        self::sortAddons($this->EnabledPlugins);
         $this->AvailablePlugins = Gdn::pluginManager()->availablePlugins();
-        self::sortAddons($this->AvailablePlugins);
 
         if ($pluginName != '') {
             if (in_array(strtolower($pluginName), array_map('strtolower', array_keys($this->EnabledPlugins)))) {
@@ -1392,6 +1513,8 @@ class SettingsController extends DashboardController {
                 $this->enablePlugin($pluginName, $filter);
             }
         } else {
+            self::sortAddons($this->EnabledPlugins);
+            self::sortAddons($this->AvailablePlugins);
             $this->render();
         }
     }
@@ -1425,6 +1548,12 @@ class SettingsController extends DashboardController {
         $this->render('blank', 'utility', 'dashboard');
     }
 
+    /**
+     * Enable a plugin.
+     *
+     * @param string $pluginName The key of the plugin.
+     * @param string $filter
+     */
     public function enablePlugin($pluginName, $filter = 'all') {
         if (!Gdn::request()->isAuthenticatedPostBack(true)) {
             throw new Exception('Requires POST', 405);
@@ -1439,8 +1568,9 @@ class SettingsController extends DashboardController {
 
         $addon = Gdn::addonManager()->lookupAddon($pluginName);
         $requirementsEnabled = [];
-
         try {
+            $this->addonModel->validateEnable($addon);
+
             $validation = new Gdn_Validation();
             $result = Gdn::pluginManager()->enablePlugin($pluginName, $validation);
             if (!$result) {
@@ -1577,9 +1707,9 @@ class SettingsController extends DashboardController {
             $configurationModel->Validation->applyRule('Garden.Registration.Method', 'Required');
 
             // Define the Garden.Registration.RoleInvitations setting based on the postback values
-            $invitationRoleIDs = $this->Form->getValue('InvitationRoleID');
-            $invitationCounts = $this->Form->getValue('InvitationCount');
-            $this->ExistingRoleInvitations = arrayCombine($invitationRoleIDs, $invitationCounts);
+            $invitationRoleIDs = (array)$this->Form->getValue('InvitationRoleID');
+            $invitationCounts = (array)$this->Form->getValue('InvitationCount');
+            $this->ExistingRoleInvitations = array_combine($invitationRoleIDs, $invitationCounts);
             $configurationModel->forceSetting('Garden.Registration.InviteRoles', $this->ExistingRoleInvitations);
 
             if ($this->data('ConfirmationSupported') === false && $this->Form->getValue('Garden.Registration.ConfirmEmail')) {
@@ -2161,29 +2291,12 @@ class SettingsController extends DashboardController {
         $this->permission('Garden.Settings.Manage');
 
         if (Gdn::session()->validateTransientKey($transientKey)) {
-            $themeInfo = Gdn::themeManager()->getThemeInfo($themeName);
-            $previewThemeName = $themeName;
-            $displayName = val('Name', $themeInfo);
-            $isMobile = val('IsMobile', $themeInfo);
-
-            // If we failed to get the requested theme, cancel preview
-            if ($themeInfo === false) {
-                $previewThemeName = '';
-            }
-
-            if ($isMobile) {
-                Gdn::session()->setPreference(
-                    ['PreviewMobileThemeFolder' => $previewThemeName,
-                    'PreviewMobileThemeName' => $displayName]
-                );
-            } else {
-                Gdn::session()->setPreference(
-                    ['PreviewThemeFolder' => $previewThemeName,
-                    'PreviewThemeName' => $displayName]
-                );
-            }
-
-            $this->fireEvent('PreviewTheme', ['ThemeInfo' => $themeInfo]);
+            /** @var ThemeServiceHelper $themeHelper */
+            $themeHelper = Gdn::getContainer()->get(ThemeServiceHelper::class);
+            /** @var FsThemeProvider $themeProvider */
+            $themeProvider = Gdn::getContainer()->get(FsThemeProvider::class);
+            $theme = $themeProvider->getTheme($themeName);
+            $themeHelper->setSessionPreviewTheme($theme);
 
             redirectTo('/');
         } else {
@@ -2205,20 +2318,9 @@ class SettingsController extends DashboardController {
         $isMobile = false;
 
         if (Gdn::session()->validateTransientKey($transientKey)) {
-            $themeInfo = Gdn::themeManager()->getThemeInfo($previewThemeFolder);
-            $isMobile = val('IsMobile', $themeInfo);
-
-            if ($isMobile) {
-                Gdn::session()->setPreference(
-                    ['PreviewMobileThemeFolder' => '',
-                    'PreviewMobileThemeName' => '']
-                );
-            } else {
-                Gdn::session()->setPreference(
-                    ['PreviewThemeFolder' => '',
-                    'PreviewThemeName' => '']
-                );
-            }
+            /** @var ThemeServiceHelper $themeHelper */
+            $themeHelper = Gdn::getContainer()->get(ThemeServiceHelper::class);
+            $themeHelper->cancelSessionPreviewTheme();
         }
 
         if ($isMobile) {

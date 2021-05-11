@@ -1,4 +1,6 @@
-<?php if (!defined('APPLICATION')) exit();
+<?php use Vanilla\Theme\BoxThemeShim;
+
+if (!defined('APPLICATION')) exit();
 
 $Session = Gdn::session();
 $NewOrDraft = !isset($this->Comment) || property_exists($this->Comment, 'DraftID') ? true : false;
@@ -6,11 +8,14 @@ $Editing = isset($this->Comment);
 $formCssClass = 'MessageForm CommentForm FormTitleWrapper';
 $this->EventArguments['FormCssClass'] = &$formCssClass;
 $this->fireEvent('BeforeCommentForm');
+BoxThemeShim::inactiveHtml("<div class='$formCssClass'>");
+BoxThemeShim::startHeading();
+$pageBoxClasses= BoxThemeShim::isActive() ? $formCssClass . 'CommentFormWrap pageBox' : 'CommentFormWrap';
 ?>
-<div class="<?php echo $formCssClass; ?>">
     <h2 class="H"><?php echo t($Editing ? 'Edit Comment' : 'Leave a Comment'); ?></h2>
+    <?php BoxThemeShim::endHeading(); ?>
 
-    <div class="CommentFormWrap">
+    <div class="<?php echo $pageBoxClasses; ?>">
         <?php if (Gdn::session()->isValid()) : ?>
             <div class="Form-HeaderWrap">
                 <div class="Form-Header">
@@ -34,25 +39,28 @@ $this->fireEvent('BeforeCommentForm');
                     $this->fireEvent('AfterBodyField');
                     echo '</div>';
 
+
                     echo "<div class=\"Buttons\">\n";
                     $this->fireEvent('BeforeFormButtons');
 
-                    $CancelText = t('Home');
-                    $CancelClass = 'Back';
-                    if (!$NewOrDraft || $Editing) {
-                        $CancelText = t('Cancel');
-                        $CancelClass = 'Cancel';
-                    }
+                    if(!BoxThemeShim::isActive()){
 
-                    echo '<span class="'.$CancelClass.'">';
-                    echo anchor($CancelText, '/');
-                    if ($this->data('Editor.BackLink')) {
-                        echo ' <span class="Bullet">•</span> '.$this->data('Editor.BackLink') ;
+                        $CancelText = t('Home');
+                        $CancelClass = 'Back';
+                        if (!$NewOrDraft || $Editing) {
+                            $CancelText = t('Cancel');
+                            $CancelClass = 'Cancel';
+                        }
+
+                        echo '<span class="'.$CancelClass.'">';
+                        echo anchor($CancelText, '/');
+                        if ($this->data('Editor.BackLink')) {
+                            echo ' <span class="Bullet">•</span> '.$this->data('Editor.BackLink') ;
+                        }
+                        echo '</span>';
                     }
-                    echo '</span>';
 
                     $ButtonOptions = ['class' => 'Button Primary CommentButton'];
-                    $ButtonOptions['tabindex'] = 1;
 
                     if (!$Editing && $Session->isValid()) {
                         echo ' '.anchor(t('Preview'), '#', 'Button PreviewButton')."\n";
@@ -86,4 +94,6 @@ $this->fireEvent('BeforeCommentForm');
             </div>
         </div>
     </div>
-</div>
+<?php
+BoxThemeShim::inactiveHtml("</div>");
+?>

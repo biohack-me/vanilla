@@ -9,20 +9,24 @@ namespace Vanilla\Formatting\Formats;
 
 use Garden\Schema\ValidationException;
 use Garden\StaticCacheTranslationTrait;
-use Vanilla\Formatting\Attachment;
+use Vanilla\EmbeddedContent\AbstractEmbed;
+use Vanilla\EmbeddedContent\Embeds\FileEmbed;
+use Vanilla\EmbeddedContent\Embeds\ImageEmbed;
+use Vanilla\Contracts\Formatting\HeadingProviderInterface;
 use Vanilla\Formatting\BaseFormat;
-use Vanilla\Formatting\Embeds\FileEmbed;
 use Vanilla\Formatting\Exception\FormattingException;
-use Vanilla\Formatting\Heading;
+use Vanilla\Contracts\Formatting\Heading;
+use Vanilla\Formatting\ParsableDOMInterface;
 use Vanilla\Formatting\Quill\Blots\Embeds\ExternalBlot;
 use Vanilla\Formatting\Quill\Blots\Lines\HeadingTerminatorBlot;
+use Vanilla\Formatting\TextDOMInterface;
 use Vanilla\Web\TwigRenderTrait;
 use Vanilla\Formatting\Quill;
 
 /**
  * Format service for the rich editor format. Rendered and parsed using Quill.
  */
-class RichFormat extends BaseFormat {
+class RichFormat extends BaseFormat implements ParsableDOMInterface {
 
     use TwigRenderTrait;
     use StaticCacheTranslationTrait;
@@ -54,15 +58,21 @@ class RichFormat extends BaseFormat {
         $this->filterer = $filterer;
     }
 
-
     /**
      * @inheritdoc
      */
     public function renderHTML(string $content, bool $throw = false): string {
         try {
+            $content = $this->filterer->filter($content);
             $operations = Quill\Parser::jsonToOperations($content);
-            $blotGroups = $this->parser->parse($operations);
-            return $this->renderer->render($blotGroups);
+
+            $blotGroups = $this->parser->parse(
+                $operations,
+                $this->allowExtendedContent ? Quill\Parser::PARSE_MODE_EXTENDED : Quill\Parser::PARSE_MODE_NORMAL
+            );
+            $html = $this->renderer->render($blotGroups);
+            $html = $this->applyHtmlProcessors($html);
+            return $html;
         } catch (\Throwable $e) {
             $this->logBadInput($e);
             if ($throw) {
@@ -79,6 +89,7 @@ class RichFormat extends BaseFormat {
     public function renderPlainText(string $content): string {
         $text = '';
         try {
+            $content = $this->filterer->filter($content);
             $operations = Quill\Parser::jsonToOperations($content);
             $blotGroups = $this->parser->parse($operations);
 
@@ -98,6 +109,7 @@ class RichFormat extends BaseFormat {
      */
     public function renderQuote(string $content): string {
         try {
+            $content = $this->filterer->filter($content);
             $operations = Quill\Parser::jsonToOperations($content);
             $blotGroups = $this->parser->parse($operations, Quill\Parser::PARSE_MODE_QUOTE);
             $rendered = $this->renderer->render($blotGroups);
@@ -122,38 +134,97 @@ class RichFormat extends BaseFormat {
     }
 
     /**
+     * Parse out all embeds of a particular type.
+     *
+     * @param string $content
+     * @param string $embedClass
+     *
+     * @return AbstractEmbed[]
+     */
+    private function parseEmbedsOfType(string $content, string $embedClass): array {
+        $operations = Quill\Parser::jsonToOperations($content);
+        $parser = (new Quill\Parser())
+            ->addBlot(ExternalBlot::class);
+        $blotGroups = $parser->parse($operations);
+
+        $embeds = [];
+        /** @var Quill\BlotGroup $blotGroup */
+        foreach ($blotGroups as $blotGroup) {
+            $blot = $blotGroup->getMainBlot();
+            if ($blot instanceof ExternalBlot) {
+                try {
+                    $embed = $blot->getEmbed();
+                    if (is_a($embed, $embedClass)) {
+                        $embeds[] = $embed;
+                    }
+                } catch (ValidationException $e) {
+                    continue;
+                }
+            }
+        }
+
+        return $embeds;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function parseImageUrls(string $content): array {
+        $urls = [];
+
+        try {
+            $embeds = $this->parseEmbedsOfType($content, ImageEmbed::class);
+
+            /** @var ImageEmbed $imageEmbed */
+            foreach ($embeds as $imageEmbed) {
+                $urls[] = $imageEmbed->getUrl();
+            }
+        } catch (\Throwable $e) {
+            $this->logBadInput($e);
+        }
+        return $urls;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function parseImages(string $content): array {
+        $props = [];
+        try {
+            $embeds = $this->parseEmbedsOfType($content, ImageEmbed::class);
+
+            /** @var ImageEmbed $imageEmbed */
+            foreach ($embeds as $imageEmbed) {
+                $props[] = [
+                    "url" => $imageEmbed->getUrl(),
+                    "alt" => $imageEmbed->getAlt()
+                ];
+            }
+        } catch (\Throwable $e) {
+            $this->logBadInput($e);
+        }
+        return $props;
+    }
+
+    /**
      * @inheritdoc
      */
     public function parseAttachments(string $content): array {
         $attachments = [];
 
         try {
-            $operations = Quill\Parser::jsonToOperations($content);
-            $parser = (new Quill\Parser())
-                ->addBlot(ExternalBlot::class);
-            $blotGroups = $parser->parse($operations);
+            $embeds = $this->parseEmbedsOfType($content, FileEmbed::class);
 
-            /** @var Quill\BlotGroup $blotGroup */
-            foreach ($blotGroups as $blotGroup) {
-                $blot = $blotGroup->getMainBlot();
-                if ($blot instanceof ExternalBlot &&
-                    ($blot->getEmbedData()['type'] ?? null) === FileEmbed::EMBED_TYPE
-                ) {
-                    try {
-                        $embedData = $blot->getEmbedData()['attributes'] ?? [];
-                        $attachment = Attachment::fromArray($embedData);
-                        $attachments[] = $attachment;
-                    } catch (ValidationException $e) {
-                        continue;
-                    }
-                }
+            /** @var FileEmbed $fileEmbed */
+            foreach ($embeds as $fileEmbed) {
+                $attachments[] = $fileEmbed->asAttachment();
             }
-            return $attachments;
         } catch (\Throwable $e) {
             $this->logBadInput($e);
-            return [];
         }
+        return $attachments;
     }
+
 
     /**
      * @inheritdoc
@@ -177,7 +248,9 @@ class RichFormat extends BaseFormat {
         try {
             $operations = Quill\Parser::jsonToOperations($content);
             $parser = (new Quill\Parser())
-                ->addBlot(HeadingTerminatorBlot::class);
+                ->addBlot(HeadingTerminatorBlot::class)
+                ->addBlot(ExternalBlot::class);
+
             $blotGroups = $parser->parse($operations);
 
             /** @var Quill\BlotGroup $blotGroup */
@@ -190,13 +263,20 @@ class RichFormat extends BaseFormat {
                         $blot->getReference()
                     );
                 }
+
+                if ($blot instanceof ExternalBlot) {
+                    $embed = $blot->getEmbed();
+                    if ($embed instanceof HeadingProviderInterface) {
+                        $outline = array_merge($outline, $embed->getHeadings());
+                    }
+                }
             }
+
             return $outline;
         } catch (\Throwable $e) {
             $this->logBadInput($e);
             return [];
         }
-
     }
 
     /**
@@ -228,5 +308,69 @@ class RichFormat extends BaseFormat {
             ),
             E_USER_WARNING
         );
+    }
+
+    /**
+     * Filter a rich body to remove sensitive information.
+     *
+     * @param array $row The row to filter.
+     * @return array Returns the filtered row.
+     */
+    public static function editBodyFilter($row) {
+        if (!is_array($row) || strcasecmp($row['format'] ?? $row['Format'] ?? '', 'rich') !== 0) {
+            return $row;
+        }
+
+        $key = array_key_exists('Body', $row) ? 'Body' : 'body';
+        $row[$key] = self::stripSensitiveInfoRich($row[$key]);
+
+        return $row;
+    }
+
+    /**
+     * Strip sensitive user info from a rich string and rewrite it.
+     *
+     * @param string $input The rich text input.
+     * @return string The string.
+     */
+    private static function stripSensitiveInfoRich(string $input): string {
+        if (strpos($input, "password") === false) {
+            return $input; // Bailout because it doesn't actually have user record.
+        }
+        $operations = json_decode($input, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($operations)) {
+            return $input;
+        }
+        foreach ($operations as &$op) {
+            $insertUser = $op['insert']['embed-external']['data']['insertUser'] ?? null;
+            if (!$insertUser) {
+                // No user.
+                continue;
+            }
+            $op['insert']['embed-external']['data']['insertUser'] = [
+                'userID' => $insertUser['userID'],
+                'name' => $insertUser['name'],
+                'photoUrl' => $insertUser['photoUrl'],
+                'dateLastActive' => $insertUser['dateLastActive'],
+                'label' => $insertUser['label'],
+            ];
+        }
+        $output = json_encode($operations, JSON_UNESCAPED_UNICODE);
+        return $output;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function parseDOM(string $content): TextDOMInterface {
+        $content = $this->filterer->filter($content);
+        $operations = Quill\Parser::jsonToOperations($content);
+
+        $blotGroups = $this->parser->parse(
+            $operations,
+            $this->allowExtendedContent ? Quill\Parser::PARSE_MODE_EXTENDED : Quill\Parser::PARSE_MODE_NORMAL
+        );
+
+        return $blotGroups;
     }
 }

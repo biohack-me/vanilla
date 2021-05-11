@@ -4,37 +4,48 @@
  * @license GPL-2.0-only
  */
 
-import { embedContainerVariables } from "@library/embeddedContent/embedStyles";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { absolutePosition, fonts, importantUnit, paddings, unit } from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { importantUnit } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { shadowHelper, shadowOrBorderBasedOnLightness } from "@library/styles/shadowHelpers";
 import { percent } from "csx";
-import { media } from "typestyle";
-
-export const embedMenuMediaQueries = useThemeCache(() => {
-    const vars = embedContainerVariables();
-    const globalVars = globalVariables();
-    const noRoomForMenuOnLeft = styles => {
-        return media(
-            {
-                maxWidth: unit(vars.dimensions.maxEmbedWidth + 2 * globalVars.buttonIcon.size + globalVars.gutter.half),
-            },
-            styles,
-        );
-    };
-
-    return {
-        noRoomForMenuOnLeft,
-    };
-});
+import { metasVariables } from "@library/metas/Metas.variables";
 
 export const embedMenuClasses = useThemeCache(() => {
-    const style = styleFactory("imageEmbedMenu");
-    const embedVars = embedContainerVariables();
+    const style = styleFactory("embedMenu");
+    const metasVars = metasVariables();
     const globalVars = globalVariables();
 
     const root = style({
-        marginRight: "auto",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "absolute",
+        top: 0,
+        left: percent(50),
+        ...Mixins.margin({ horizontal: "auto" }),
+        transform: "translate(-50%, -50%)",
+        background: ColorsUtils.colorOut(globalVars.mainColors.bg),
+        ...Mixins.border(),
+        ...shadowOrBorderBasedOnLightness(),
+        zIndex: 100,
+        ...Mixins.padding({
+            vertical: 4,
+            horizontal: 2,
+        }),
+        ...{
+            "&.isOpened": {
+                borderBottomLeftRadius: 0,
+                borderBottomRightRadius: 0,
+            },
+            "& > *": {
+                ...Mixins.margin({ horizontal: 4 }),
+            },
+        },
     });
 
     const form = style("form", {
@@ -42,60 +53,33 @@ export const embedMenuClasses = useThemeCache(() => {
         width: percent(100),
     });
 
-    const mediaQueriesEmbed = embedMenuMediaQueries();
-
-    const imageContainer = style(
-        "imageContainer",
-        {
-            position: "relative",
-        },
-        mediaQueriesEmbed.noRoomForMenuOnLeft({
-            marginTop: unit(globalVars.buttonIcon.size),
-        }),
-    );
+    const imageContainer = style("imageContainer", {
+        position: "relative",
+    });
 
     // Extra specific and defensive here because it's within userContent styles.
     const paragraph = style("paragraph", {
-        $nest: {
+        ...{
             "&&": {
                 // Specificity required to override default label styles
-                ...paddings({
+                ...Mixins.padding({
                     all: 0,
                     top: importantUnit(globalVars.gutter.quarter),
                 }),
-                ...fonts({
-                    weight: globalVars.fonts.weights.normal,
+                ...Mixins.font({
+                    ...globalVars.fontSizeAndWeightVars("medium", "normal"),
                     lineHeight: globalVars.lineHeights.base,
-                    color: globalVars.meta.colors.fg,
-                    size: globalVars.fonts.size.medium,
+                    color: metasVars.font.color,
                     align: "left",
                 }),
             },
         },
     });
-
     const verticalPadding = style("verticalPadding", {
-        ...paddings({
-            vertical: unit(globalVars.gutter.half),
+        ...Mixins.padding({
+            vertical: styleUnit(globalVars.gutter.half),
         }),
     });
-
-    const menuTransformWithGutter = unit(globalVars.buttonIcon.size);
-    const menuTransformWithoutGutter = unit((globalVars.buttonIcon.size - globalVars.icon.sizes.default) / 2);
-
-    const embedMetaDataMenu = style(
-        "embedMetaDataMenu",
-        {
-            ...absolutePosition.topLeft(),
-            width: globalVars.buttonIcon.size,
-            height: globalVars.buttonIcon.size,
-            transform: `translateX(-${menuTransformWithGutter}) translateY(-${menuTransformWithoutGutter})`,
-            zIndex: 1,
-        },
-        mediaQueriesEmbed.noRoomForMenuOnLeft({
-            transform: `translateX(-${menuTransformWithoutGutter}) translateY(-${menuTransformWithGutter})`,
-        }),
-    );
 
     return {
         root,
@@ -103,6 +87,5 @@ export const embedMenuClasses = useThemeCache(() => {
         imageContainer,
         paragraph,
         verticalPadding,
-        embedMetaDataMenu,
     };
 });

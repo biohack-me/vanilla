@@ -4,13 +4,13 @@
  * @license Proprietary
  */
 
-import { useThemeCache } from "@library/styles/styleUtils";
-import { cssRule } from "typestyle";
+import { useThemeCache } from "@library/styles/themeCache";
 import { important } from "csx";
+import { cssOut } from "@dashboard/compatibilityStyles/cssOut";
 
 export const loadedCSS = useThemeCache(() => {
     // Avoid FOUC in Forum side
-    cssRule("body", {
+    cssOut("body", {
         visibility: important("visible"),
     });
 });

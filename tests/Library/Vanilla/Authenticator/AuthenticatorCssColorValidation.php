@@ -25,7 +25,7 @@ class AuthenticatorCssColorValidation extends TestCase {
     /**
      * @inheritdoc
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
         BootstrapTrait::setUpBeforeClass();
 
         self::$authenticatorModel = self::container()->get(AuthenticatorModel::class);
@@ -35,14 +35,14 @@ class AuthenticatorCssColorValidation extends TestCase {
     /**
      * @inheritdoc
      */
-    public static function tearDownAfterClass() {
+    public static function tearDownAfterClass(): void {
         BootstrapTrait::tearDownAfterClass();
     }
 
     /**
      * @inheritdoc
      */
-    public function tearDown() {
+    public function tearDown(): void {
         CssColorAuthenticator::resetColor();
 
         parent::tearDown();

@@ -6,10 +6,12 @@
 
 namespace Vanilla\Utility;
 
+use Garden\Web\Exception\Pass;
+
 /**
  * A collection of string utilities.
  */
-class StringUtils {
+final class StringUtils {
     /**
      * Encode a value as JSON or throw an exception on error.
      *
@@ -47,5 +49,101 @@ class StringUtils {
             throw new \Exception("JSON encoding error: {$errorMessage}", 500);
         }
         return $encoded;
+    }
+
+    /**
+     * Remove a substring from the beginning of the string.
+     *
+     * @param string $str The string to search.
+     * @param string $trim The substring to trim off the search string.
+     * @param bool $caseInsensitive Whether or not to do a case insensitive comparison.
+     * @return string Returns the trimmed string.
+     */
+    public static function substringLeftTrim(string $str, string $trim, bool $caseInsensitive = false): string {
+        if (strlen($str) < strlen($trim)) {
+            return $str;
+        } elseif (substr_compare($str, $trim, 0, strlen($trim), $caseInsensitive) === 0) {
+            return substr($str, strlen($trim));
+        } else {
+            return $str;
+        }
+    }
+
+    /**
+     * Remove a substring from the end of the string.
+     *
+     * @param string $str The string to search.
+     * @param string $trim The substring to trim off the search string.
+     * @param bool $caseInsensitive Whether or not to do a case insensitive comparison.
+     * @return string Returns the trimmed string.
+     */
+    public static function substringRightTrim(string $str, string $trim, bool $caseInsensitive = false): string {
+        if (strlen($str) < strlen($trim)) {
+            return $str;
+        } elseif (substr_compare($str, $trim, -strlen($trim), null, $caseInsensitive) === 0) {
+            return substr($str, 0, -strlen($trim));
+        } else {
+            return $str;
+        }
+    }
+
+    /**
+     * Make a variable name title case for putting into a label.
+     *
+     * This method supports strings in the following formats.
+     *
+     * - camelCase
+     * - PascalCase
+     * - kebab-case
+     * - snake_case
+     * - space separated
+     *
+     * @param string $str The variable name to labelize.
+     * @return string
+     */
+    public static function labelize(string $str): string {
+        $str = preg_replace('`(?<![A-Z0-9])([A-Z0-9])`', ' $1', $str);
+        $str = preg_replace('`([A-Z0-9])(?=[a-z])`', ' $1', $str);
+        $str = preg_replace('`[_-]`', ' ', $str);
+        $str = preg_replace('`\s+`', ' ', $str);
+        $str = implode(' ', array_map('ucfirst', explode(' ', $str)));
+
+        return $str;
+    }
+
+    /**
+     * Check if a string contains another string.
+     *
+     * @param string $haystack
+     * @param string $needle
+     *
+     * @return bool
+     */
+    public static function contains(string $haystack, string $needle): bool {
+        if (empty($needle)) {
+            return false;
+        }
+        return strpos($haystack, $needle) !== false;
+    }
+
+    /**
+     * Take a formatted size (e.g. 128M) and convert it to bytes.
+     *
+     * @param string $formatted
+     * @return int|bool
+     */
+    public static function unformatSize(string $formatted) {
+        $units = ['B' => 1, 'K' => 1024, 'M' => 1024 * 1024, 'G' => 1024 * 1024 * 1024, 'T' => 1024 * 1024 * 1024 * 1024];
+
+        if (preg_match('/([0-9.]+)\s*([A-Z]*)/i', $formatted, $matches)) {
+            $number = floatval($matches[1]);
+            $unit = strtoupper(substr($matches[2], 0, 1));
+            $mult = val($unit, $units, 1);
+
+            $result = round($number * $mult, 0);
+            return $result;
+        } else {
+            return false;
+        }
     }
 }

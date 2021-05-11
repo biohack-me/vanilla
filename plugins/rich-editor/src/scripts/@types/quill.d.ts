@@ -10,6 +10,7 @@ declare module "quill/core" {
     import HistoryModule from "@rich-editor/quill/HistoryModule";
     import SelectionModule from "quill/modules/selection";
     import Blot from "parchment/dist/src/blot/abstract/shadow";
+    import { Blot as BlotInterface } from "parchment/dist/src/blot/abstract/blot";
     import Container from "parchment/dist/src/blot/abstract/container";
     import ClipboardModule from "quill/modules/clipboard";
 
@@ -130,6 +131,8 @@ declare module "quill/core" {
             USER: "user";
         };
 
+        handleDOM: (event: Event, ...args) => void;
+
         on: (
             eventName:
                 | "text-change"
@@ -170,6 +173,7 @@ declare module "quill/core" {
         container: HTMLDivElement;
         options: AnyObject;
         history: HistoryModule;
+        emitter: EventEmitter;
 
         // Custom
         getLastGoodSelection(): RangeStatic;
@@ -236,7 +240,7 @@ declare module "quill/core" {
         getLines(range: RangeStatic): any[];
     }
 
-    export { Container, Blot };
+    export { Container, Blot, BlotInterface };
 
     export default Quill;
 }
@@ -420,4 +424,8 @@ declare module "quill/modules/syntax" {
 }
 declare module "quill/modules/toolbar";
 declare module "quill/formats/*";
-declare module "quill-delta";
+declare module "quill-delta" {
+    type Attributes = Record<string, any>;
+    import { DeltaStatic } from "quill";
+    export default DeltaStatic;
+}

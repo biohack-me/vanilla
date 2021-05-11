@@ -60,6 +60,13 @@ class NotFoundFormat implements FormatInterface {
     /**
      * @inheritdoc
      */
+    public function getPlainTextLength(string $content): int {
+        return 0;
+    }
+
+    /**
+     * @inheritdoc
+     */
     public function renderQuote(string $content): string {
         return $this->renderHTML($content);
     }
@@ -88,6 +95,20 @@ class NotFoundFormat implements FormatInterface {
     /**
      * @inheritdoc
      */
+    public function parseImageUrls(string $content): array {
+        return [];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function parseImages(string $content): array {
+        return [];
+    }
+
+    /**
+     * @inheritdoc
+     */
     public function parseMentions(string $content): array {
         return [];
     }
@@ -99,5 +120,13 @@ class NotFoundFormat implements FormatInterface {
      */
     private function getErrorMessage(): string {
         return sprintf(self::t('No formatter is installed for the format %s'), $this->searchedFormat);
+    }
+
+    /**
+     * Set the status for extended content.
+     *
+     * @param bool $extendContent
+     */
+    public function setAllowExtendedContent(bool $extendContent): void {
     }
 }

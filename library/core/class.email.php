@@ -1,8 +1,10 @@
 <?php
 /**
- * @copyright 2009-2019 Vanilla Forums Inc.
+ * @copyright 2009-2020 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
+
+use PHPMailer\PHPMailer\PHPMailer;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 
@@ -41,13 +43,13 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
     /** @var string The format of the email. */
     protected $format;
 
-    /** @var string The supported email formats. */
+    /** @var string[] The supported email formats. */
     public static $supportedFormats = ['html', 'text'];
 
     /**
      * Constructor.
      */
-    function __construct() {
+    public function __construct() {
         $this->PhpMailer = new \Vanilla\VanillaMailer();
         $this->PhpMailer->CharSet = 'utf-8';
         $this->PhpMailer->SingleTo = c('Garden.Email.SingleTo', false);
@@ -180,32 +182,67 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
     }
 
     /**
+     * Get the site's default from address.
+     *
+     * @return string
+     */
+    public function getDefaultFromAddress(): string {
+        $result = c('Garden.Email.SupportAddress', '');
+        if (!$result) {
+            $result = $this->getNoReplyAddress();
+        }
+        return $result;
+    }
+
+    /**
+     * Get the site's default sender (smtp envelope) address.
+     *
+     * @return string
+     */
+    public function getDefaultSenderAddress(): string {
+        $result = c('Garden.Email.EnvelopeAddress', '');
+        if (!$result) {
+            $result = $this->getDefaultFromAddress();
+        }
+        return $result;
+    }
+
+    /**
+     * Get an address suitable for no-reply-style emails.
+     *
+     * @return string
+     */
+    public function getNoReplyAddress(): string {
+        $host = Gdn::request()->host();
+        $result = "noreply@{$host}";
+        return $result;
+    }
+
+    /**
      * Allows the explicit definition of the email's sender address & name.
      * Defaults to the applications Configuration 'SupportEmail' & 'SupportName' settings respectively.
      *
-     * @param string $senderEmail
-     * @param string $senderName
+     * @param string $fromEmail
+     * @param string $fromName
      * @param boolean $bOverrideSender optional. default false.
      * @return Gdn_Email
      */
-    public function from($senderEmail = '', $senderName = '', $bOverrideSender = false) {
-        if ($senderEmail == '') {
-            $senderEmail = c('Garden.Email.SupportAddress', '');
-            if (!$senderEmail) {
-                $senderEmail = 'noreply@'.Gdn::request()->host();
-            }
+    public function from($fromEmail = '', $fromName = '', $bOverrideSender = false) {
+        if ($fromEmail == '') {
+            $fromEmail = $this->getDefaultFromAddress();
         }
 
-        if ($senderName == '') {
-            $senderName = c('Garden.Email.SupportName', c('Garden.Title', ''));
+        if ($fromName == '') {
+            $fromName = c('Garden.Email.SupportName', c('Garden.Title', ''));
         }
 
         if ($this->PhpMailer->Sender == '' || $bOverrideSender) {
-            $this->PhpMailer->Sender = $senderEmail;
+            $envelopeEmail = $bOverrideSender ? $fromEmail : $this->getDefaultSenderAddress();
+            $this->PhpMailer->Sender = $envelopeEmail;
         }
 
         ob_start();
-        $this->PhpMailer->setFrom($senderEmail, $senderName, false);
+        $this->PhpMailer->setFrom($fromEmail, $fromName, false);
         ob_end_clean();
         return $this;
     }
@@ -236,9 +273,6 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
     }
 
     public function formatMessage($message) {
-        // htmlspecialchars_decode is being used here to revert any specialchar escaping done by Gdn_Format::text()
-        // which, untreated, would result in &#039; in the message in place of single quotes.
-
         if ($this->PhpMailer->ContentType == 'text/html') {
             $textVersion = false;
             if (stristr($message, '<!-- //TEXT VERSION FOLLOWS//')) {
@@ -249,13 +283,13 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
                 $message = trim($message);
             }
 
-            $this->PhpMailer->msgHTML(htmlspecialchars_decode($message, ENT_QUOTES));
+            $this->PhpMailer->msgHTML($message);
             if ($textVersion !== false && !empty($textVersion)) {
                 $textVersion = html_entity_decode($textVersion);
                 $this->PhpMailer->AltBody = $textVersion;
             }
         } else {
-            $this->PhpMailer->Body = htmlspecialchars_decode($message, ENT_QUOTES);
+            $this->PhpMailer->Body = $message;
         }
         return $this;
     }
@@ -328,9 +362,12 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
     }
 
     /**
+     * Send the email.
+     *
      * @param string $eventName
-     * @todo add port settings
      * @return boolean
+     * @throws \Exception Throws an exception if emailing is disabled.
+     * @throws \PHPMailer\PHPMailer\Exception Throws an exception if there is a problem sending the email.
      */
     public function send($eventName = '') {
         $this->formatMessage($this->emailTemplate->toString());
@@ -376,10 +413,11 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
         }
 
         if ($this->isDebug() && $this->logger instanceof Psr\Log\LoggerInterface) {
-            $payload = $this->PhpMailer->getSentMIMEMessage();
             $this->logger->info(
                 'Email Payload',
-                ['event' => 'Debug email',
+                [
+                    Vanilla\Logger::FIELD_CHANNEL => Vanilla\Logger::CHANNEL_SYSTEM,
+                    'event' => 'email_sent',
                     'timestamp' => time(),
                     'userid' => Gdn::session()->UserID,
                     'username' => Gdn::session()->User->Name ?? 'anonymous',
@@ -393,8 +431,10 @@ class Gdn_Email extends Gdn_Pluggable implements LoggerAwareInterface {
                     'fromName' => $this->PhpMailer->FromName,
                     'sender' => $this->PhpMailer->Sender,
                     'subject' => $this->PhpMailer->Subject,
-                    'body' => $this->PhpMailer->Body,
-                    'payload' => $payload
+                    // Address data comes in an array of [address, name] items and we only need the address.
+                    'to' => array_column($this->PhpMailer->getToAddresses(), 0),
+                    'cc' => array_column($this->PhpMailer->getCcAddresses(), 0),
+                    'bcc' => array_column($this->PhpMailer->getBccAddresses(), 0),
                 ]
             );
         }

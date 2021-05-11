@@ -8,6 +8,7 @@
 namespace VanillaTests\Fixtures;
 
 use Vanilla\Contracts;
+use Vanilla\Utility\ArrayUtils;
 
 /**
  * Mock configuration object. Implements simple set/get for the ConfigurationInterface.
@@ -52,6 +53,16 @@ class MockConfig implements Contracts\ConfigurationInterface {
         $this->data[$key] = $value;
 
         return $this;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function saveToConfig($name, $value = '', $options = []) {
+        $values = is_array($name) ? $name : [$name => $value];
+        foreach ($values as $name => $value) {
+            $this->set($name, $value);
+        }
     }
 
     /**

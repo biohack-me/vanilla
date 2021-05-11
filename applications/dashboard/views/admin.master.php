@@ -11,7 +11,7 @@ $this->fireAs('dashboard')->fireEvent('render');
     <meta name="robots" content="noindex,nofollow">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body id="<?php echo htmlspecialchars($BodyIdentifier); ?>" class="<?php echo $this->CssClass; ?>">
+<body id="<?php echo htmlspecialchars($this->BodyIdentifier ?? ''); ?>" class="<?php echo $this->CssClass; ?>">
 <?php $this->renderAsset('Symbols');
 
 // TODO: Pull this asset out elsewhere
@@ -63,7 +63,7 @@ Gdn_Theme::assetEnd();
             &#9776;
         </button>
         <div class="navbar-brand">
-            <?php $title = c('Garden.Title'); ?>
+            <?php $title = Gdn::formatService()->renderPlainText(c('Garden.Title'), Vanilla\Formatting\Formats\HtmlFormat::FORMAT_KEY); ?>
             <div class="navbar-image logo"><?php echo wrap('Vanilla Forums', 'span', ['class' => 'vanilla-logo vanilla-logo-white']); ?></div>
             <?php echo anchor(t('Visit Site').' '.dashboardSymbol('external-link', 'icon-11'), '/', 'btn btn-navbar padded-left'); ?>
         </div>
@@ -82,7 +82,7 @@ Gdn_Theme::assetEnd();
         <div class="navbar-memenu">
             <?php
             if (Gdn::session()->isValid()) {
-                $photo = '<img src="'.userPhotoUrl($user).'">';
+                $photo = '<img src="'.userPhotoUrl($user).'" loading="lazy">';
                 $attr = [
                     'class' => 'navbar-profile js-drop',
                     'data-content-id' => 'cardUserContent',
@@ -114,7 +114,7 @@ Gdn_Theme::assetEnd();
                 </div>
             </div>
         </div>
-        <div class="main">
+        <div class="dashboard-main">
             <section role="main" class="content">
                 <?php $this->renderAsset('Content'); ?>
             </section>

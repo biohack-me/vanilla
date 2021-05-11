@@ -6,63 +6,67 @@
 
 import React from "react";
 import classNames from "classnames";
-import { t } from "@library/utility/appUtils";
-import { searchBarClasses } from "@library/features/search/searchBarStyles";
 import { searchResultsClasses } from "@library/features/search/searchResultsStyles";
 import Translate from "@library/content/Translate";
-import Result, { IResult } from "@library/result/Result";
 import Paragraph from "@library/layout/Paragraph";
+import { t } from "@vanilla/i18n/src";
+import { useLayout } from "@library/layout/LayoutContext";
+import PanelWidget from "@library/layout/components/PanelWidget";
 
 interface IProps {
     className?: string;
     searchTerm?: string;
     results: any[];
-    result?: React.ComponentClass;
+    result: React.ComponentType<any>;
     emptyMessage?: string;
+    headingLevel?: 2 | 3;
+    ResultWrapper?: React.ComponentType<any>;
+    rel?: string;
 }
 
 /**
  * Generates a single search result. Note that this template is used in other contexts, such as the flat category list
  */
-export default class ResultList extends React.Component<IProps> {
-    public render() {
-        const hasResults = this.props.results && this.props.results.length > 0;
-        let content;
-        const classes = searchBarClasses();
-        const classesSearchResults = searchResultsClasses();
+export default function ResultList(props: IProps) {
+    const {
+        className,
+        searchTerm,
+        results,
+        emptyMessage = t("No results found."),
+        headingLevel,
+        ResultWrapper,
+        result,
+    } = props;
 
-        if (hasResults) {
-            const ResultComponent = this.props.result ? this.props.result : Result;
-            content = this.props.results.map((result, i) => {
-                return <ResultComponent {...result} key={i} />;
-            });
-        } else if (this.props.searchTerm === undefined || this.props.searchTerm === "") {
-            content = (
-                <Paragraph className={classNames("searchResults-noResults", classesSearchResults.noResults)}>
-                    {this.props.emptyMessage ? this.props.emptyMessage : t("No results found.")}
-                </Paragraph>
+    const hasResults = results && results.length > 0;
+
+    let content;
+    const classes = searchResultsClasses(useLayout().mediaQueries);
+
+    if (hasResults) {
+        const Result = result;
+        content = results.map((result, i) => {
+            return <Result {...result} key={i} headingLevel={headingLevel} rel={props.rel} />;
+        });
+    } else {
+        let message =
+            searchTerm === undefined || searchTerm === "" ? (
+                emptyMessage
+            ) : (
+                <Translate source="No results for '<0/>'." c0={searchTerm} />
             );
-        } else {
-            content = (
-                <Paragraph className={classNames("searchResults-noResults", "isEmpty", classesSearchResults.noResults)}>
-                    <Translate source="No results for '<0/>'." c0={this.props.searchTerm} />
-                </Paragraph>
-            );
-        }
 
-        const Tag = hasResults ? `ul` : `div`;
-
-        return (
-            <Tag
-                className={classNames(
-                    "searchResults",
-                    classesSearchResults.root,
-                    this.props.className,
-                    classes.results,
-                )}
-            >
-                {content}
-            </Tag>
+        content = (
+            <PanelWidget>
+                <Paragraph className={classNames("searchResults-noResults", classes.noResults)}>{message}</Paragraph>
+            </PanelWidget>
         );
+    }
+
+    if (ResultWrapper) {
+        return <ResultWrapper>{content}</ResultWrapper>;
+    } else {
+        const Tag = hasResults ? `ul` : `div`;
+        return <Tag className={classNames("searchResults", classes.root, className)}>{content}</Tag>;
     }
 }

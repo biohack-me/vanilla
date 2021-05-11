@@ -7,7 +7,7 @@
 
 namespace VanillaTests\APIv2;
 
-use VanillaTests\InternalClient;
+use Vanilla\Http\InternalClient;
 
 trait TestPutFieldTrait {
     /**
@@ -47,5 +47,8 @@ trait TestPutFieldTrait {
      */
     abstract function api();
 
-    abstract function assertEquals($expected, $actual, $message = '', $delta = 0.0, $maxDepth = 10, $canonicalize = false, $ignoreCase = false);
+    /**
+     * {@inheritDoc}
+     */
+    abstract public function assertEquals($expected, $actual, string $message = '', float $delta = 0.0, int $maxDepth = 10, bool $canonicalize = false, bool $ignoreCase = false);
 }

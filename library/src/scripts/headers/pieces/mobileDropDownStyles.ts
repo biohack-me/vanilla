@@ -4,23 +4,17 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import {
-    absolutePosition,
-    borders,
-    colorOut,
-    flexHelper,
-    paddings,
-    singleBorder,
-    unit,
-    userSelect,
-    fonts,
-} from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { flexHelper, singleBorder, userSelect } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { border, calc, percent, px, translateX } from "csx";
-import { titleBarVariables } from "@library/headers/titleBarStyles";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
+import { titleBarVariables } from "@library/headers/TitleBar.variables";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
 import { frameVariables } from "@library/layout/frame/frameStyles";
 import { shadowHelper } from "@library/styles/shadowHelpers";
+import { Mixins } from "@library/styles/Mixins";
 
 export const mobileDropDownVariables = useThemeCache(() => {
     const globalVars = globalVariables();
@@ -40,7 +34,7 @@ export const mobileDropDownVariables = useThemeCache(() => {
     });
 
     const header = vars("header", {
-        minHeight: titleBarVars.sizing.height,
+        minHeight: titleBarVars.sizing.mobile,
     });
 
     const padding = vars("padding", {
@@ -65,7 +59,7 @@ export const mobileDropDownClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const frameVars = frameVariables();
     const titleBarVars = titleBarVariables();
-    const mediaQueries = layoutVariables().mediaQueries();
+    const mediaQueries = panelLayoutVariables().mediaQueries();
     const flex = flexHelper();
     const style = styleFactory("mobileDropDown");
 
@@ -80,7 +74,7 @@ export const mobileDropDownClasses = useThemeCache(() => {
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "flex-start",
-        $nest: {
+        ...{
             ".siteNav": {
                 paddingLeft: px(globalVars.gutter.half),
             },
@@ -116,9 +110,8 @@ export const mobileDropDownClasses = useThemeCache(() => {
     );
 
     const buttonContents = style("buttonContents", {
-        display: "inline-block",
+        display: "flex",
         position: "relative",
-        paddingRight: vars.chevron.width * 2,
         lineHeight: 1.5,
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -128,11 +121,14 @@ export const mobileDropDownClasses = useThemeCache(() => {
     const title = style(
         "title",
         {
-            display: "inline",
+            display: "inline-flex",
             letterSpacing: vars.title.letterSpacing,
             fontWeight: globalVars.fonts.weights.semiBold,
             textAlign: "center",
             lineHeight: vars.title.lineHeight,
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            overflow: "hidden",
         },
         mediaQueries.xs({
             textAlign: "left",
@@ -140,11 +136,7 @@ export const mobileDropDownClasses = useThemeCache(() => {
     );
 
     const icon = style("icon", {
-        position: "absolute",
-        display: "block",
-        top: 0,
-        right: 0,
-        bottom: 0,
+        display: "inline-flex",
         maxHeight: percent(100),
         maxWidth: percent(100),
         margin: `auto 0`,
@@ -156,12 +148,12 @@ export const mobileDropDownClasses = useThemeCache(() => {
         padding: px(0),
         margin: "auto",
         color: vars.chevron.color.toString(),
-        $nest: {
+        ...{
             "&:hover": {
-                color: colorOut(globalVars.mainColors.primary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.primary),
             },
-            "&:active": { color: colorOut(globalVars.mainColors.primary) },
-            "&:focus": { color: colorOut(globalVars.mainColors.primary) },
+            "&:active": { color: ColorsUtils.colorOut(globalVars.mainColors.primary) },
+            "&:focus": { color: ColorsUtils.colorOut(globalVars.mainColors.primary) },
         },
     });
 
@@ -170,26 +162,40 @@ export const mobileDropDownClasses = useThemeCache(() => {
         height: percent(100),
     });
 
+    const headerSizing = {
+        height: styleUnit(vars.header.minHeight.height),
+        width: percent(100),
+    };
+
     const header = style("header", {
         ...shadowHelper().embed(),
+        background: ColorsUtils.colorOut(frameVars.colors.bg),
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 10000,
     });
 
     const headerContent = style("headerContent", {
         display: "flex",
         flexWrap: "nowrap",
         alignItems: "center",
-        height: unit(vars.header.minHeight - globalVars.border.width * 4),
         margin: "auto",
-        width: percent(100),
+        height: styleUnit(vars.header.minHeight.height),
+    });
+
+    const headerSpacer = style("headerSpacer", {
+        ...headerSizing,
     });
 
     const closeWidth =
         Math.floor(globalVars.icon.sizes.xSmall) + 2 * (globalVars.gutter.half + globalVars.gutter.quarter);
     const closeButton = style("closeButton", {
-        ...absolutePosition.middleLeftOfParent(),
-        height: unit(closeWidth),
-        width: unit(closeWidth),
-        minWidth: unit(closeWidth),
+        ...Mixins.absolute.middleLeftOfParent(),
+        height: styleUnit(closeWidth),
+        width: styleUnit(closeWidth),
+        minWidth: styleUnit(closeWidth),
         padding: 0,
         transform: translateX("-50%"),
     });
@@ -199,14 +205,13 @@ export const mobileDropDownClasses = useThemeCache(() => {
         alignItems: "center",
         justifyContent: "center",
         textTransform: "uppercase",
-        minHeight: unit(titleBarVars.sizing.height - 4),
-        fontSize: unit(globalVars.fonts.size.small),
+        minHeight: styleUnit(titleBarVars.sizing.height - 4),
         textOverflow: "ellipsis",
-        ...paddings({
-            vertical: unit(4),
+        ...Mixins.padding({
+            vertical: styleUnit(4),
         }),
-        ...fonts({
-            size: globalVars.fonts.size.small,
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("small"),
             transform: "uppercase",
             color: globalVars.mixBgAndFg(0.6),
         }),
@@ -229,6 +234,7 @@ export const mobileDropDownClasses = useThemeCache(() => {
         closeModal,
         header,
         headerContent,
+        headerSpacer,
         listContainer,
         subTitle,
     };

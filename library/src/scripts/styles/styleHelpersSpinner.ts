@@ -4,11 +4,12 @@
  * @license GPL-2.0-only
  */
 
-import { keyframes } from "typestyle";
+import { keyframes } from "@library/styles/styleShim";
 import { ColorHelper, deg, percent, quote } from "csx";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { ContentProperty, DisplayProperty, PositionProperty } from "csstype";
-import { debugHelper, defaultTransition, unit } from "@library/styles/styleHelpers";
+import { defaultTransition } from "@library/styles/styleHelpersAnimation";
+import { styleUnit } from "@library/styles/styleUnit";
+import { CSSObject } from "@emotion/css";
 
 const spinnerOffset = 73;
 const spinnerLoaderAnimation = keyframes({
@@ -24,34 +25,38 @@ export interface ISpinnerProps {
     speed?: string;
 }
 
-export const spinnerLoader = (props: ISpinnerProps) => {
-    const debug = debugHelper("spinnerLoader");
+const DEFAULT_SPEED = "0.7s";
+
+export function spinnerLoaderAnimationProperties(): CSSObject {
+    return {
+        ...defaultTransition("opacity"),
+        animationName: spinnerLoaderAnimation,
+        animationDuration: DEFAULT_SPEED,
+        animationIterationCount: "infinite",
+        animationTimingFunction: "ease-in-out",
+    };
+}
+
+export const spinnerLoader = (props: ISpinnerProps): CSSObject => {
     const globalVars = globalVariables();
     const spinnerVars = {
         color: props.color || globalVars.mainColors.primary,
         size: props.size || 18,
         thickness: props.thickness || 3,
-        speed: "0.7s",
         ...props,
     };
     return {
-        ...debug.name("spinner"),
-        position: "relative" as PositionProperty,
-        content: quote("") as ContentProperty,
-        ...defaultTransition("opacity"),
-        display: "block" as DisplayProperty,
-        width: unit(spinnerVars.size),
-        height: unit(spinnerVars.size),
+        position: "relative",
+        content: quote(""),
+        display: "block",
+        width: styleUnit(spinnerVars.size),
+        height: styleUnit(spinnerVars.size),
         borderRadius: percent(50),
-        borderTop: `${unit(spinnerVars.thickness)} solid ${spinnerVars.color.toString()}`,
-        borderRight: `${unit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
-        borderBottom: `${unit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
-        borderLeft: `${unit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
+        borderTop: `${styleUnit(spinnerVars.thickness)} solid ${spinnerVars.color.toString()}`,
+        borderRight: `${styleUnit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
+        borderBottom: `${styleUnit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
+        borderLeft: `${styleUnit(spinnerVars.thickness)} solid ${spinnerVars.color.fade(0.3).toString()}`,
         transform: "translateZ(0)",
-        animation: `spillerLoader ${spinnerVars.speed} infinite ease-in-out`,
-        animationName: spinnerLoaderAnimation,
-        animationDuration: spinnerVars.speed,
-        animationIterationCount: "infinite",
-        animationTimingFunction: "ease-in-out",
+        ...spinnerLoaderAnimationProperties(),
     };
 };

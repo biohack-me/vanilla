@@ -11,6 +11,20 @@ namespace Vanilla;
  * Offers utility methods for resizing image files.
  */
 class ImageResizer {
+
+    private const EXIF_ORIENTATION_STANDARD = 1;
+    private const EXIF_ORIENTATION_MIRROR = 2;
+    private const EXIF_ORIENTATION_ROTATE_180 = 3;
+    private const EXIF_ORIENTATION_MIRROR_ROTATE_180 = 4;
+    private const EXIF_ORIENTATION_MIRROR_ROTATE_270 = 5;
+    private const EXIF_ORIENTATION_ROTATE_270 = 6;
+    private const EXIF_ORIENTATION_MIRROR_ROTATE_90 = 7;
+    private const EXIF_ORIENTATION_ROTATE_90 = 8;
+
+    /** @var bool */
+    protected $alwaysRewriteGif = true;
+
+    /** @var array */
     protected static $typeExt = [
         IMAGETYPE_GIF => 'gif',
         IMAGETYPE_JPEG => 'jpg',
@@ -56,58 +70,38 @@ class ImageResizer {
             $destType = $this->imageTypeFromExt($destination);
         }
 
-        // Check for EXIF rotation tag, and rotate the image if present
-        if (function_exists('exif_read_data') && in_array($srcType, [IMAGETYPE_JPEG, IMAGETYPE_TIFF_II, IMAGETYPE_TIFF_MM], true)) {
-            try {
-                $exif = exif_read_data($source);
-                if (!empty($exif['Orientation'])) {
-                    switch ($exif['Orientation']) {
-                        case 5:
-                        case 6:
-                        case 7:
-                        case 8:
-                            list($width, $height) = [$height, $width];
-                            break;
-                    }
-                }
-            } catch (\Exception $ex) {
-                $exif = null;
-            }
+        $exif = $this->exif($source, $srcType);
+        $orientation = $exif["Orientation"] ?? null;
+        switch ($orientation) {
+            case self::EXIF_ORIENTATION_ROTATE_90:
+            case self::EXIF_ORIENTATION_MIRROR_ROTATE_90:
+            case self::EXIF_ORIENTATION_ROTATE_270:
+            case self::EXIF_ORIENTATION_MIRROR_ROTATE_270:
+                list($width, $height) = [$height, $width];
+                break;
         }
 
         $resize = $this->calculateResize(['height' => $height, 'width' => $width], $options);
 
+        // Avoid processing images that do not need to be resized, reoriented or converted.
+        if (($height <= $resize["height"] && $width <= $resize["width"]) &&
+            (!$orientation || $orientation === self::EXIF_ORIENTATION_STANDARD) &&
+            $srcType === $destType
+        ) {
+            $resize = $this->directSave($source, $destination, $resize);
+            return $resize;
+        }
+
         try {
             $srcImage = $this->createImage($source, $srcType);
-            if (!empty($exif['Orientation'])) {
-                switch ($exif['Orientation']) {
-                    case 2:
-                        imageflip($srcImage, IMG_FLIP_HORIZONTAL);
-                        break;
-                    case 3:
-                        $srcImage = imagerotate($srcImage, 180, 0);
-                        break;
-                    case 4:
-                        imageflip($srcImage, IMG_FLIP_VERTICAL);
-                        break;
-                    case 5:
-                        $srcImage = imagerotate($srcImage, -90, 0);
-                        imageflip($srcImage, IMG_FLIP_HORIZONTAL);
-                        break;
-                    case 6:
-                        $srcImage = imagerotate($srcImage, -90, 0);
-                        break;
-                    case 7:
-                        $srcImage = imagerotate($srcImage, 90, 0);
-                        imageflip($srcImage, IMG_FLIP_HORIZONTAL);
-                        break;
-                    case 8:
-                        $srcImage = imagerotate($srcImage, 90, 0);
-                        break;
-                }
-            }
+            $srcImage = $this->reorientImage($srcImage, $orientation);
 
             $destImage = imagecreatetruecolor($resize['width'], $resize['height']);
+            if ($srcType === IMAGETYPE_PNG || $srcType === IMAGETYPE_ICO) {
+                // Set image transparency on target if necessary
+                imagealphablending($destImage, false);
+                imagesavealpha($destImage, true);
+            }
 
             imagecopyresampled(
                 $destImage,
@@ -254,6 +248,22 @@ class ImageResizer {
     }
 
     /**
+     * Direct save a source image to a new destination.
+     *
+     * @param string $source Source file path.
+     * @param string $destination Destination file path.
+     * @param array $resize Resizing configuration details.
+     * @return array
+     */
+    private function directSave(string $source, string $destination, array $resize = []): array {
+        if ($source !== $destination && copy($source, $destination) === false) {
+            throw new \Exception("Unable to save image.");
+        }
+        $resize["path"] = $destination;
+        return $resize;
+    }
+
+    /**
      * Return the type-to-extension map.
      *
      * @return array
@@ -315,7 +325,6 @@ class ImageResizer {
                 break;
             case IMAGETYPE_PNG:
                 $r = imagecreatefrompng($path);
-                imagealphablending($r, true);
                 break;
             default:
                 $ext = $this->extFromImageType($type);
@@ -329,6 +338,28 @@ class ImageResizer {
     }
 
     /**
+     * Read EXIF data from a supported image.
+     *
+     * @param string $source Path to an image on the file system.
+     * @param string $imageType Type of image being read, identified as one of the IMAGETYPE_* constants.
+     * @return array|null
+     */
+    private function exif(string $source, string $imageType): ?array {
+        $result = null;
+
+        if (function_exists("exif_read_data") &&
+            in_array($imageType, [IMAGETYPE_JPEG, IMAGETYPE_TIFF_II, IMAGETYPE_TIFF_MM], true)
+        ) {
+            try {
+                $result = exif_read_data($source);
+            } catch (\Exception $ex) {
+                $result = null;
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Get the file extension of an image type.
      *
      * @param int $type One of the __IMAGETYPE_*__ constants.
@@ -337,6 +368,50 @@ class ImageResizer {
     public function extFromImageType($type) {
         $ext = isset(self::$typeExt[$type]) ? self::$typeExt[$type] : (string)$type;
         return $ext;
+    }
+
+    /**
+     * Rotate an image resource, based on an orientation flag.
+     *
+     * @param resource $srcImage
+     * @param ?int $orientation
+     * @return resource
+     */
+    private function reorientImage($srcImage, ?int $orientation) {
+        if (!is_resource($srcImage)) {
+            throw new \InvalidArgumentException("Unable to reorient image. Not a valid resource.");
+        }
+
+        switch ($orientation) {
+            case self::EXIF_ORIENTATION_MIRROR:
+                /** @psalm-suppress UndefinedConstant */
+                imageflip($srcImage, IMG_FLIP_HORIZONTAL);
+                break;
+            case self::EXIF_ORIENTATION_ROTATE_180:
+                $srcImage = imagerotate($srcImage, 180, 0);
+                break;
+            case self::EXIF_ORIENTATION_MIRROR_ROTATE_180:
+                /** @psalm-suppress UndefinedConstant */
+                imageflip($srcImage, IMG_FLIP_VERTICAL);
+                break;
+            case self::EXIF_ORIENTATION_MIRROR_ROTATE_270:
+                $srcImage = imagerotate($srcImage, -90, 0);
+                /** @psalm-suppress UndefinedConstant */
+                imageflip($srcImage, IMG_FLIP_HORIZONTAL);
+                break;
+            case self::EXIF_ORIENTATION_ROTATE_270:
+                $srcImage = imagerotate($srcImage, -90, 0);
+                break;
+            case self::EXIF_ORIENTATION_MIRROR_ROTATE_90:
+                $srcImage = imagerotate($srcImage, 90, 0);
+                /** @psalm-suppress UndefinedConstant */
+                imageflip($srcImage, IMG_FLIP_HORIZONTAL);
+                break;
+            case self::EXIF_ORIENTATION_ROTATE_90:
+                $srcImage = imagerotate($srcImage, 90, 0);
+                break;
+        }
+        return $srcImage;
     }
 
     /**
@@ -403,5 +478,18 @@ class ImageResizer {
         } finally {
             unlink($tmpPath);
         }
+    }
+
+    /**
+     * Should GIFs always be rewritten? GIFs will be rewritten if they exceed limits, regardless of this setting.
+     * Rewriting animated GIFs will result in loss of animation.
+     *
+     * @deprecated This is essentially a noop. The target property isn't used.
+     * @param boolean $alwaysRewriteGif
+     * @return self
+     */
+    public function setAlwaysRewriteGif(bool $alwaysRewriteGif): self {
+        $this->alwaysRewriteGif = $alwaysRewriteGif;
+        return $this;
     }
 }

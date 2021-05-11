@@ -200,8 +200,19 @@ em {
   font-style: italic;
 }
 
-.js-focus-visible :focus:not(.focus-visible) {
+body.js-focus-visible:not(.hasNativeFocus) :focus:not(.focus-visible) {
   outline: none;
+}
+
+caption {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
 }
 
 /*!
@@ -209,14 +220,14 @@ em {
  * @license GPL-2.0-only
  */
 .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
 }
 
 .isCentered {
@@ -675,14 +686,14 @@ button.Close {
   margin: 6px 0;
 }
 .menu-separator hr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
 }
 
 .PageControls {
@@ -773,6 +784,78 @@ body.Categories.isMobile .PageControls.Top {
 
 .inputBlock-inputText {
   box-sizing: border-box;
+}
+
+.label-wrap img {
+  max-width: 50%;
+  max-height: 180px;
+  margin-top: 3px;
+  margin-bottom: 3px;
+}
+
+.FormWrapper .form-group {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+.FormWrapper .file-upload {
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-align-items: flex-start;
+      -ms-flex-align: start;
+          align-items: flex-start;
+  position: relative;
+  width: 100%;
+  font-weight: 400;
+  min-height: 36px;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+.FormWrapper .file-upload input {
+  padding: 0;
+  margin: 0;
+  filter: alpha(opacity=0);
+  opacity: 0;
+  width: 0;
+}
+.FormWrapper .file-upload input:disabled, .FormWrapper .file-upload input.disabled {
+  opacity: 0;
+}
+.FormWrapper .file-upload-browse {
+  display: inline-block;
+  position: relative;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+  -ms-touch-action: manipulation;
+      touch-action: manipulation;
+  min-width: 96px;
+  line-height: 36px;
+  height: 36px;
+  font-weight: 400;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+      -ms-user-select: none;
+          user-select: none;
+  overflow: hidden;
+  cursor: pointer;
+  background-color: #fff;
+  color: #555a62;
+  border-width: 1px;
+  border-radius: 6px;
+  border-style: solid;
+  border-color: #d6d7d9;
+  -webkit-order: -1;
+      -ms-flex-order: -1;
+          order: -1;
+  margin-right: 6px;
+}
+.FormWrapper .file-upload-choose {
+  line-height: 36px;
+  height: 36px;
+  font-size: 14px;
+  font-weight: 400;
+  font-family: "Open Sans", "Segoe UI", "Helvetica Neue", Helvetica, Raleway, Arial, sans-serif;
 }
 
 .checkbox-box {
@@ -937,8 +1020,22 @@ body {
 .userContent > *:not(.emoji):not(:last-child):not(br) {
   margin-bottom: 14px;
 }
-.userContent > *:not(.emoji):first-child:not(br) {
+.userContent > *:not(.emoji):first-child:not(br):not(.embedExternal) {
   margin-top: -0.25em !important;
+}
+.userContent .embedResponsive {
+  margin-bottom: 0 !important;
+}
+.userContent .float-left, .userContent .float-right {
+  margin: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.userContent .float-left .embedExternal-content, .userContent .float-right .embedExternal-content {
+  margin-bottom: 14px;
+}
+.userContent .embedExternal {
+  margin-bottom: 14px;
 }
 .userContent,
 .userContent h1,
@@ -1019,7 +1116,7 @@ body {
 }
 
 body.hasRichEditor .richEditor ~ .TextBoxWrapper,
-body.hasRichEditor .CommentForm .PreviewButton,
+body.hasRichEditor .PreviewButton,
 body.hasRichEditor #Form_Preview {
   display: none !important;
 }
@@ -1039,15 +1136,19 @@ body.hasRichEditor .richEditor .spoiler .iconButton {
 }
 
 .Popup.hasRichEditor .Border {
-  width: 100%;
   box-sizing: border-box;
 }
 .Popup.hasRichEditor .richEditor ~ .TextBoxWrapper,
-.Popup.hasRichEditor .CommentForm .PreviewButton,
+.Popup.hasRichEditor .PreviewButton,
 .Popup.hasRichEditor #Form_Preview {
   display: none !important;
 }
 
+@media (max-width: 700px) {
+  .Popup.hasRichEditor .Border {
+    width: 100%;
+  }
+}
 @media (min-width: 700px) {
   .Popup.hasRichEditor.Section-PostDiscussion #DiscussionForm select,
 body.hasRichEditor.Section-PostDiscussion #DiscussionForm select {
@@ -1071,6 +1172,10 @@ body.hasRichEditor .CommentForm .CommentFormWrap .Form-HeaderWrap {
 body.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper {
     padding-right: 0;
     padding-left: 0;
+  }
+  .Popup.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper .Back,
+body.hasRichEditor .CommentForm .CommentFormWrap .FormWrapper .Back {
+    display: none;
   }
   .Popup.hasRichEditor .CommentForm .richEditor,
 body.hasRichEditor .CommentForm .richEditor {
@@ -1133,7 +1238,7 @@ body.hasRichEditor.Section-Conversation .CommentForm .Buttons {
   }
   .Popup.hasRichEditor .Popup.hasRichEditor .Border,
 body.hasRichEditor .Popup.hasRichEditor .Border {
-    width: 100%;
+    max-width: 100%;
     box-sizing: border-box;
   }
   .Popup.hasRichEditor .Popup.hasRichEditor .Content > h1,
@@ -1175,26 +1280,26 @@ body.hasRichEditor .NoteForm.FormWrapper .richEditor {
 }
 
 .ql-clipboard {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
   position: fixed;
 }
 
 .richEditor-upload {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  border: 0 !important;
 }
 
 body.isMobile .embedDialogue {
@@ -1319,12 +1424,13 @@ body.isMobile .Popup.hasRichEditor .Border {
       -ms-flex-align: center;
           align-items: center;
   box-sizing: border-box;
+  clear: both;
 }
 
 .embedExternal-content {
   position: relative;
   margin: auto;
-  width: 640px;
+  width: 100%;
   max-width: 100%;
   text-align: center;
   box-sizing: border-box;
@@ -1421,22 +1527,28 @@ body.isMobile .Popup.hasRichEditor .Border {
   width: 100%;
   content: "";
   transition: 0.2s ease box-shadow;
+  pointer-events: none;
 }
 .richEditor .embedExternal-content:hover:after,
 .richEditor .embedLinkLoader-link:hover:after {
   box-shadow: 0 0 0 2px rgba(2, 145, 219, 0.5) inset;
 }
-.richEditor .embedExternal-content:focus:after,
-.richEditor .embedLinkLoader-link:focus:after {
+.richEditor .embedImage .embedExternal-content:after {
+  position: absolute;
+  display: block;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  content: "";
+  cursor: "pointer";
+  z-index: 2;
+  transition: 0.2s ease box-shadow;
+  pointer-events: all;
+}
+.richEditor .embed-isSelected .embedExternal-content:after,
+.richEditor .embed-isSelected .embedLinkLoader-link:after {
   box-shadow: 0 0 0 2px #0291db inset;
-}
-.richEditor .embedExternal-content > *,
-.richEditor .embedLinkLoader-link > * {
-  pointer-events: none;
-}
-.richEditor .embedExternal-content > .u-excludeFromPointerEvents,
-.richEditor .embedLinkLoader-link > .u-excludeFromPointerEvents {
-  pointer-events: initial;
 }
 
 .embed-focusableElement {
@@ -1499,18 +1611,6 @@ body.isMobile .Popup.hasRichEditor .Border {
   }
 }
 
-.embedVideo-scrim {
-  content: "";
-  display: block;
-  position: absolute;
-  display: block;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4));
-}
-
 .embedVideo-ratio {
   position: relative;
   display: block;
@@ -1546,7 +1646,7 @@ body.isMobile .Popup.hasRichEditor .Border {
   border: none;
 }
 
-.embedVideo-playIcon {
+.embedVideo-playIconWrap {
   position: absolute;
   top: 0;
   left: 0;
@@ -1555,6 +1655,12 @@ body.isMobile .Popup.hasRichEditor .Border {
   margin: auto;
   width: 80px;
   height: 80px;
+  display: block;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4));
+  border-radius: 50%;
+}
+
+.embedVideo-playIcon {
   color: white;
 }
 
@@ -1568,25 +1674,60 @@ body.isMobile .Popup.hasRichEditor .Border {
  */
 .embedImage {
   width: 100%;
-  max-width: 640px;
-  display: inline-block;
+  max-width: 100%;
+  display: block;
+}
+@media (min-width: 550px) {
+  .embedImage:after {
+    content: "";
+    display: block;
+    height: 1px;
+  }
+  .embedImage.display-small .embedExternal-content {
+    max-width: calc(33.333% - 1px);
+  }
+  .embedImage.display-medium .embedExternal-content {
+    max-width: calc(66.666% - 1px);
+  }
+  .embedImage.float-left .embedExternal-content {
+    float: left;
+    margin-right: 20px;
+  }
+  .embedImage.float-right .embedExternal-content {
+    float: right;
+    margin-left: 20px;
+  }
 }
 
 .Message img .embedImage-img,
 .embedImage-img {
-  display: block;
+  display: -webkit-inline-flex;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
   position: relative;
   margin-left: auto;
   margin-right: auto;
   max-width: 100%;
-  max-height: 400px;
+  max-height: none;
 }
 
-.richEditor .embedImage-img:hover {
-  box-shadow: 0 0 0 2px rgba(2, 145, 219, 0.5);
+.bbcode_left .embedImage-img {
+  margin-left: 0;
+  display: inline-block;
 }
-.richEditor .embedImage-img:focus {
-  box-shadow: 0 0 0 2px #0291db;
+
+.bbcode_right .embedImage-img {
+  margin-right: 0;
+  display: inline-block;
+}
+
+.embedImage-link {
+  display: -webkit-inline-flex;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-flex-direction: column;
+      -ms-flex-direction: column;
+          flex-direction: column;
 }
 
 /*!
@@ -1714,133 +1855,6 @@ body.isMobile .Popup.hasRichEditor .Border {
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-.embedQuote {
-  display: block;
-  width: 100%;
-}
-
-.embedQuote-content {
-  display: block;
-  width: 100%;
-}
-
-.embedQuote-header {
-  position: relative;
-}
-
-.embedQuote-userLink {
-  display: -webkit-inline-flex;
-  display: -ms-inline-flexbox;
-  display: inline-flex;
-  -webkit-align-items: center;
-      -ms-flex-align: center;
-          align-items: center;
-}
-
-.embedQuote-userName {
-  padding: 0;
-  color: #6f737a;
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.embedQuote-userPhoto {
-  display: block;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-}
-
-.embedQuote-excerpt {
-  white-space: normal;
-}
-
-.embedQuote-collapseButton {
-  position: absolute;
-  top: 0;
-  right: 8px;
-  display: -webkit-flex;
-  display: -ms-flexbox;
-  display: flex;
-  -webkit-align-items: center;
-      -ms-flex-align: center;
-          align-items: center;
-  -webkit-justify-content: center;
-      -ms-flex-pack: center;
-          justify-content: center;
-  -webkit-appearance: none;
-     -moz-appearance: none;
-          appearance: none;
-  background: none;
-  border: none;
-  cursor: pointer;
-  margin-left: auto;
-  height: 36px;
-  width: 36px;
-  opacity: 0.6;
-  padding: 0;
-}
-.embedQuote-collapseButton:active {
-  opacity: 1;
-}
-.embedQuote-collapseButton:focus {
-  opacity: 1;
-  outline: none;
-}
-.embedQuote-collapseButton:hover {
-  opacity: 1;
-  cursor: pointer;
-}
-
-.embedQuote-title {
-  padding-right: 36px;
-}
-
-.embedQuote-chevronUp,
-.embedQuote-chevronDown {
-  width: 24px;
-  height: 24px;
-  display: inline-block;
-  vertical-align: 0.2em;
-}
-
-.embedQuote-dateTime {
-  font-size: 12px;
-  color: #6f737a;
-  margin-left: 8px;
-}
-
-.embedQuote-header {
-  display: -webkit-flex;
-  display: -ms-flexbox;
-  display: flex;
-  -webkit-align-items: center;
-      -ms-flex-align: center;
-          align-items: center;
-  -webkit-justify-content: flex-start;
-      -ms-flex-pack: start;
-          justify-content: flex-start;
-  padding-top: 14px;
-  padding-left: 14px;
-  padding-right: 14px;
-  padding-bottom: 0;
-}
-
-.embedQuote-body {
-  display: block;
-  margin: 0;
-  padding: 0;
-}
-.embedQuote-body::before, .embedQuote-body::after {
-  content: initial;
-}
-
-.embedQuote-metaLink {
-  display: -webkit-inline-flex;
-  display: -ms-inline-flexbox;
-  display: inline-flex;
-}
-
 /*!
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
@@ -1973,6 +1987,21 @@ body.isMobile .Popup.hasRichEditor .Border {
   padding-left: 24px;
 }
 
+.embedIFrame {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: auto;
+}
+.embedIFrame .embedIFrame-iframe {
+  position: absolute;
+  display: block;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+}
+
 /*!
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
@@ -1997,6 +2026,7 @@ body.isMobile .Popup.hasRichEditor .Border {
   display: block;
   max-width: 100%;
   margin: auto;
+  box-shadow: none !important;
 }
 .embedGiphy .embedGiphy-iframe {
   position: absolute;
@@ -2144,6 +2174,10 @@ body.isMobile .Popup.hasRichEditor .Border {
   height: 14px;
 }
 
+.VideoWrap video {
+  max-width: 100%;
+}
+
 /**
  * @author Stéphane LaFlèche <stephane.l@vanillaforums.com>
  * @copyright 2009-2019 Vanilla Forums Inc.
@@ -2182,41 +2216,33 @@ body.isMobile .Popup.hasRichEditor .Border {
   margin: 1em 0 1em 2em;
 }
 
-.userContent ol li {
+.userContent ol > li {
   list-style: decimal !important;
 }
-.userContent ol ol li {
+.userContent ol ol > li {
   list-style: lower-alpha !important;
 }
-.userContent ol ol ol li {
+.userContent ol ol ol > li {
   list-style: lower-roman !important;
 }
-.userContent ol ol ol ol li {
+.userContent ol ol ol ol > li {
   list-style: decimal !important;
 }
-.userContent ol ol ol ol ol li {
+.userContent ol ol ol ol ol > li {
   list-style: lower-alpha !important;
 }
-.userContent ol ol ol ol ol ol li {
+.userContent ol ol ol ol ol ol > li {
   list-style: lower-roman !important;
 }
-.userContent ol ol ol ol ol ol ol li {
+.userContent ol ol ol ol ol ol ol > li {
   list-style: decimal !important;
 }
 .userContent ol ol,
 .userContent ol ul {
   margin: 0 0 0 1em;
 }
-
-.userContent ul li {
-  list-style: none !important;
-  position: relative;
-}
-.userContent ul li::before {
-  content: "•";
-  font-family: "Arial", serif !important;
-  position: absolute;
-  left: -1em;
+.userContent ul > li {
+  list-style: disc !important;
 }
 .userContent ul ol,
 .userContent ul ul {
@@ -2226,6 +2252,10 @@ body.isMobile .Popup.hasRichEditor .Border {
 .userContent li,
 .userContent.userContent ul li {
   margin: 5px 0;
+}
+
+body:not(.dashboard) svg {
+  pointer-events: none !important;
 }
 
 /*# sourceMappingURL=style-compat.css.map */

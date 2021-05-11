@@ -1,4 +1,4 @@
-<div class="Trace">
+<div class="Trace" aria-hidden="true">
     <style>
         .Trace {
             width: 100%;
@@ -23,7 +23,7 @@
         }
 
         .Trace .TagColumn {
-            width: 50px;
+            width: 100px;
         }
 
         .Trace .Tag-Info {

@@ -39,9 +39,10 @@ class Gdn_Module extends Gdn_Pluggable implements Gdn_IModule {
     protected $view;
 
     /**
-     * Class constructor
+     * Class constructor.
      *
-     * @param object $sender
+     * @param object|string $sender
+     * @param string|false $applicationFolder
      */
     public function __construct($sender = '', $applicationFolder = false) {
         if (!$sender) {
@@ -120,6 +121,9 @@ class Gdn_Module extends Gdn_Pluggable implements Gdn_IModule {
             }
         }
         $viewPath = $this->fetchViewLocation($this->view);
+        // Check to see if there is a handler for this particular extension.
+        $viewHandler = Gdn::factory('ViewHandler'.strtolower(strrchr($viewPath, '.')));
+
         $String = '';
         ob_start();
         if (is_object($this->_Sender) && isset($this->_Sender->Data)) {
@@ -127,7 +131,12 @@ class Gdn_Module extends Gdn_Pluggable implements Gdn_IModule {
         } else {
             $Data = [];
         }
-        include($viewPath);
+        if ($viewHandler === null) {
+            include $viewPath;
+        } else {
+            // Use the view handler to parse the view.
+            $viewHandler->render($viewPath, $this);
+        }
         $String = ob_get_contents();
         @ob_end_clean();
         return $String;
@@ -198,9 +207,11 @@ class Gdn_Module extends Gdn_Pluggable implements Gdn_IModule {
             if ($themeFolder != '') {
                 // a. Application-specific theme view. eg. /path/to/application/themes/theme_name/app_name/views/modules/
                 $viewPaths[] = combinePaths([PATH_THEMES, $themeFolder, $applicationFolder, 'views', 'modules', $view.'.php']);
+                $viewPaths[] = combinePaths([PATH_ADDONS_THEMES, $themeFolder, $applicationFolder, 'views', 'modules', $view.'.php']);
 
                 // b. Garden-wide theme view. eg. /path/to/application/themes/theme_name/views/modules/
                 $viewPaths[] = combinePaths([PATH_THEMES, $themeFolder, 'views', 'modules', $view.'.php']);
+                $viewPaths[] = combinePaths([PATH_ADDONS_THEMES, $themeFolder, 'views', 'modules', $view.'.php']);
             }
 
             // 3. Application default. eg. /path/to/application/app_name/views/controller_name/

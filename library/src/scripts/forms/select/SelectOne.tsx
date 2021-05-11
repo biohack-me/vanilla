@@ -17,17 +17,20 @@ import React, { useCallback, useMemo, useState } from "react";
 import Select from "react-select";
 import { OptionProps } from "react-select/lib/components/Option";
 
-export interface ISelectOneProps {
+export interface ISelectOneProps extends IMenuPlacement {
     label: string | null;
     id?: string;
     inputID?: string;
     labelID?: string;
     disabled?: boolean;
+    defaultValue?: IComboBoxOption;
     className?: string;
     placeholder?: string;
+    forceOpen?: boolean;
     options: IComboBoxOption[] | undefined;
     onChange: (data: IComboBoxOption) => void;
     onInputChange?: (value: string) => void;
+    onMenuOpen?: () => void;
     labelNote?: string;
     noteAfterInput?: string;
     errors?: IFieldError[];
@@ -36,10 +39,20 @@ export interface ISelectOneProps {
     noOptionsMessage?: (props: OptionProps<any>) => JSX.Element | null;
     isLoading?: boolean;
     inputClassName?: string;
+    isClearable?: boolean;
+    describedBy?: string;
+    selectRef?: React.RefObject<Select>;
+    onFocus?: () => void;
 }
 
-interface IState {
-    focus: boolean;
+export enum MenuPlacement {
+    AUTO = "auto",
+    BOTTOM = "bottom",
+    TOP = "top",
+}
+
+export interface IMenuPlacement {
+    menuPlacement?: MenuPlacement;
 }
 
 /**
@@ -56,7 +69,7 @@ export default function SelectOne(props: ISelectOneProps) {
     const inputID = props.inputID || id + "-input";
     const errorID = id + "-errors";
 
-    const { className, disabled, options, searchable } = props;
+    const { className, disabled, options, searchable, forceOpen } = props;
     let describedBy;
     const hasErrors = props.errors && props.errors!.length > 0;
     if (hasErrors) {
@@ -66,7 +79,14 @@ export default function SelectOne(props: ISelectOneProps) {
     const classes = selectOneClasses();
     const classesInputBlock = inputBlockClasses();
     return (
-        <div className={classNames(classesInputBlock.root, props.className)}>
+        <div
+            className={classNames(classesInputBlock.root, props.className)}
+            onClick={() => {
+                if (!isFocused && props.selectRef?.current) {
+                    props.selectRef?.current.focus();
+                }
+            }}
+        >
             {props.label !== null && (
                 <label htmlFor={inputID} className={classesInputBlock.labelAndDescription}>
                     <span className={classNames(classesInputBlock.labelText, props.label)}>{props.label}</span>
@@ -81,8 +101,9 @@ export default function SelectOne(props: ISelectOneProps) {
                     options={options}
                     inputId={inputID}
                     onChange={props.onChange}
+                    defaultValue={props.defaultValue}
                     onInputChange={props.onInputChange}
-                    isClearable={true}
+                    isClearable={props.isClearable}
                     isDisabled={disabled}
                     classNamePrefix={prefix}
                     className={classNames(prefix, className)}
@@ -92,12 +113,17 @@ export default function SelectOne(props: ISelectOneProps) {
                     aria-describedby={describedBy}
                     isSearchable={searchable}
                     value={props.value}
-                    menuIsOpen={isFocused === false ? false : undefined}
+                    menuIsOpen={forceOpen ? true : isFocused === false ? false : undefined}
                     placeholder={props.placeholder}
                     isLoading={props.isLoading}
-                    onFocus={() => setIsFocused(true)}
+                    onMenuOpen={props.onMenuOpen}
+                    onFocus={() => {
+                        setIsFocused(true);
+                        props.onFocus?.();
+                    }}
                     onBlur={() => setIsFocused(false)}
-                    menuPlacement="auto"
+                    menuPlacement={props.menuPlacement ?? "auto"}
+                    ref={props.selectRef}
                 />
                 <Paragraph className={classesInputBlock.labelNote}>{props.noteAfterInput}</Paragraph>
                 <ErrorMessages id={errorID} errors={props.errors} />
@@ -105,6 +131,10 @@ export default function SelectOne(props: ISelectOneProps) {
         </div>
     );
 }
+
+SelectOne.defaultProps = {
+    isClearable: true,
+};
 
 /**
  * Hook to create react-select override props.
@@ -119,6 +149,9 @@ function useOverrideProps(props: ISelectOneProps) {
             ValueContainer: function CustomValueContainer(localProps) {
                 return <selectOverrides.ValueContainer {...localProps} className={inputClassName} />;
             },
+            DropdownIndicator: function CustomDropdownIndicator(localProps) {
+                return <selectOverrides.DropdownIndicator {...localProps} />;
+            },
             NoOptionsMessage: noOptionsMessage || selectOverrides.NoOptionsMessage,
             LoadingMessage: selectOverrides.OptionLoader,
         };
@@ -127,7 +160,7 @@ function useOverrideProps(props: ISelectOneProps) {
     const customStyles = useMemo(() => {
         return {
             option: () => ({}),
-            menu: base => {
+            menu: (base) => {
                 return { ...base, backgroundColor: null, boxShadow: null };
             },
             control: () => ({
@@ -137,7 +170,7 @@ function useOverrideProps(props: ISelectOneProps) {
     }, []);
 
     // Overwrite theme in Select component
-    const getTheme = useCallback(theme => {
+    const getTheme = useCallback((theme) => {
         return {
             ...theme,
             borderRadius: {},

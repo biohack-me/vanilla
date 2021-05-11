@@ -31,7 +31,7 @@ class UserController extends DashboardController {
      * Configure the controller.
      *
      * @param ConfigurationInterface $config
-     * @param Gdn_UserModel $userModel
+     * @param UserModel $userModel
      */
     public function __construct(ConfigurationInterface $config = null, UserModel $userModel = null) {
         $this->config = $config instanceof ConfigurationInterface ? $config : Gdn::getContainer()->get(ConfigurationInterface::class);
@@ -57,10 +57,8 @@ class UserController extends DashboardController {
     /**
      * User management list.
      *
-     * @since 2.0.0
-     * @access public
-     * @param mixed $keywords Term or array of terms to filter list of users.
-     * @param int $page Page number.
+     * @param string|string[] $keywords Term or array of terms to filter list of users.
+     * @param string $page Page number.
      * @param string $order Sort order for list.
      */
     public function index($keywords = '', $page = '', $order = '') {
@@ -116,9 +114,19 @@ class UserController extends DashboardController {
         $filter['Optimize'] = Gdn::userModel()->pastUserThreshold();
 
         // Sorting
-        if (in_array($order, ['DateInserted', 'DateFirstVisit', 'DateLastActive'])) {
+        $allowedSorting = [
+            'Name' => 'asc',
+            'DateInserted' => 'desc',
+            'DateFirstVisit' => 'desc',
+            'DateLastActive' => 'desc'
+        ];
+
+        $eventManager = Gdn::getContainer()->get(\Garden\EventManager::class);
+        $allowedSorting = $eventManager->fireFilter('userController_usersListAllowedSorting', $allowedSorting);
+
+        if (isset($allowedSorting[$order])) {
+            $orderDir = $allowedSorting[$order];
             $order = 'u.'.$order;
-            $orderDir = 'desc';
         } else {
             $order = 'u.Name';
             $orderDir = 'asc';
@@ -142,7 +150,7 @@ class UserController extends DashboardController {
                 $this->setData('_CurrentRecords', 0);
                 if (!Gdn::userModel()->pastUserMegaThreshold()) {
                     // Restoring this semi-optimized counter is our compromise to let non-mega sites know their exact total users.
-                    $this->setData('UserCount', $userModel->getCount());
+                    $this->setData('UserCount', $userModel->getCount(['Deleted' => 0]));
                 } else {
                     // Dang, yo. Get a table status guess instead of really counting.
                     $this->setData('UserEstimate', Gdn::userModel()->countEstimate());
@@ -176,6 +184,7 @@ class UserController extends DashboardController {
         $this->addJsFile('user.js');
         $this->title(t('Add User'));
         $this->setHighlightRoute('dashboard/user');
+        Gdn_Theme::section('Moderation');
 
         $roleModel = new RoleModel();
         $roleData = $roleModel->getAssignable();
@@ -237,6 +246,9 @@ class UserController extends DashboardController {
             $this->Form->addError($ex);
             $this->Form->clearInputs();
         }
+
+        $this->addDefinition('ApprovedTranslation', t('Approved'));
+        $this->addDefinition('DeniedTranslation', t('Denied'));
 
         $this->setData('UserRoles', $userRoleData);
         $this->render('edit', 'user');
@@ -389,8 +401,7 @@ class UserController extends DashboardController {
     /**
      * Ban a user and optionally delete their content.
      *
-     * @since 2.1
-     * @param type $userID
+     * @param int $userID
      */
     public function ban($userID, $unban = false) {
         $this->permission(['Garden.Moderation.Manage', 'Garden.Users.Edit', 'Moderation.Users.Ban'], false);
@@ -400,14 +411,13 @@ class UserController extends DashboardController {
             throw notFoundException($user);
         }
 
-        $userModel = Gdn::userModel();
 
-        // Block banning the super admin or system accounts.
-        $user = $userModel->getID($userID);
-        if (val('Admin', $user) == 2) {
-            throw forbiddenException("@You may not ban a system user.");
-        } elseif (val('Admin', $user)) {
-            throw forbiddenException("@You may not ban a super admin.");
+        $userPermissions = $this->userModel->getPermissions($userID);
+        $rankCompare = Gdn::session()->getPermissions()->compareRankTo($userPermissions);
+        if ($rankCompare < 0) {
+            throw forbiddenException('@'.t('You are not allowed to ban a user that has higher permissions than you.'));
+        } elseif ($rankCompare === 0) {
+            throw forbiddenException('@'.t('You are not allowed to ban a user with the same permission level as you.'));
         }
 
         // Is the user banned for other reasons?
@@ -416,7 +426,7 @@ class UserController extends DashboardController {
 
         if ($this->Form->authenticatedPostBack(true)) {
             if ($unban) {
-                $userModel->unban($userID, ['RestoreContent' => $this->Form->getFormValue('RestoreContent')]);
+                $this->userModel->unban($userID, ['RestoreContent' => $this->Form->getFormValue('RestoreContent')]);
             } else {
                 if (!validateRequired($this->Form->getFormValue('Reason'))) {
                     $this->Form->addError('ValidateRequired', 'Reason');
@@ -434,7 +444,7 @@ class UserController extends DashboardController {
 
                     // Just because we're banning doesn't mean we can nuke their content
                     $deleteContent = (checkPermission('Garden.Moderation.Manage')) ? $this->Form->getFormValue('DeleteContent') : false;
-                    $userModel->ban($userID, ['Reason' => $reason, 'DeleteContent' => $deleteContent]);
+                    $this->userModel->ban($userID, ['Reason' => $reason, 'DeleteContent' => $deleteContent]);
                 }
             }
 
@@ -464,10 +474,8 @@ class UserController extends DashboardController {
     /**
      * Page thru user list.
      *
-     * @since 2.0.0
-     * @access public
-     * @param mixed $keywords Term or list of terms to limit search.
-     * @param int $page Page number.
+     * @param string|string[] $keywords Term or list of terms to limit search.
+     * @param string $page Page number.
      * @param string $order Sort order.
      */
     public function browse($keywords = '', $page = '', $order = '') {
@@ -514,6 +522,7 @@ class UserController extends DashboardController {
             trigger_error(errorMessage("You cannot delete the user you are logged in as.", $this->ClassName, 'FetchViewLocation'), E_USER_ERROR);
         }
         $this->setHighlightRoute('dashboard/user');
+        Gdn_Theme::section('Moderation');
         $this->title(t('Delete User'));
 
         $roleModel = new RoleModel();
@@ -536,9 +545,7 @@ class UserController extends DashboardController {
             $this->EventArguments['RoleData'] = &$this->RoleData;
 
             $userRoleData = $userModel->getRoles($userID)->resultArray();
-            $roleIDs = array_column($userRoleData, 'RoleID');
-            $roleNames = array_column($userRoleData, 'Name');
-            $this->UserRoleData = arrayCombine($roleIDs, $roleNames);
+            $this->UserRoleData = array_column($userRoleData, 'Name', 'RoleID');
             $this->EventArguments['UserRoleData'] = &$this->UserRoleData;
 
             $this->fireEvent("BeforeUserDelete");
@@ -552,7 +559,10 @@ class UserController extends DashboardController {
             }
 
             if ($this->Form->authenticatedPostBack(true) && $method != '') {
-                $userModel->deleteID($userID, ['DeleteMethod' => $method]);
+                $userModel->deleteID(
+                    $userID,
+                    ['DeleteMethod' => $method, 'DeleteModerationInfo' => $this->Form->getFormValue('DeleteModerationInfo')]
+                );
                 $this->View = 'deletecomplete';
             }
 
@@ -640,6 +650,7 @@ class UserController extends DashboardController {
         $this->addJsFile('user.js');
         $this->title(t('Edit User'));
         $this->setHighlightRoute('dashboard/user');
+        Gdn_Theme::section('Moderation');
 
         // Only admins can reassign roles
         $roleModel = new RoleModel();
@@ -695,9 +706,7 @@ class UserController extends DashboardController {
             $this->EventArguments['RoleData'] = &$roleData;
 
             $userRoleData = $userModel->getRoles($userID)->resultArray();
-            $roleIDs = array_column($userRoleData, 'RoleID');
-            $roleNames = array_column($userRoleData, 'Name');
-            $userRoleData = arrayCombine($roleIDs, $roleNames);
+            $userRoleData = array_column($userRoleData, 'Name', 'RoleID');
             $this->EventArguments['UserRoleData'] = &$userRoleData;
 
             $this->fireEvent("BeforeUserEdit");

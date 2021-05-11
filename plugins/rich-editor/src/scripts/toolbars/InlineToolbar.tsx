@@ -167,19 +167,9 @@ export class InlineToolbar extends React.PureComponent<IProps, IState> {
      */
     public componentDidMount() {
         this.quill.root.addEventListener("keydown", this.escFunction, false);
+        this.quill.root.addEventListener("keydown", this.commandKHandler, false);
         this.focusWatcher = new FocusWatcher(this.selfRef.current!, this.handleFocusChange);
         this.focusWatcher.start();
-
-        // Add a key binding for the link popup.
-        const keyboard: Keyboard = this.quill.getModule("keyboard");
-        keyboard.addBinding(
-            {
-                key: "k",
-                metaKey: true,
-            },
-            {},
-            this.commandKHandler,
-        );
     }
 
     /**
@@ -187,20 +177,29 @@ export class InlineToolbar extends React.PureComponent<IProps, IState> {
      */
     public componentWillUnmount() {
         this.quill.root.removeEventListener("keydown", this.escFunction, false);
+        this.quill.root.removeEventListener("keydown", this.commandKHandler, false);
         this.focusWatcher.stop();
     }
 
     /**
      * Track the menu's focus state.
      */
-    private handleFocusChange = hasFocus => {
+    private handleFocusChange = (hasFocus) => {
         this.setState({ menuHasFocus: hasFocus });
     };
 
     /**
      * Handle create-link keyboard shortcut.
      */
-    private commandKHandler = () => {
+    private commandKHandler = (e: KeyboardEvent) => {
+        if (e.key !== "k" || !e.metaKey) {
+            return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
         const { lastGoodSelection } = this.props;
         const inCodeBlock = rangeContainsBlot(this.quill, CodeBlockBlot, lastGoodSelection);
 

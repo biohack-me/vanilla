@@ -12,18 +12,18 @@ import { IWithEditorProps } from "@rich-editor/editor/context";
 import { withEditor } from "@rich-editor/editor/withEditor";
 import { richEditorFlyoutClasses } from "@rich-editor/flyouts/pieces/flyoutClasses";
 import { richEditorClasses } from "@rich-editor/editor/richEditorStyles";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 
 interface IState {
     id: string;
-    descriptionID?: string;
+    descriptionID: string;
     titleID: string;
 }
 
 interface IProps extends IWithEditorProps {
     id: string;
     titleID: string;
-    descriptionID?: string;
+    descriptionID: string;
     title: string;
     accessibleDescription?: string;
     isVisible: boolean;
@@ -112,7 +112,7 @@ export class Flyout extends React.Component<IProps, IState> {
                     {screenReaderDescription}
 
                     <CloseButton
-                        baseClass={ButtonTypes.ICON}
+                        buttonType={ButtonTypes.ICON}
                         onClick={this.props.onCloseClick}
                         className={classNames("richEditor-close", classesRichEditor.close)}
                     />

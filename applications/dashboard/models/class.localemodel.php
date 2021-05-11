@@ -8,6 +8,8 @@
  * @since 2.0
  */
 
+use Vanilla\Utility\ArrayUtils;
+
 /**
  * Used to manage adding/removing different locale files.
  */
@@ -114,20 +116,26 @@ class LocaleModel {
      */
     public function enabledLocalePacks($getInfo = false) {
         $result = (array)c('EnabledLocales', []);
-
+        $translationDebug = c("TranslationDebug");
         if ($getInfo) {
+            $addonManager = \Gdn::addonManager();
             foreach ($result as $key => $locale) {
-                $infoPath = PATH_ROOT."/locales/$key/definitions.php";
-                if (file_exists($infoPath)) {
-                    $localeInfo = Gdn::pluginManager()->scanPluginFile($infoPath, 'LocaleInfo');
+                $addon = $addonManager->lookupLocale('vf_'.$locale);
+                if ($addon !== null) {
+                    $localeInfo = $addon->getInfo();
+                    $localeInfo = ArrayUtils::pascalCase($localeInfo);
                     $this->calculateLocaleInfo($localeInfo);
                     $result[$key] = $localeInfo;
                 } else {
                     unset($result[$key]);
                 }
+                if ($localeInfo['Debug'] ?? null) {
+                    if (!$translationDebug) {
+                        unset($result[$key]);
+                    }
+                }
             }
         }
-
         return $result;
     }
 
@@ -217,7 +225,6 @@ class LocaleModel {
      * Temporarily enable a locale pack without installing it/
      *
      * @param string $localeKey The key of the folder.
-     * @throws NotFoundException
      */
     public function testLocale($localeKey) {
         $available = $this->availableLocalePacks();

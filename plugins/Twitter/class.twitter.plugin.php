@@ -7,13 +7,18 @@
  * @package Twitter
  */
 
+use Vanilla\Web\CurlWrapper;
+
 /**
  * Class TwitterPlugin
  */
-class TwitterPlugin extends Gdn_Plugin {
+class TwitterPlugin extends SSOAddon {
 
     /** Authentication provider key. */
     const PROVIDER_KEY = 'Twitter';
+
+    /** AuthenticationSchemeAlias */
+    private const AUTHENTICATION_SCHEME = 'twitter';
 
     /** @var string Twitter's URL. */
     public static $BaseApiUrl = 'https://api.twitter.com/1.1/';
@@ -23,6 +28,15 @@ class TwitterPlugin extends Gdn_Plugin {
 
     /** @var string */
     protected $_RedirectUri = null;
+
+    /**
+     * Get the AuthenticationSchemeAlias value.
+     *
+     * @return string The AuthenticationSchemeAlias.
+     */
+    protected function getAuthenticationSchemeAlias(): string {
+        return self::AUTHENTICATION_SCHEME;
+    }
 
     /**
      * Gets/sets the current oauth access token.
@@ -282,11 +296,10 @@ class TwitterPlugin extends Gdn_Plugin {
         $request->sign_request($signatureMethod, $consumer, null);
 
         $curl = $this->_Curl($request, $params);
-        $response = curl_exec($curl);
+        $response = CurlWrapper::curlExec($curl, false);
         if ($response === false) {
             $response = curl_error($curl);
         }
-
         $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
         curl_close($curl);
 
@@ -410,7 +423,7 @@ class TwitterPlugin extends Gdn_Plugin {
         $post = $request->to_postdata();
 
         $curl = $this->_curl($request);
-        $response = curl_exec($curl);
+        $response = CurlWrapper::curlExec($curl, false);
         if ($response === false) {
             $response = curl_error($curl);
         }
@@ -473,7 +486,7 @@ class TwitterPlugin extends Gdn_Plugin {
             $post = $request->to_postdata();
 
             $curl = $this->_Curl($request);
-            $response = curl_exec($curl);
+            $response = CurlWrapper::curlExec($curl, false);
             if ($response === false) {
                 $response = curl_error($curl);
             }
@@ -593,13 +606,11 @@ class TwitterPlugin extends Gdn_Plugin {
         $curl = $this->_curl($request, $post);
         curl_setopt($curl, CURLINFO_HEADER_OUT, true);
 
-        $response = curl_exec($curl);
-        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-
+        $response = CurlWrapper::curlExec($curl, false);
         if ($response == false) {
             $response = curl_error($curl);
         }
-
+        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
         trace(curl_getinfo($curl, CURLINFO_HEADER_OUT));
         trace($response, 'Response');
 
@@ -838,7 +849,7 @@ class TwitterPlugin extends Gdn_Plugin {
         }
         $url = url("https://twitter.com/share?".http_build_query($params), true);
         $cssClass = 'ReactButton PopupWindow';
-        echo anchor(sprite('ReactTwitter', 'Sprite ReactSprite', t('Share on Twitter')), $url, $cssClass, ['rel' => 'nofollow']);
+        echo anchor(sprite('ReactTwitter', 'Sprite ReactSprite', t('Share on Twitter')), $url, $cssClass, ['rel' => 'nofollow', 'role' => 'button']);
     }
 
     /**
@@ -895,7 +906,7 @@ class TwitterPlugin extends Gdn_Plugin {
         // Save the twitter provider type.
         Gdn::sql()->replace(
             'UserAuthenticationProvider',
-            ['AuthenticationSchemeAlias' => 'twitter', 'URL' => '...', 'AssociationSecret' => '...', 'AssociationHashMethod' => '...'],
+            ['AuthenticationSchemeAlias' => self::AUTHENTICATION_SCHEME, 'URL' => '...', 'AssociationSecret' => '...', 'AssociationHashMethod' => '...'],
             ['AuthenticationKey' => self::PROVIDER_KEY],
             true
         );

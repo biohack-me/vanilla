@@ -9,7 +9,6 @@ namespace Vanilla\Contracts\Formatting;
 
 use Vanilla\Formatting\Attachment;
 use Vanilla\Formatting\Exception\FormattingException;
-use Vanilla\Formatting\Heading;
 
 /**
  * An interface for rendering, filtering, and parsing user content.
@@ -44,7 +43,15 @@ interface FormatInterface {
     public function renderPlainText(string $content): string;
 
     /**
-     * Render a version of the content suitable to be quoted in other content.
+     * Calculate the length of content with formatting and metadata removed.
+     *
+     * @param string $content
+     * @return int
+     */
+    public function getPlainTextLength(string $content): int;
+
+    /**
+     * Render a version of the content   suitable to be quoted in other content.
      *
      * @param string $content The raw content to render.
      *
@@ -81,6 +88,24 @@ interface FormatInterface {
     public function parseHeadings(string $content): array;
 
     /**
+     * Parse images out of the post contents.
+     *
+     * @param string $content
+     *
+     * @return string[]
+     */
+    public function parseImageUrls(string $content): array;
+
+    /**
+     * Parse image data from post content.
+     *
+     * @param string $content
+     *
+     * @return array
+     */
+    public function parseImages(string $content): array;
+
+    /**
      * Parse out a list of usernames mentioned in the post contents.
      *
      * @param string $content The raw content to parse.
@@ -88,4 +113,9 @@ interface FormatInterface {
      * @return string[] A list of usernames.
      */
     public function parseMentions(string $content): array;
+
+    /**
+     * @param bool $extendContent
+     */
+    public function setAllowExtendedContent(bool $extendContent): void;
 }

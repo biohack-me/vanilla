@@ -5,24 +5,24 @@
  */
 
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import Frame from "@library/layout/frame/Frame";
 import FrameBody from "@library/layout/frame/FrameBody";
 import FrameFooter from "@library/layout/frame/FrameFooter";
 import FrameHeader from "@library/layout/frame/FrameHeader";
 import SmartAlign from "@library/layout/SmartAlign";
 import ButtonLoader from "@library/loaders/ButtonLoader";
-import Modal from "@library/modal/Modal";
+import LazyModal from "@library/modal/LazyModal";
 import ModalSizes from "@library/modal/ModalSizes";
 import { t } from "@library/utility/appUtils";
-import { getRequiredID } from "@library/utility/idUtils";
+import { getRequiredID, uniqueIDFromPrefix } from "@library/utility/idUtils";
 import classNames from "classnames";
 import React from "react";
 import { frameBodyClasses } from "@library/layout/frame/frameBodyStyles";
 import { frameFooterClasses } from "@library/layout/frame/frameFooterStyles";
 
 interface IProps {
-    title: string; // required for accessibility
+    title: React.ReactNode; // required for accessibility
     srOnlyTitle?: boolean;
     className?: string;
     onCancel?: (e: Event) => void;
@@ -30,47 +30,29 @@ interface IProps {
     confirmTitle?: string;
     children: React.ReactNode;
     isConfirmLoading?: boolean;
-    elementToFocusOnExit: HTMLElement;
+    isConfirmDisabled?: boolean;
+    elementToFocusOnExit?: HTMLElement;
     size?: ModalSizes;
-}
-
-interface IState {
-    cancelled: boolean;
+    isVisible: boolean;
 }
 
 /**
  * Basic confirm dialogue.
  */
-export default class ModalConfirm extends React.Component<IProps, IState> {
-    public static defaultProps: Partial<IProps> = {
-        srOnlyTitle: false,
-        confirmTitle: t("OK"),
-    };
-
-    private cancelRef;
-    private id;
-    public state: IState = {
-        cancelled: false,
-    };
-
-    constructor(props) {
-        super(props);
-        this.id = getRequiredID(props, "confirmModal");
-        this.cancelRef = React.createRef();
-    }
+export default class ModalConfirm extends React.Component<IProps> {
+    private cancelRef = React.createRef<HTMLButtonElement>();
+    private id = uniqueIDFromPrefix("confirmModal");
 
     public render() {
-        if (this.state.cancelled) {
-            return null;
-        }
-        const { onConfirm, srOnlyTitle, isConfirmLoading, title, children, size } = this.props;
+        const { onConfirm, srOnlyTitle, isConfirmLoading, isConfirmDisabled, title, children, size } = this.props;
         const onCancel = this.handleCancel;
         const classesFrameBody = frameBodyClasses();
         const classFrameFooter = frameFooterClasses();
         return (
-            <Modal
+            <LazyModal
+                isVisible={this.props.isVisible}
                 size={size ? size : ModalSizes.SMALL}
-                elementToFocus={this.cancelRef.current}
+                elementToFocus={this.cancelRef.current as HTMLElement}
                 exitHandler={onCancel}
                 titleID={this.titleID}
                 elementToFocusOnExit={this.props.elementToFocusOnExit}
@@ -95,7 +77,7 @@ export default class ModalConfirm extends React.Component<IProps, IState> {
                         <FrameFooter justifyRight={true}>
                             <Button
                                 className={classFrameFooter.actionButton}
-                                baseClass={ButtonTypes.TEXT}
+                                buttonType={ButtonTypes.TEXT}
                                 buttonRef={this.cancelRef}
                                 onClick={onCancel}
                             >
@@ -104,20 +86,19 @@ export default class ModalConfirm extends React.Component<IProps, IState> {
                             <Button
                                 className={classFrameFooter.actionButton}
                                 onClick={onConfirm}
-                                baseClass={ButtonTypes.TEXT_PRIMARY}
-                                disabled={isConfirmLoading}
+                                buttonType={ButtonTypes.TEXT_PRIMARY}
+                                disabled={isConfirmLoading || isConfirmDisabled}
                             >
-                                {isConfirmLoading ? <ButtonLoader /> : this.props.confirmTitle}
+                                {isConfirmLoading ? <ButtonLoader /> : this.props.confirmTitle || t("OK")}
                             </Button>
                         </FrameFooter>
                     }
                 />
-            </Modal>
+            </LazyModal>
         );
     }
 
-    private handleCancel = e => {
-        this.setState({ cancelled: true });
+    private handleCancel = (e) => {
         this.props.onCancel && this.props.onCancel(e);
     };
 

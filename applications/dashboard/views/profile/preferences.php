@@ -1,4 +1,6 @@
-<?php if (!defined('APPLICATION')) exit(); ?>
+<?php use Vanilla\Theme\BoxThemeShim;
+
+if (!defined('APPLICATION')) exit(); ?>
 <style>
     table.PreferenceGroup {
         width: 500px;
@@ -23,18 +25,20 @@
         text-align: center;
     }
 
-    table.PreferenceGroup tbody tr:hover td {
-        background: #efefef;
-    }
+    <?php if (!c("Feature.DataDrivenTheme.Enabled")){
+      echo "table.PreferenceGroup tbody tr:hover td {background: #efefef;}";
+    }?>
 
     .Info {
         width: 486px;
     }
 </style>
 <div class="FormTitleWrapper">
+    <?php BoxThemeShim::startHeading(); ?>
     <h1 class="H"><?php echo $this->data('Title'); ?></h1>
+    <?php BoxThemeShim::endHeading(); ?>
 
-    <div class="Preferences">
+    <div class="Preferences pageBox">
         <?php
         echo $this->Form->open();
         echo $this->Form->errors();
@@ -81,12 +85,12 @@
                 foreach ($Preferences as $Event => $Settings) {
                     $RowHasConfigValues = false;
                     $ColumnsMarkup = '';
+                    $rowID = \Vanilla\Utility\HtmlUtils::uniqueElementID('rowLabel');
                     // Loop through all means of notification.
                     foreach ($PreferenceTypes as $NotificationType) {
                         if ($NotificationType === 'Email' && c('Garden.Email.Disabled')) {
                             continue;
                         }
-
                         $ConfigPreference = c('Preferences.'.$NotificationType.'.'.$Event, 0);
                         $preferenceDisabled = ($ConfigPreference === false || $ConfigPreference == 2);
 
@@ -95,7 +99,7 @@
                             $ColumnsMarkup .= wrap('&nbsp;', 'td', ['class' => 'PrefCheckBox']);
                         } else {
                             // Everything's fine, show checkbox.
-                            $checkbox = $this->Form->checkBox($NotificationType.'.'.$Event, '', ['value' => '1']);
+                            $checkbox = $this->Form->checkBox($NotificationType.'.'.$Event, '', ['value' => '1', 'aria-label' => $NotificationType, 'aria-describedby' => $rowID]);
                             $ColumnsMarkup .= wrap(
                                 $checkbox,
                                 'td',
@@ -122,7 +126,8 @@
                             'td',
                             [
                                 'class' => 'Description',
-                                'headers' => "{$Header}NotificationHeader"
+                                'headers' => "{$Header}NotificationHeader",
+                                'id' => $rowID,
                             ]
                         );
                         echo $ColumnsMarkup;

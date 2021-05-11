@@ -67,6 +67,9 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
     /** @var array Format option overrides. */
     private $formatOptions = [];
 
+    /** @var string use for translationDebug */
+    private $fallBackDecorator = "";
+
     /**
      * Initialize a new instance of the {@link Gdn_Configuration} class.
      *
@@ -106,7 +109,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
      * @param string|bool $value The value of the option you want to update.
      */
     public function setFormatOption($formatOption, $value) {
-        $allowedOptions = ['VariableName', 'WrapPHP', 'SafePHP', 'Headings', 'ByLine', 'FormatStyle'];
+        $allowedOptions = ['VariableName', 'WrapPHP', 'SafePHP', 'Headings', 'FormatStyle'];
 
         if (in_array($formatOption, $allowedOptions)) {
             $this->formatOptions[$formatOption] = $value;
@@ -271,14 +274,12 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
             'WrapPHP' => true,
             'SafePHP' => true,
             'Headings' => true,
-            'ByLine' => true,
             'FormatStyle' => 'Array'
         ];
         $options = array_merge($defaults, $options);
         $variableName = val('VariableName', $options);
         $wrapPHP = val('WrapPHP', $options, true);
         $safePHP = val('SafePHP', $options, true);
-        $byLine = val('ByLine', $options, false);
         $headings = val('Headings', $options, true);
         $formatStyle = val('FormatStyle', $options);
         $formatter = "Format{$formatStyle}Assignment";
@@ -318,13 +319,6 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
             $formatter($lines, $prefix, $value);
         }
 
-        if ($byLine) {
-            $session = Gdn::session();
-            $user = $session->UserID > 0 && is_object($session->User) ? $session->User->Name : 'Unknown';
-            $lines[] = '';
-            self::formatComment('Last edited by '.$user.' ('.remoteIp().') '.Gdn_Format::toDateTime(), $lines);
-        }
-
         $result = implode(PHP_EOL, $lines);
         return $result;
     }
@@ -352,23 +346,23 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
     /**
      * Gets a setting from the configuration array. Returns $defaultValue if the value isn't found.
      *
-     * @param string $name The name of the configuration setting to get. If the setting is contained
+     * @param string $key The name of the configuration setting to get. If the setting is contained
      * within an associative array, use dot denomination to get the setting. ie.
      * <code>$this->get('Database.Host')</code> would retrieve <code>$Configuration[$Group]['Database']['Host']</code>.
      * @param mixed $defaultValue If the parameter is not found in the group, this value will be returned.
      * @return mixed The configuration value.
      */
-    public function get($name, $defaultValue = false) {
+    public function get($key, $defaultValue = false) {
         // Shortcut, get the whole config
-        if ($name == '.') {
+        if ($key == '.') {
             return $this->Data;
         }
 
-        if (!is_string($name)) {
-            Deprecation::unsupportedParam('$name', $name, "Only string parameters are allowed.");
+        if (!is_string($key)) {
+            Deprecation::unsupportedParam('$name', $key, "Only string parameters are allowed.");
         }
 
-        $keys = $this->splitConfigKey((string) $name);
+        $keys = $this->splitConfigKey((string) $key);
         $keyCount = count($keys);
 
         $value = $this->Data;
@@ -376,6 +370,9 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
             if (is_array($value) && array_key_exists($keys[$i], $value)) {
                 $value = $value[$keys[$i]];
             } else {
+                if ($this->fallBackDecorator ?? false) {
+                    $defaultValue =  $this->fallBackDecorator . $defaultValue . $this->fallBackDecorator;
+                }
                 return $defaultValue;
             }
         }
@@ -418,7 +415,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
      *
      * @param string $type 'file' or 'string'
      * @param string $identifier filename or string tag
-     * @return ConfigurationSource
+     * @return Gdn_ConfigurationSource
      */
     public function getSource($type, $identifier) {
         $sourceTag = "{$type}:{$identifier}";
@@ -438,7 +435,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
      *   $Configuration[$Group]['Database']['Host'] = $value
      * @param mixed $value The value of the configuration setting.
      * @param boolean $overwrite If the setting already exists, should it's value be overwritten? Defaults to true.
-     * @param boolean $AddToSave Whether or not to queue the value up for the next call to Gdn_Config::save().
+     * @param boolean $save Whether or not to queue the value up for the next call to Gdn_Config::save().
      */
     public function set($name, $value, $overwrite = true, $save = true) {
         // Make sure the config settings are in the right format
@@ -691,7 +688,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
      *
      * NOTE: ONLY WORKS WHEN SPLITTING IS OFF!
      *
-     * @param type $data
+     * @param array $data
      */
     public function massImport($data) {
         if ($this->splitting) {
@@ -834,7 +831,6 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
         $fileContents = $this->format($data, [
             'VariableName' => $group,
             'Headers' => true,
-            'ByLine' => true,
             'WrapPHP' => true
         ]);
 
@@ -883,12 +879,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
     }
 
     /**
-     *
-     *
-     * @param $name
-     * @param string $value
-     * @param array $options
-     * @return bool|int
+     * @inheritdoc
      */
     public function saveToConfig($name, $value = '', $options = []) {
         $save = $options === false ? false : val('Save', $options, true);
@@ -938,7 +929,16 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
     }
 
     /**
+     * Set a fallback decorator.
      *
+     * @param string $decorator
+     */
+    public function setFallbackDecorator(string $decorator) {
+        $this->fallBackDecorator = $decorator;
+    }
+
+    /**
+     * Shutdown.
      */
     public function shutdown() {
         foreach ($this->sources as $source) {
@@ -947,29 +947,7 @@ class Gdn_Configuration extends Gdn_Pluggable implements \Vanilla\Contracts\Conf
     }
 
     /**
-     * Takes a serialized variable and unserializes it back into its original state.
-     *
-     * @param string $serializedString A json or php serialized string to be unserialized.
-     * @return mixed
-     * @deprecated
-     */
-    private static function unserialize($serializedString) {
-        $result = $serializedString;
-
-        if (is_string($serializedString)) {
-            if (substr_compare('a:', $serializedString, 0, 2) === 0 || substr_compare('O:', $serializedString, 0, 2) === 0) {
-                $result = unserialize($serializedString, ['allowed_classes' => false]);
-            } elseif (substr_compare('obj:', $serializedString, 0, 4) === 0) {
-                $result = json_decode(substr($serializedString, 4), false);
-            } elseif (substr_compare('arr:', $serializedString, 0, 4) === 0) {
-                $result = json_decode(substr($serializedString, 4), true);
-            }
-        }
-        return $result;
-    }
-
-    /**
-     *
+     * Destruct.
      */
     public function __destruct() {
         if ($this->autoSave) {

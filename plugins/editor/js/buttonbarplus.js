@@ -690,12 +690,10 @@
                         var multiline = $(TextArea).hasSelection().indexOf('\n') >= 0;
                         if (multiline) {
                             var thisOpts = $.extend(markdownOpts, {
-                                prefix: '    ',
-                                opentag: '',
-                                closetag: '',
-                                opener: '',
-                                closer: ''
+                                opentag: '```\n',
+                                closetag: '\n```'
                             });
+
                             $(TextArea).insertRoundTag('', thisOpts);
                         } else {
                             $(TextArea).insertRoundTag('`', markdownOpts);
@@ -771,7 +769,7 @@
                                         : GuessText;
 
                                     $(TextArea).focus();
-                                    $(TextArea).replaceSelectedText('[' + CurrentSelectText + '](' + val + ' "' + CurrentSelectText + '")', 'select');
+                                    $(TextArea).replaceSelectedText('[' + CurrentSelectText + '](' + val + ')', 'select');
 
                                     // Close dropdowns
                                     $('.editor-dialog-fire-close').trigger('mouseup.fireclose');

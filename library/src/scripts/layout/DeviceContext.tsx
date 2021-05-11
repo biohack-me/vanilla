@@ -5,10 +5,13 @@
  */
 
 import { Optionalize } from "@library/@types/utils";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
 import throttle from "lodash/throttle";
 import React, { useCallback, useContext, useEffect, useState } from "react";
 
+/**
+ * @deprecated get Devices from LayoutContext
+ */
 export enum Devices {
     XS = "xs",
     MOBILE = "mobile",
@@ -21,9 +24,15 @@ export interface IDeviceProps {
     device: Devices;
 }
 
+/**
+ * @deprecated get Devices from LayoutContext
+ */
 const DeviceContext = React.createContext<Devices>(Devices.DESKTOP);
 export default DeviceContext;
 
+/**
+ * @deprecated use LayoutContext
+ */
 export function useDevice() {
     const device = useContext(DeviceContext);
     return device;
@@ -33,9 +42,12 @@ interface IProps {
     children: React.ReactNode;
 }
 
+/**
+ * @deprecated get Devices from LayoutContext
+ */
 export function DeviceProvider(props: IProps) {
     const calculateDevice = useCallback(() => {
-        const breakpoints = layoutVariables().panelLayoutBreakPoints;
+        const breakpoints = panelLayoutVariables().panelLayoutBreakPoints;
         const width = document.body.clientWidth;
         if (width <= breakpoints.xs) {
             return Devices.XS;
@@ -66,17 +78,17 @@ export function DeviceProvider(props: IProps) {
 
 /**
  * HOC to inject DeviceContext as props.
- *
  * @param WrappedComponent - The component to wrap
+ * @deprecated get Devices from LayoutContext
  */
 export function withDevice<T extends IDeviceProps = IDeviceProps>(WrappedComponent: React.ComponentType<T>) {
     const displayName = WrappedComponent.displayName || WrappedComponent.name || "Component";
     const ComponentWithDevice = (props: Optionalize<T, IDeviceProps>) => {
         return (
             <DeviceContext.Consumer>
-                {context => {
+                {(context) => {
                     // https://github.com/Microsoft/TypeScript/issues/28938
-                    return <WrappedComponent device={context} {...props as T} />;
+                    return <WrappedComponent device={context} {...(props as any)} />;
                 }}
             </DeviceContext.Consumer>
         );

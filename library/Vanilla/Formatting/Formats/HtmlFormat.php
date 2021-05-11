@@ -7,22 +7,23 @@
 
 namespace Vanilla\Formatting\Formats;
 
-use Garden\StaticCacheTranslationTrait;
-use Vanilla\Contracts\Formatting\FormatInterface;
+use Exception;
 use Vanilla\Formatting\BaseFormat;
 use Vanilla\Formatting\Exception\FormattingException;
-use Vanilla\Formatting\Heading;
+use Vanilla\Formatting\Html\HtmlDocument;
 use Vanilla\Formatting\Html\HtmlEnhancer;
 use Vanilla\Formatting\Html\HtmlPlainTextConverter;
 use Vanilla\Formatting\Html\HtmlSanitizer;
-use Vanilla\Formatting\Html\LegacySpoilerTrait;
+use Vanilla\Formatting\Html\Processor\AttachmentHtmlProcessor;
+use Vanilla\Formatting\Html\Processor\HeadingHtmlProcessor;
+use Vanilla\Formatting\Html\Processor\ImageHtmlProcessor;
+use Vanilla\Formatting\Html\Processor\UserContentCssProcessor;
+use Vanilla\InjectableInterface;
 
 /**
  * Format definition for HTML based formats.
  */
-class HtmlFormat extends BaseFormat {
-
-    use StaticCacheTranslationTrait;
+class HtmlFormat extends BaseFormat implements InjectableInterface {
 
     const FORMAT_KEY = "html";
 
@@ -38,6 +39,18 @@ class HtmlFormat extends BaseFormat {
     /** @var HtmlPlainTextConverter */
     private $plainTextConverter;
 
+    /** @var HeadingHtmlProcessor */
+    private $headingHtmlProcessor;
+
+    /** @var AttachmentHtmlProcessor */
+    private $attachmentHtmlProcessor;
+
+    /** @var ImageHtmlProcessor */
+    private $imageHtmlProcessor;
+
+    /** @var bool allowExtendedContent */
+    protected $allowExtendedContent;
+
     /**
      * Constructor for dependency injection.
      *
@@ -45,24 +58,49 @@ class HtmlFormat extends BaseFormat {
      * @param HtmlEnhancer $htmlEnhancer
      * @param HtmlPlainTextConverter $plainTextConverter
      * @param bool $shouldCleanupLineBreaks
+     * @param bool $allowExtendedContent
      */
     public function __construct(
         HtmlSanitizer $htmlSanitizer,
         HtmlEnhancer $htmlEnhancer,
         HtmlPlainTextConverter $plainTextConverter,
-        bool $shouldCleanupLineBreaks = true
+        bool $shouldCleanupLineBreaks = true,
+        bool $allowExtendedContent = false
     ) {
         $this->htmlSanitizer = $htmlSanitizer;
         $this->htmlEnhancer = $htmlEnhancer;
         $this->plainTextConverter = $plainTextConverter;
         $this->shouldCleanupLineBreaks = $shouldCleanupLineBreaks;
+        $this->allowExtendedContent = $allowExtendedContent;
+    }
+
+    /**
+     * Dependency injection.
+     *
+     * @param AttachmentHtmlProcessor $attachmentHtmlProcessor
+     * @param HeadingHtmlProcessor $headingHtmlProcessor
+     * @param ImageHtmlProcessor $imageHtmlProcessor
+     * @param UserContentCssProcessor $userContentCssProcessor
+
+     */
+    public function setDependencies(
+        AttachmentHtmlProcessor $attachmentHtmlProcessor,
+        HeadingHtmlProcessor $headingHtmlProcessor,
+        ImageHtmlProcessor $imageHtmlProcessor,
+        UserContentCssProcessor $userContentCssProcessor
+    ) {
+        $this->attachmentHtmlProcessor = $attachmentHtmlProcessor;
+        $this->headingHtmlProcessor = $headingHtmlProcessor;
+        $this->imageHtmlProcessor = $imageHtmlProcessor;
+        $this->addHtmlProcessor($headingHtmlProcessor);
+        $this->addHtmlProcessor($userContentCssProcessor);
     }
 
     /**
      * @inheritdoc
      */
     public function renderHtml(string $content, bool $enhance = true): string {
-        $result = $this->htmlSanitizer->filter($content);
+        $result = $this->htmlSanitizer->filter($content, $this->allowExtendedContent);
 
         if ($this->shouldCleanupLineBreaks) {
             $result = self::cleanupLineBreaks($result);
@@ -71,8 +109,10 @@ class HtmlFormat extends BaseFormat {
         $result = $this->legacySpoilers($result);
 
         if ($enhance) {
-            $result = $this->htmlEnhancer->enhance($result);
+            $result = $this->htmlEnhancer->enhance($result, true, !c('Garden.Format.DisableUrlEmbeds', false));
         }
+
+        $result = $this->applyHtmlProcessors($result);
         return $result;
     }
 
@@ -98,6 +138,7 @@ class HtmlFormat extends BaseFormat {
 
         // No Embeds
         $result = $this->htmlEnhancer->enhance($result, true, false);
+        $result = $this->applyHtmlProcessors($result);
         return $result;
     }
 
@@ -107,7 +148,7 @@ class HtmlFormat extends BaseFormat {
     public function filter(string $content): string {
         try {
             $this->renderHtml($content);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Rethrow as a formatting exception with exception chaining.
             throw new FormattingException($e->getMessage(), 500, $e);
         }
@@ -118,7 +159,8 @@ class HtmlFormat extends BaseFormat {
      * @inheritdoc
      */
     public function parseAttachments(string $content): array {
-        return [];
+        $document = new HtmlDocument($content);
+        return $this->attachmentHtmlProcessor->getAttachments($document);
     }
 
     /**
@@ -126,38 +168,26 @@ class HtmlFormat extends BaseFormat {
      */
     public function parseHeadings(string $content): array {
         $rendered = $this->renderHtml($content);
-        $dom = new \DOMDocument();
-        @$dom->loadHTML($rendered);
+        $document = new HtmlDocument($rendered);
+        return $this->headingHtmlProcessor->getHeadings($document);
+    }
 
-        $xpath = new \DOMXPath($dom);
-        $domHeadings = $xpath->query('.//*[self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6]');
+    /**
+     * @inheritdoc
+     */
+    public function parseImageUrls(string $content): array {
+        $rendered = $this->renderHtml($content, false);
+        $document = new HtmlDocument($rendered);
+        return $this->imageHtmlProcessor->getImageURLs($document);
+    }
 
-        /** @var Heading[] $headings */
-        $headings = [];
-
-        // Mapping of $key => $usageCount.
-        $slugKeyCache = [];
-
-        /** @var \DOMNode $domHeading */
-        foreach ($domHeadings as $domHeading) {
-            $level = (int) str_replace('h', '', $domHeading->tagName);
-
-            $text = $domHeading->textContent;
-            $slug = slugify($text);
-            $count = $slugKeyCache[$slug] ?? 0;
-            $slugKeyCache[$slug] = $count + 1;
-            if ($count > 0) {
-                $slug .= '-' . $count;
-            }
-
-            $headings[] = new Heading(
-                $domHeading->textContent,
-                $level,
-                $slug
-            );
-        }
-
-        return $headings;
+    /**
+     * @inheritdoc
+     */
+    public function parseImages(string $content): array {
+        $rendered = $this->renderHtml($content, false);
+        $document = new HtmlDocument($rendered);
+        return $this->imageHtmlProcessor->getImages($document);
     }
 
     /**
@@ -168,6 +198,7 @@ class HtmlFormat extends BaseFormat {
         // This should get replaced in a future refactoring.
         return getMentions($content);
     }
+
 
     const BLOCK_WITH_OWN_WHITESPACE =
         "(?:table|dl|ul|ol|pre|blockquote|address|p|h[1-6]|" .
@@ -211,7 +242,7 @@ class HtmlFormat extends BaseFormat {
      * @return string
      */
     protected function legacySpoilers(string $html): string {
-        if (strpos($html, '[/spoiler]') !== false) {
+        if ($this->hasLegacySpoilers($html) !== false) {
             $count = 0;
             do {
                 $html = preg_replace(
@@ -224,5 +255,25 @@ class HtmlFormat extends BaseFormat {
             } while ($count > 0);
         }
         return $html;
+    }
+
+    /**
+     * Test whether a bit of HTML has legacy spoilers.
+     *
+     * @param string $html The HTML to test.
+     * @return bool
+     */
+    private function hasLegacySpoilers(string $html): bool {
+        // Check for an inline spoiler.
+        if (preg_match('`(\[spoiler\])[^\n]+(\[\/spoiler\])`', $html)) {
+            return true;
+        }
+
+        // Check for a multi-line spoiler.
+        if (preg_match('`^\[\/?spoiler\]$`m', $html, $m)) {
+            return true;
+        }
+
+        return false;
     }
 }

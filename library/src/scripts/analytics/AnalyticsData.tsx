@@ -10,6 +10,16 @@ interface IProps {
     uniqueKey: string | number; // A new analytics event is only fired when this changes.
 }
 
+let legacyAnalyticsTickEnabled = false;
+
+export function enableLegacyAnalyticsTick(newValue: boolean) {
+    legacyAnalyticsTickEnabled = newValue;
+}
+
+export function isLegacyAnalyticsTickEnabled() {
+    return legacyAnalyticsTickEnabled;
+}
+
 /**
  * A component to trigger an analytics event. The unique key must change between renders for a new event to fire.
  */
@@ -18,7 +28,9 @@ export const AnalyticsData: FC<IProps> = (props: IProps) => {
 
     useEffect(() => {
         document.dispatchEvent(new CustomEvent("pageViewWithContext", { detail: data }));
-    }, [uniqueKey, data]);
+        // Setting data here will cause the analytics event to fired far to often.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uniqueKey]);
     return <>{null}</>;
 };
 

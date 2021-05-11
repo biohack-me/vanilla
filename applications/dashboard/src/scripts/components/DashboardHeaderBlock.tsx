@@ -4,35 +4,29 @@
  */
 import React from "react";
 import { LeftChevronCompactIcon } from "@library/icons/common";
-import { withRouter, RouteComponentProps } from "react-router";
+import { RouteComponentProps, useHistory } from "react-router";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
+import { t } from "@library/utility/appUtils";
+import BackLink from "@library/routing/links/BackLink";
 
-interface IProps extends RouteComponentProps<{}> {
+interface IProps {
     showBackLink?: boolean;
     title: string;
     actionButtons?: React.ReactNode;
+    /** @deprecated use useFallbackBackUrl("/action"); instead */
+    onBackClick?: () => void;
 }
 
-function DashboardHeaderBlock(props: IProps) {
+export function DashboardHeaderBlock(props: IProps) {
+    const history = useHistory();
     return (
         <header className="header-block">
             <div className="title-block">
-                {props.showBackLink && (
-                    <Button
-                        baseClass={ButtonTypes.ICON}
-                        // className="btn btn-icon btn-return"
-                        aria-label="Return"
-                        onClick={props.history.goBack}
-                    >
-                        <LeftChevronCompactIcon />
-                    </Button>
-                )}
+                {props.showBackLink && history && <BackLink aria-label={t("Return")} onClick={props.onBackClick} />}
                 <h1>{props.title}</h1>
             </div>
             {props.actionButtons}
         </header>
     );
 }
-
-export default withRouter(DashboardHeaderBlock);

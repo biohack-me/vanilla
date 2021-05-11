@@ -13,6 +13,8 @@ namespace Vanilla\Contracts\Site;
  * Through this mechanism content across the site may be separated and filtered.
  */
 interface SiteSectionInterface extends \JsonSerializable {
+    const APP_FORUM = 'forum';
+    const APP_KB = 'knowledgeBase';
     /**
      * Get the base path for the section of the site.
      *
@@ -53,4 +55,56 @@ interface SiteSectionInterface extends \JsonSerializable {
      * @return string
      */
     public function getSectionGroup(): string;
+
+    /**
+     * Get default root controller route
+     *
+     * @return array
+     */
+    public function getDefaultRoute(): array;
+
+    /**
+     * Get enabled applications
+     *
+     * @return array
+     */
+    public function applications(): array;
+
+    /**
+     *  Check if application is enabled for site section.
+     *
+     * @param string $app
+     * @return bool
+     */
+    public function applicationEnabled(string $app): bool;
+
+    /**
+     * Set application enabled or disabled.
+     *
+     * @param string $app
+     * @param bool $enable
+     * @return array
+     */
+    public function setApplication(string $app, bool $enable);
+
+    /**
+     * Get attributes assosciated with the site section.
+     *
+     * @return array
+     */
+    public function getAttributes(): array;
+
+    /**
+     * Get the themeID for this siteSection
+     *
+     * @return int|string|null
+     */
+    public function getSectionThemeID();
+
+    /**
+     * Get categoryID associated to site-section.
+     *
+     * @return int|null
+     */
+    public function getCategoryID();
 }

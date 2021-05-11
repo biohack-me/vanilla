@@ -22,12 +22,13 @@
     justify-content: center;
     align-items: center;
     box-sizing: border-box;
+    clear: both;
 }
 
 .embedExternal-content {
     position: relative;
     margin: auto;
-    width: $embed_width;
+    width: $embed_image_max_width;
     max-width: 100%;
     text-align: center;
     box-sizing: border-box;
@@ -103,6 +104,7 @@
             @include absolute-fullSizeOfParent;
             content: "";
             transition: 0.2s ease box-shadow;
+            pointer-events: none;
         }
 
         &:hover {
@@ -110,19 +112,25 @@
                 box-shadow: 0 0 0 $embedded-select_borderWidth rgba($embed_focus_color, 0.5) inset;
             }
         }
+    }
 
-        &:focus {
+    .embedImage {
+        .embedExternal-content:after {
+            @include absolute-fullSizeOfParent;
+            content: "";
+            cursor: "pointer";
+            z-index: 2;
+            transition: 0.2s ease box-shadow;
+            pointer-events: all;
+        }
+    }
+
+    .embed-isSelected {
+        .embedExternal-content,
+        .embedLinkLoader-link {
             &:after {
                 box-shadow: 0 0 0 $embedded-select_borderWidth $embed_focus_color inset;
             }
-        }
-
-        > * {
-            pointer-events: none; // In edit mode, we never allow clicking into elements.
-        }
-
-        > .u-excludeFromPointerEvents {
-            pointer-events: initial;
         }
     }
 }

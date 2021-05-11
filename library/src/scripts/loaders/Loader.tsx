@@ -5,21 +5,21 @@
  */
 
 import React from "react";
-import { unit } from "@library/styles/styleHelpers";
-import { TLength } from "typestyle/lib/types";
+import { styleUnit } from "@library/styles/styleUnit";
+import { TLength } from "@library/styles/styleShim";
 import { t } from "@library/utility/appUtils";
 import { loaderClasses } from "@library/loaders/loaderStyles";
 import ScreenReaderContent from "@library/layout/ScreenReaderContent";
-import { style } from "typestyle";
-import { PaddingProperty } from "csstype";
+import { style } from "@library/styles/styleShim";
+import { Property } from "csstype";
 import ConditionalWrap from "@library/layout/ConditionalWrap";
+import classNames from "classnames";
 
 interface IProps {
     minimumTime?: number;
     loaderStyleClass?: string;
-    height?: number;
-    width?: number;
-    padding?: PaddingProperty<TLength>;
+    size?: number;
+    padding?: Property.Padding<TLength>;
     small?: boolean;
 }
 
@@ -42,12 +42,14 @@ export default class Loader extends React.Component<IProps, IState> {
         const styleClass = this.props.small
             ? loaderClasses().smallLoader
             : this.props.loaderStyleClass || loaderClasses().fullPageLoader;
-
         return (
             <React.Fragment>
                 <ConditionalWrap
-                    condition={!!this.props.padding}
-                    className={style({ padding: unit(this.props.padding) })}
+                    condition={!!this.props.padding || !!this.props.size}
+                    className={classNames(
+                        this.props.padding && style({ padding: styleUnit(this.props.padding) }),
+                        this.props.size && loaderClasses().loaderContainer(this.props.size),
+                    )}
                 >
                     <div className={styleClass} aria-hidden="true" />
                     <ScreenReaderContent>

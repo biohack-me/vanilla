@@ -13,7 +13,7 @@
  */
 class CategoryController extends VanillaController {
 
-    /** @var Gdn_CategoryModel */
+    /** @var CategoryModel */
     public $CategoryModel;
 
     public function __construct() {
@@ -37,7 +37,7 @@ class CategoryController extends VanillaController {
             $this->CategoryModel->saveUserTree($categoryID, ['Unfollow' => (int)(!(bool)$value)]);
         }
 
-        if ($this->deliveryType() == DELIVERY_TYPE_ALL) {
+        if ($this->isRenderingMasterView()) {
             redirectTo('/categories');
         }
 
@@ -84,12 +84,18 @@ class CategoryController extends VanillaController {
             'Followed' => $result
         ]);
 
+        $parentCategory = false;
+        if ($category['ParentCategoryID'] > 0) {
+            $parentCategory = $categoryModel::categories($category['ParentCategoryID'])['UrlCode'];
+        }
+
         switch ($this->deliveryType()) {
             case DELIVERY_TYPE_DATA:
                 $this->render('Blank', 'Utility', 'Dashboard');
                 return;
             case DELIVERY_TYPE_ALL:
-                redirectTo('/categories');
+                // If this is a subcategories, redirect to parent category. Otherwise, redirect to categories page.
+                $parentCategory ? redirectTo('/categories/'.$parentCategory) : redirectTo('/categories');
         }
 
         // Return the appropriate bookmark.

@@ -4,21 +4,23 @@
  * @license Proprietary
  */
 
-import { useThemeCache, styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { IButtonType } from "@library/forms/styleHelperButtonInterface";
-import { generateButtonStyleProperties } from "@library/forms/styleHelperButtonGenerator";
-import { cssRule } from "typestyle";
-import { colorOut } from "@library/styles/styleHelpersColors";
-import { borders, singleBorder } from "@library/styles/styleHelpersBorders";
-import { absolutePosition, margins, paddings, unit, userSelect } from "@library/styles/styleHelpers";
+import { cssRule } from "@library/styles/styleShim";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { singleBorder } from "@library/styles/styleHelpersBorders";
+import { userSelect } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
 import { percent } from "csx";
+import { cssOut } from "@dashboard/compatibilityStyles/cssOut";
+import { Mixins } from "@library/styles/Mixins";
 
 export const blockQuoteVariables = useThemeCache(() => {
     const globalVars = globalVariables();
     const makeThemeVars = variableFactory("blockQuote");
     const colors = makeThemeVars("colors", {
-        fg: globalVars.mixBgAndFg(0.7),
+        fg: globalVars.mainColors.fg,
         border: {
             color: globalVars.mixBgAndFg(0.23),
         },
@@ -34,8 +36,8 @@ export const blockQuoteCSS = useThemeCache(() => {
     const vars = blockQuoteVariables();
     cssRule(".blockquote", {
         display: "block",
-        margin: unit(0),
-        ...paddings({
+        margin: styleUnit(0),
+        ...Mixins.padding({
             all: 3,
             left: 18,
         }),
@@ -44,18 +46,19 @@ export const blockQuoteCSS = useThemeCache(() => {
             width: 6,
         }),
         boxSizing: "border-box",
-        width: percent(100),
         verticalAlign: "middle",
-        color: colorOut(vars.colors.fg),
     });
     cssRule(".blockquote-content", {
-        $nest: {
+        ...{
             "& > *:first-child": {
-                marginTop: unit(0),
+                marginTop: styleUnit(0),
             },
             "& > *:last-child": {
-                marginBottom: unit(0),
+                marginBottom: styleUnit(0),
             },
         },
+    });
+    cssOut(`.embedLink-excerpt`, {
+        color: ColorsUtils.colorOut(globalVars.mainColors.fg),
     });
 });

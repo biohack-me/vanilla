@@ -1,5 +1,10 @@
 openapi: 3.0.2
 info:
+x-resourceEvents:
+  user:
+    x-addon: "dashboard"
+    name: "User"
+    type: "user"
 paths:
   /users:
     get:
@@ -38,17 +43,22 @@ paths:
         schema:
           format: date-filter
           type: string
-      - description: |
-          One or more user IDs to lookup.
+      - name: dateLastActive
+        description: When the user was last active on the community.
         in: query
-        name: userID
         schema:
-          items:
-            type: integer
-          type: array
-        style: form
-        x-filter:
-          field: u.UserID
+          type: string
+          format: date-filter
+      - name: roleID
+        description: Filter by the role ID of a user.
+        in: query
+        schema:
+          type: integer
+      - name: userID
+        description: Filter by a range or CSV of user IDs.
+        in: query
+        schema:
+          $ref: '#/components/schemas/RangeExpression'
       - $ref: '#/components/parameters/Page'
       - description: |
           Desired number of items per page.
@@ -57,21 +67,23 @@ paths:
         schema:
           type: integer
           default: 30
-          maximum: 100
+          maximum: 500
           minimum: 1
-      - description: >
-          Expand associated records using one or more valid field names. A
-          value of "all" will expand all expandable fields.
+      - name: sort
         in: query
-        name: expand
+        description: Sort the results.
         schema:
-          items:
-            enum:
-            - rank
-            - all
-            type: string
-          type: array
-        style: form
+          type: string
+          enum:
+            - dateInserted
+            - dateLastActive
+            - name
+            - userID
+            - -dateInserted
+            - -dateLastActive
+            - -name
+            - -userID
+      - $ref: '#/components/parameters/UserExpand'
       responses:
         '200':
           content:
@@ -168,6 +180,13 @@ paths:
                   - $ref: '../dashboard/schemas.yml#/components/schemas/UserFragment'
                   - type: object
                     properties:
+                      email:
+                        description: The current user's email address.
+                        type: string
+                        format: email
+                      ssoID:
+                        description: The unique ID of the default SSO connection. This will be YOUR user ID.
+                        type: string
                       isAdmin:
                         description: Whether or not the user is a global admin.
                         type: boolean
@@ -176,6 +195,12 @@ paths:
                         type: array
                         items:
                           type: string
+                      countUnreadNotifications:
+                        description: Total number of unread notifications for the current user.
+                        type: integer
+                      countUnreadConversations:
+                        description: Total number of unread conversations for the current user.
+                        type: integer
                     required:
                       - isAdmin
                       - permissions
@@ -621,6 +646,47 @@ paths:
               - photo
               type: object
         required: true
+  '/users/{id}/badges':
+
+    x-addon: badges
+    get:
+      summary: Get user badges.
+      tags:
+        - Users
+      parameters:
+        - description: The user ID.
+          in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - description: |
+            Page number. See [Pagination](https://docs.vanillaforums.com/apiv2/#pagination).
+          in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            maximum: 100
+            minimum: 1
+        - description: |
+            Desired number of items per page.
+          in: query
+          name: limit
+          schema:
+            type: integer
+            default: 30
+            maximum: 100
+            minimum: 1
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/UserBadges'
+                type: array
+          description: Success
   '/users/{id}/rank':
     x-addon: ranks
     put:
@@ -661,6 +727,21 @@ paths:
                 type: object
           description: Success
 components:
+  parameters:
+    UserExpand:
+      description: >
+        Expand associated records using one or more valid field names. A
+        value of "all" will expand all expandable fields.
+      in: query
+      name: expand
+      schema:
+        items:
+          enum:
+            - rank
+            - all
+          type: string
+        type: array
+      style: form
   schemas:
     User:
       properties:
@@ -772,6 +853,10 @@ components:
           description: Name of the user.
           minLength: 1
           type: string
+        password:
+          description: Password of the user.
+          minLength: 1
+          type: string
         photo:
           description: Raw photo field value from the user record.
           minLength: 0
@@ -821,3 +906,20 @@ components:
       - password
       - emailConfirmed
       - bypassSpam
+    UserBadges:
+      type: object
+      properties:
+          badgeID:
+            description: ID of the badge.
+            type: integer
+          name:
+            description: Name of the badge.
+            type: string
+          photoUrl:
+            description: Badge photo.
+            type: string
+          url:
+            description: URL to the badge photo.
+            type: string
+
+

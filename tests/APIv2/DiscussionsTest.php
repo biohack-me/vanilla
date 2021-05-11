@@ -9,12 +9,23 @@ namespace VanillaTests\APIv2;
 
 use CategoryModel;
 use DiscussionModel;
+use Garden\Web\Exception\ClientException;
+use Garden\Web\Exception\ForbiddenException;
+use Vanilla\DiscussionTypeConverter;
+use VanillaTests\Forum\Utils\CommunityApiTestTrait;
+use VanillaTests\Models\TestDiscussionModelTrait;
 
 /**
  * Test the /api/v2/discussions endpoints.
  */
 class DiscussionsTest extends AbstractResourceTest {
+    use TestExpandTrait;
     use TestPutFieldTrait;
+    use AssertLoggingTrait;
+    use TestPrimaryKeyRangeFilterTrait;
+    use TestSortingTrait;
+    use TestDiscussionModelTrait;
+    use TestFilterDirtyRecordsTrait;
 
     /** @var array */
     private static $categoryIDs = [];
@@ -24,10 +35,23 @@ class DiscussionsTest extends AbstractResourceTest {
      */
     public function __construct($name = null, array $data = [], $dataName = '') {
         $this->baseUrl = '/discussions';
+        $this->resourceName = 'discussion';
 
         $this->patchFields = ['body', 'categoryID', 'closed', 'format', 'name', 'pinLocation', 'pinned', 'sink'];
+        $this->sortFields = ['dateLastComment', 'dateInserted', 'discussionID'];
 
         parent::__construct($name, $data, $dataName);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    protected function getExpandableUserFields() {
+        return [
+            'insertUser',
+            'lastUser',
+            // 'lastPost.insertUser' requires a last post and is not always present.
+        ];
     }
 
     /**
@@ -74,7 +98,7 @@ class DiscussionsTest extends AbstractResourceTest {
     /**
      * {@inheritdoc}
      */
-    public static function setupBeforeClass() {
+    public static function setupBeforeClass(): void {
         parent::setupBeforeClass();
 
         /** @var CategoryModel $categoryModel */
@@ -90,10 +114,16 @@ class DiscussionsTest extends AbstractResourceTest {
         }
     }
 
-    public function setUp() {
+    /**
+     * @inheritDoc
+     */
+    public function setUp(): void {
         parent::setUp();
         DiscussionModel::categoryPermissions(false, true);
+        $this->setupTestDiscussionModel();
+        $this->createUserFixtures();
     }
+
     /**
      * Verify a bookmarked discussion shows up under /discussions/bookmarked.
      */
@@ -202,11 +232,252 @@ class DiscussionsTest extends AbstractResourceTest {
 
     /**
      * The discussion index should fail on a private community with a guest.
-     *
-     * @expectedException Garden\Web\Exception\ForbiddenException
-     * @expectedExceptionMessage You must sign in to the private community.
      */
     public function testIndexPrivateCommunity() {
+        $this->expectException(ForbiddenException::class);
+        $this->expectExceptionMessage('You must sign in to the private community.');
+
         $this->runWithPrivateCommunity([$this, 'testIndex']);
+    }
+
+    /**
+     * Test the new dateLastComment filter.
+     */
+    public function testDateLastCommentFilter() {
+        $this->generateIndexRows();
+        sleep(1);
+        $rows = $this->generateIndexRows();
+        $row0 = $rows[0];
+        $this->assertNotEmpty($row0['dateLastComment']);
+
+        $filteredRows = $this->api()->get('/discussions', ['dateLastComment' => '<'.$row0['dateLastComment']])->getBody();
+        $filteredRow0 = $filteredRows[0];
+        $this->assertNotSame($row0['discussionID'], $filteredRow0['discussionID']);
+    }
+
+    /**
+     * Test comment body expansion.
+     */
+    public function testExpandLastPostBody() {
+        $this->testPost();
+
+        // Test that the field is there.
+        $query = ['expand' => 'lastPost,lastPost.body'];
+        $rows = $this->api()->get($this->baseUrl, $query);
+        $this->assertArrayHasKey('body', $rows[0]['lastPost']);
+
+        // Comment on a discussions to see if it becomes the last post.
+        $comment = $this->api()->post("/comments", [
+            'discussionID' => $rows[0]['discussionID'],
+            'body' => 'hello',
+            'format' => 'markdown',
+        ]);
+
+        $rows = $this->api()->get($this->baseUrl, $query);
+        $this->assertSame($comment['commentID'], $rows[0]['lastPost']['commentID']);
+
+        // Individual discussions should expand too.
+        $discussion = $this->api()->get($this->baseUrl.'/'.$rows[0]['discussionID'], $query);
+        $this->assertArrayHasKey('body', $discussion['lastPost']);
+        $this->assertSame($comment['commentID'], $discussion['lastPost']['commentID']);
+    }
+
+    /**
+     * @requires testExpandLastPostBody
+     */
+    public function testExpandLastUser() {
+        $rows = $this->api()->get($this->baseUrl, ['expand' => 'lastPost,lastPost.insertUser,-lastUser']);
+        $this->assertArrayHasKey('insertUser', $rows[0]['lastPost']);
+        $this->assertArrayNotHasKey('lastUser', $rows[0]);
+
+        // Deprecated but should work for BC.
+        $rows = $this->api()->get($this->baseUrl, ['expand' => 'lastPost,lastUser']);
+        $this->assertArrayHasKey('insertUser', $rows[0]['lastPost']);
+        $this->assertArrayHasKey('lastUser', $rows[0]);
+
+        $url = $this->baseUrl.'/'.$rows[0]['discussionID'];
+        $row = $this->api()->get($url, ['expand' => 'lastPost,lastPost.insertUser,-lastUser']);
+        $this->assertArrayHasKey('insertUser', $row['lastPost']);
+        $this->assertArrayNotHasKey('lastUser', $row);
+    }
+
+    /**
+     * The API should not fail when the discussion title/body is empty.
+     */
+    public function testEmptyDiscussionTitle() {
+        $row = $this->testPost();
+
+        /* @var \Gdn_SQLDriver $sql */
+        $sql = self::container()->get(\Gdn_SQLDriver::class);
+        $sql->put('Discussion', ['Name' => '', 'Body' => ''], ['DiscussionID' => $row['discussionID']]);
+
+        $discussion = $this->api()->get("$this->baseUrl/{$row['discussionID']}")->getBody();
+        $this->assertNotEmpty($discussion['name']);
+    }
+
+    /**
+     * Announcements should obey the sort.
+     */
+    public function testAnnouncementSort(): void {
+        $this->insertDiscussions(3, ['Announce' => 1]);
+
+        $fields = ['discussionID', '-discussionID'];
+
+        foreach ($fields as $field) {
+            $rows = $this->api()->get($this->baseUrl, ['pinned' => true, 'sort' => $field])->getBody();
+            $this->assertNotEmpty($rows);
+            $this->assertSorted($rows, $field);
+        }
+    }
+
+    /**
+     * A mix of announcements and discussions should sort properly.
+     */
+    public function testAnnouncementMixed(): void {
+        $rows = $this->insertDiscussions(2, ['Announce' => 1]);
+        $rows = array_merge($rows, $this->insertDiscussions(2));
+        $ids = array_column($rows, 'DiscussionID');
+
+        $fields = ['discussionID', '-discussionID'];
+
+        foreach ($fields as $field) {
+            $rows = $this->api()->get($this->baseUrl, ['discussionID' => $ids, 'pinOrder' => 'first', 'sort' => $field])->getBody();
+            $this->assertNotEmpty($rows);
+            $this->assertSorted($rows, '-pinned', $field);
+        }
+    }
+
+    /**
+     * Make sure you can pin a discussion while posting via API.
+     */
+    public function testPostAnnouncement(): void {
+        $r = $this->api()->post($this->baseUrl, ['pinned' => true] + $this->record())->getBody();
+        $this->assertTrue($r['pinned']);
+        $this->assertSame('category', $r['pinLocation']);
+
+        $r = $this->api()->post($this->baseUrl, ['pinned' => true, 'pinLocation' => 'recent'] + $this->record())->getBody();
+        $this->assertTrue($r['pinned']);
+        $this->assertSame('recent', $r['pinLocation']);
+    }
+
+    /**
+     * Make sure specifying discussion type returns records from the db where the type is null.
+     */
+    public function testGettingTypeDiscussion(): void {
+        $addedDiscussions = $this->insertDiscussions(4);
+        foreach ($addedDiscussions as $discussion) {
+            $this->assertTrue(is_null($discussion['Type']));
+        }
+        $retrievedDiscussions = $this->api()->get($this->baseUrl, ['type' => 'discussion'])->getBody();
+        $retrievedDiscussionsIDs = array_column($retrievedDiscussions, 'discussionID');
+        foreach ($addedDiscussions as $discussion) {
+            $this->assertTrue(in_array($discussion['DiscussionID'], $retrievedDiscussionsIDs));
+        }
+    }
+
+    /**
+     * A member should not be able to delete their own discussion.
+     */
+    public function testNoDeleteOwnDiscussion(): void {
+        $this->getSession()->start($this->memberID);
+        $discussion = $this->insertDiscussions(1)[0];
+        $this->assertFalse(
+            $this->getSession()->getPermissions()->has('Vanilla.Discussions.Delete', $discussion['CategoryID']),
+            'The member should not have permission to delete discussions.'
+        );
+
+        $this->expectException(ForbiddenException::class);
+        $this->api()->delete("/discussions/{$discussion['DiscussionID']}");
+    }
+
+    /**
+     * Test expanding tags.
+     */
+    public function testExpandTags(): void {
+        self::resetTable('Discussion');
+        $discussionA = $this->testPost();
+        $tagA = $this->api()->post('tags', ['name' => 'testa'.__FUNCTION__, 'urlCode'=> 'testa'.__FUNCTION__])->getBody();
+        $this->api()->post("discussions/{$discussionA["discussionID"]}/tags", ["urlcodes" => [$tagA['urlcode']], "tagIDs" => [$tagA['tagID']]]);
+        $discussions = $this->api()->get("discussions", ['expand' => 'tags'])->getBody();
+        foreach ($discussions as $discussion) {
+            $tags = $discussion['tags'];
+            $this->assertEquals($tagA['tagID'], $tags[0]['tagID']);
+        }
+        $discussion = $this->api()->get("discussions/".$discussionA['discussionID'], ['expand' => 'tags'])->getBody();
+        $tags = $discussion['tags'];
+        $this->assertEquals($tagA['tagID'], $tags[0]['tagID']);
+    }
+
+    /**
+     * Ensure that there are dirtyRecords for a specific resource.
+     */
+    protected function triggerDirtyRecords() {
+        $discussion = $this->insertDiscussions(2);
+        $ids = array_column($discussion, 'DiscussionID');
+        /** @var DiscussionModel $discussionModel */
+        $discussionModel = \Gdn::getContainer()->get(DiscussionModel::class);
+        foreach ($ids as $id) {
+            $discussionModel->setField($id, 'Announce', 1);
+        }
+    }
+
+    /**
+     * Test PUT /discussions/:id/type
+     */
+    public function testPutDiscussionsType() {
+        $discussion = $this->insertDiscussions(1)[0];
+        /** @var DiscussionModel $discussionModel */
+        $discussionModel = \Gdn::getContainer()->get(DiscussionModel::class);
+        $id = $discussion["DiscussionID"];
+        $discussionModel->setField($id, 'Type', "Question");
+
+        $convertedDiscussion = $this->api()->put("/discussions/{$id}/type", ["type" => "discussion"])->getBody();
+        $this->assertEquals("discussion", $convertedDiscussion["type"]);
+    }
+
+    /**
+     * Test PUT /discussions/:id/type with invalid type.
+     */
+    public function testPutDiscussionsTypeInvalidType() {
+        $this->expectException(ClientException::class);
+        $discussion = $this->insertDiscussions(1)[0];
+        $id = $discussion["DiscussionID"];
+
+        $convertedDiscussion = $this->api()->put("/discussions/{$id}/type", ["type" => "poll"])->getBody();
+        $this->assertEquals("discussion", $convertedDiscussion["type"]);
+    }
+
+    /**
+     * Test PUT /discussions/:id/type with restricted type.
+     */
+    public function testPutDiscussionsTypeRestrictedType() {
+        $this->expectException(ClientException::class);
+        $discussion = $this->insertDiscussions(1)[0];
+        $id = $discussion["DiscussionID"];
+
+        $convertedDiscussion = $this->api()->put("/discussions/{$id}/type", ["type" => DiscussionTypeConverter::RESTRICTED_TYPES[0]])->getBody();
+        $this->assertEquals("discussion", $convertedDiscussion["type"]);
+    }
+
+    /**
+     * Test PUT /discussions/:id/type with no record.
+     */
+    public function testPutDiscussionsTypeInvalidRecord() {
+        $this->expectException(ClientException::class);
+        $id = null;
+        $convertedDiscussion = $this->api()->put("/discussions/{$id}/type", ["type" => "discussion"])->getBody();
+        $this->assertEquals("discussion", $convertedDiscussion["type"]);
+    }
+
+    /**
+     * Get the resource type.
+     *
+     * @return array
+     */
+    protected function getResourceInformation(): array {
+        return [
+            "resourceType" => "discussion",
+            "primaryKey" => "discussionID"
+        ];
     }
 }

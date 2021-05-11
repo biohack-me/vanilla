@@ -8,8 +8,10 @@
 namespace VanillaTests;
 
 use Psr\Container\ContainerInterface;
+use Vanilla\FeatureFlagHelper;
 use Vanilla\Models\AddonModel;
 use Vanilla\Models\InstallModel;
+use Vanilla\SchemaFactory;
 
 /**
  * A Vanilla installer that handles uninstalling.
@@ -24,6 +26,9 @@ class TestInstallModel extends InstallModel {
      * @var string The database name.
      */
     private $dbName;
+
+    /** @var array Default site config values. */
+    private $configDefaults = [];
 
     /**
      * @var string $sphinxHost Sphinx host name.
@@ -58,6 +63,15 @@ class TestInstallModel extends InstallModel {
     }
 
     /**
+     * Get any site config defaults.
+     *
+     * @return array
+     */
+    public function getConfigDefaults(): array {
+        return $this->configDefaults;
+    }
+
+    /**
      * Set the base URL of the site.
      *
      * @param mixed $baseUrl The new URL.
@@ -88,6 +102,9 @@ class TestInstallModel extends InstallModel {
         $this->createDatabase($data['database']);
 
         $result = parent::install($data);
+
+        // Some plugins being enabled directly at site install time breaks things in various tests.
+        \PermissionModel::resetAllRoles();
 
         $this->config->set('Plugins.Sphinx.Server', $this->getSphinxHost(), true, true);
 
@@ -158,6 +175,15 @@ class TestInstallModel extends InstallModel {
     }
 
     /**
+     * Set the default site config.
+     *
+     * @param array $config
+     */
+    public function setConfigDefaults(array $config): void {
+        $this->configDefaults = $config;
+    }
+
+    /**
      * Set the database name.
      *
      * @param string $dbName The new database name.
@@ -201,6 +227,28 @@ class TestInstallModel extends InstallModel {
     }
 
     /**
+     * Clear various in-memory static caches.
+     */
+    public static function clearMemoryCaches() {
+        FeatureFlagHelper::clearCache();
+        if (class_exists(\DiscussionModel::class)) {
+            \DiscussionModel::cleanForTests();
+        }
+
+        if (class_exists(\CategoryModel::class)) {
+            \CategoryModel::$Categories = null;
+        }
+
+        if (class_exists(\SubcommunityModel::class)) {
+            \SubcommunityModel::clearStaticCache();
+        }
+
+        if (class_exists(\ReactionModel::class)) {
+            \ReactionModel::resetForTests();
+        }
+    }
+
+    /**
      * Uninstall the application.
      */
     public function uninstall() {
@@ -217,10 +265,15 @@ class TestInstallModel extends InstallModel {
         }
 
         // Reset the config to defaults.
-        $this->config->Data = [];
+        $this->config->Data = $this->getConfigDefaults();
         $this->config->load(PATH_ROOT.'/conf/config-defaults.php');
 
+        self::clearMemoryCaches();
         // Clear all database related objects from the container.
 
+        // Clear anything that got stuck in the cookie superglobal.
+        foreach ($_COOKIE as $key => $value) {
+            unset($_COOKIE[$key]);
+        }
     }
 }

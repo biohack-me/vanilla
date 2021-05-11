@@ -4,7 +4,7 @@ $desc = t('Roles determine user\'s permissions.', 'Every user in your site is as
 
 $links = '<ul>';
 $links .= wrap(anchor(t("Video tutorial on managing roles &amp; permissions"), 'settings/tutorials/roles-and-permissions'), 'li');
-$links .= wrap(anchor('Default Role Types', 'http://docs.vanillaforums.com/features/roles-permissions/default-role-types/'), 'li');
+$links .= wrap(anchor('Default Role Types', 'https://success.vanillaforums.com/kb/articles/39-roles-permissions#default-types'), 'li');
 $links .= '</ul>';
 
 helpAsset(sprintf(t('About %s'), t('Roles & Permissions')), $desc);
@@ -12,25 +12,26 @@ helpAsset(t('Need More Help?'), $links)
 
 ?>
 <?php
-echo heading(t('Manage Roles & Permissions'), t('Add Role'), 'dashboard/role/add');
+echo heading(
+    t('Manage Roles & Permissions'),
+    [
+        [
+            'text' => dashboardSymbol('settings'),
+            'url' => '/role/advanced',
+            'attributes' => [
+                'class' => 'btn btn-icon-border js-modal',
+                'title' => t('Advanced Settings'),
+                'aria-label' => t('Advanced Settings'),
+                'data-reload-page-on-save' => false
+            ]
+        ],
+        [
+            'text' => t('Add Role'),
+            'url' => 'dashboard/role/add',
+        ],
+    ]
+);
 $this->fireEvent('AfterRolesInfo'); ?>
-<div class="row form-group">
-    <div class="label-wrap-wide">
-        <div class="label"><?php echo t('Enable Private Communities'); ?></div>
-        <div class="info"><?php echo t('Once enabled, only members will see inside your community.'); ?></div>
-    </div>
-    <div class="input-wrap-right">
-        <span id="private-community-toggle">
-            <?php
-            if (c('Garden.PrivateCommunity', false)) {
-                echo wrap(anchor('<div class="toggle-well"></div><div class="toggle-slider"></div>', 'settings/privatecommunity/false','Hijack'), 'span', ['class' => "toggle-wrap toggle-wrap-on"]);
-            } else {
-                echo wrap(anchor('<div class="toggle-well"></div><div class="toggle-slider"></div>', 'settings/privatecommunity/true', 'Hijack'), 'span', ['class' => "toggle-wrap toggle-wrap-off"]);
-            }
-            ?>
-        </span>
-    </div>
-</div>
 <?php echo $this->Form->open(); ?>
 <div class="table-wrap">
     <table border="0" cellpadding="0" cellspacing="0" class="table-data js-tj Sortable" id="RoleTable">

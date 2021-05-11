@@ -7,7 +7,7 @@
 import React from "react";
 import { t } from "@library/utility/appUtils";
 import Breadcrumb from "@library/navigation/Breadcrumb";
-import { style } from "typestyle";
+import { style } from "@library/styles/styleShim";
 import classNames from "classnames";
 import { breadcrumbsClasses } from "@library/navigation/breadcrumbsStyles";
 
@@ -19,7 +19,7 @@ export interface ICrumb {
 export interface IProps {
     children: ICrumb[];
     className?: string;
-    forceDisplay: boolean;
+    forceDisplay?: boolean;
     minimumCrumbCount?: number;
 }
 
@@ -44,7 +44,7 @@ export default class Breadcrumbs extends React.Component<IProps> {
                 <React.Fragment key={`breadcrumb-${index}`}>
                     <Breadcrumb lastElement={lastElement} name={crumb.name} url={crumb.url} />
                     {!lastElement && (
-                        <li aria-hidden={true} className={classNames(classes.separator)}>
+                        <li aria-hidden={true} className={classNames(classes.separator)} role="separator">
                             <span className={classes.separatorIcon}>{crumbSeparator}</span>
                         </li>
                     )}

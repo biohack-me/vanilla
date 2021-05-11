@@ -7,50 +7,55 @@
 import React from "react";
 import classNames from "classnames";
 import { typographyClasses } from "@library/styles/typographyStyles";
+import { cx } from "@library/styles/styleShim";
 
 export interface ICommonHeadingProps {
     id?: string;
-    depth?: 1 | 2 | 3 | 4 | 5 | 6;
-    renderAsDepth?: 1 | 2 | 3 | 4 | 5 | 6;
+    depth?: number;
+    renderAsDepth?: number;
     className?: string;
-    title: string;
+    title?: React.ReactNode;
 }
 
-export interface IHeadingProps extends ICommonHeadingProps {
+export interface IHeadingProps extends ICommonHeadingProps, Omit<React.HTMLAttributes<HTMLHeadingElement>, "title"> {
+    isLarge?: boolean;
     children?: React.ReactNode;
-    titleRef: React.RefObject<HTMLHeadingElement | null>;
 }
 
 /**
  * A component representing a element.
  */
-export default class Heading extends React.Component<IHeadingProps> {
-    public static defaultProps: Partial<IHeadingProps> = {
-        depth: 2,
-    };
+const Heading = React.forwardRef<HTMLHeadingElement, IHeadingProps>(function Heading(props: IHeadingProps, ref) {
+    const { children, title, depth, renderAsDepth, className, isLarge, ...restProps } = props;
+    const finalDepth = depth ?? 2;
+    const finalRenderDepth = renderAsDepth ?? finalDepth;
 
-    private get renderAsDepth(): number {
-        return this.props.renderAsDepth ? this.props.renderAsDepth : this.props.depth!;
-    }
+    const isPageTitle = finalRenderDepth === 1;
+    const isSubTitle = finalRenderDepth === 2;
+    const isComponentSubTitle = finalRenderDepth >= 3;
 
-    public render() {
-        const { children, title } = this.props;
-        const Tag = `h${this.props.depth}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-        const classesTypography = typographyClasses();
+    const Tag = `h${finalDepth}` as "h1";
+    const classes = typographyClasses();
 
-        return (
-            <Tag
-                id={this.props.id}
-                ref={this.props.titleRef}
-                className={classNames(
-                    "heading",
-                    `heading-${this.renderAsDepth}`,
-                    { [`${classesTypography.pageTitle}`]: this.renderAsDepth === 1 },
-                    this.props.className,
-                )}
-            >
-                {children ? children : title}
-            </Tag>
-        );
-    }
-}
+    return (
+        <Tag
+            {...restProps}
+            ref={ref}
+            className={cx(
+                {
+                    [classes.pageTitle]: isPageTitle,
+                    [classes.largeTitle]: isLarge,
+                    [classes.subTitle]: isSubTitle,
+                    [classes.componentSubTitle]: isComponentSubTitle,
+                },
+                "heading",
+                `heading-${finalRenderDepth}`,
+                className,
+            )}
+        >
+            {children ?? title}
+        </Tag>
+    );
+});
+
+export default Heading;

@@ -8,6 +8,7 @@ use Garden\Schema\Schema;
 use Garden\Web\Exception\NotFoundException;
 use Garden\Web\Exception\ServerException;
 use Vanilla\ApiUtils;
+use Vanilla\Models\PermissionFragmentSchema;
 use Vanilla\PermissionsTranslationTrait;
 use Vanilla\Utility\CamelCaseScheme;
 use Vanilla\Utility\DelimitedScheme;
@@ -148,6 +149,19 @@ class RolesApiController extends AbstractApiController {
     }
 
     /**
+     * Get a roles schema with minimal fields.
+     *
+     * @return Schema Returns a schema object.
+     */
+    public function minimalRolesSchema() {
+        return $this->schema(Schema::parse([
+            'roleID:i',
+            'name:s',
+            'description:s|n',
+        ])->add($this->fullSchema()), 'minimalRanksSchema');
+    }
+
+    /**
      * Get a single role.
      *
      * @param int $id The ID of the role.
@@ -231,13 +245,7 @@ class RolesApiController extends AbstractApiController {
         static $permissionsFragment;
 
         if ($permissionsFragment === null) {
-            $permissionsFragment = $this->schema([
-                'id:i?',
-                'type:s' => [
-                    'enum' => ['global', 'category'],
-                ],
-                'permissions:o',
-            ], 'PermissionFragment');
+            $permissionsFragment = new PermissionFragmentSchema();
         }
 
         return $permissionsFragment;
@@ -259,12 +267,17 @@ class RolesApiController extends AbstractApiController {
      * @return array
      */
     public function index(array $query) {
-        $this->permission('Garden.Settings.Manage');
+        $session = $this->getSession();
+        $showFullSchema = false;
+        if ($session->checkPermission('Garden.Settings.Manage')) {
+            $showFullSchema = true;
+        }
 
         $in = $this->schema([
             'expand?' => ApiUtils::getExpandDefinition(['permissions'])
         ], 'in')->setDescription('List roles.');
-        $out = $this->schema([':a' => $this->roleSchema()], 'out');
+        $out = $showFullSchema ? $this->schema([':a' => $this->roleSchema()], 'out') :
+            $this->schema([':a' => $this->minimalRolesSchema()], 'out');
 
         $query = $in->validate($query);
 

@@ -4,17 +4,20 @@
  * @license GPL-2.0-only
  */
 
-import { globalVariables, IIconSizes } from "@library/styles/globalStyleVars";
-import { absolutePosition, colorOut, unit } from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
-import { color } from "csx";
+import { globalVariables } from "@library/styles/globalStyleVars";
+import { IIconSizes } from "@library/styles/cssUtilsTypes";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { IThemeVariables } from "@library/theming/themeReducer";
+import { Mixins } from "@library/styles/Mixins";
 
-export const formElementsVariables = useThemeCache(() => {
-    const vars = globalVariables();
-    const varsLayouts = layoutVariables();
+export const formElementsVariables = useThemeCache((forcedVars?: IThemeVariables) => {
+    const vars = globalVariables(forcedVars);
+    const makeThemeVars = variableFactory("formElements", forcedVars);
+
     const mixBgAndFg = vars.mixBgAndFg;
-    const makeThemeVars = variableFactory("formElements");
 
     const sizing = makeThemeVars("sizing", {
         height: 36,
@@ -24,16 +27,18 @@ export const formElementsVariables = useThemeCache(() => {
 
     const spacing = makeThemeVars("spacing", {
         margin: 12,
-        horizontalPadding: 12,
         verticalPadding: 6,
+        horizontalPadding: 12,
+        fullBorderRadius: {
+            extraHorizontalPadding: 4, // Padding when you have fully rounded border radius. Will be applied based on the amount of border radius. Set to "undefined" to turn off
+        },
     });
 
     const border = makeThemeVars("border", {
-        width: 1,
-        fullWidth: 2,
-        color: vars.border.color,
-        style: "solid",
-        radius: vars.border.radius,
+        width: vars.borderType.formElements.default.width ?? vars.border.width,
+        color: vars.borderType.formElements.default.color ?? vars.border.color,
+        style: vars.borderType.formElements.default.style ?? vars.border.style,
+        radius: vars.borderType.formElements.default.radius ?? vars.border.radius,
     });
 
     const giantInput = makeThemeVars("giantInput", {
@@ -52,9 +57,9 @@ export const formElementsVariables = useThemeCache(() => {
     });
 
     const errorSpacing = makeThemeVars("errorSpacing", {
-        horizontalPadding: varsLayouts.gutter.size,
-        verticalPadding: varsLayouts.gutter.size,
-        verticalMargin: varsLayouts.gutter.halfSize,
+        horizontalPadding: vars.constants.fullGutter,
+        verticalPadding: vars.constants.fullGutter,
+        verticalMargin: vars.constants.fullGutter / 2,
     });
 
     const placeholder = makeThemeVars("placeholder", {
@@ -103,8 +108,10 @@ export const accessibleErrorClasses = useThemeCache(() => {
         alignItems: "center",
     });
     const paragraph = style("paragraph", {
-        color: colorOut(globalVars.messageColors.error.fg),
-        fontSize: unit(globalVars.fonts.size.small),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("small", "normal"),
+            color: ColorsUtils.colorOut(globalVars.messageColors.error.fg),
+        }),
     });
 
     return {
@@ -119,9 +126,9 @@ export const formErrorClasses = useThemeCache(() => {
     const vars = formElementsVariables();
 
     const root = style({
-        backgroundColor: colorOut(varsGlobal.messageColors.error.fg),
-        color: colorOut(varsGlobal.messageColors.error.fg),
-        marginBottom: unit(16),
+        backgroundColor: ColorsUtils.colorOut(varsGlobal.messageColors.error.fg),
+        color: ColorsUtils.colorOut(varsGlobal.messageColors.error.fg),
+        marginBottom: styleUnit(16),
         paddingLeft: vars.errorSpacing.horizontalPadding,
         paddingRight: vars.errorSpacing.horizontalPadding,
         paddingTop: vars.errorSpacing.verticalPadding,
@@ -130,14 +137,16 @@ export const formErrorClasses = useThemeCache(() => {
         alignItems: "center",
         justifyContent: "space-between",
     });
+
     const actions = style("actions", {
         display: "flex",
         alignItems: "center",
     });
 
     const actionButton = style("button", {
-        marginLeft: unit(12),
+        marginLeft: styleUnit(12),
     });
+
     const activeButton = style("activeButton", {
         fontWeight: "bold",
     });

@@ -4,49 +4,58 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { percent, viewHeight } from "csx";
-import { cssRule } from "typestyle";
-import { colorOut, background, fontFamilyWithDefaults, margins, paddings, fonts } from "@library/styles/styleHelpers";
+import { cssRule, style } from "@library/styles/styleShim";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { homePageVariables } from "@library/layout/homePageStyles";
+import isEmpty from "lodash/isEmpty";
+import { CSSObject } from "@emotion/css";
+import { Mixins } from "@library/styles/Mixins";
 
 export const bodyCSS = useThemeCache(() => {
     const globalVars = globalVariables();
+
     cssRule("html", {
-        "-ms-overflow-style": "-ms-autohiding-scrollbar",
+        msOverflowStyle: "-ms-autohiding-scrollbar",
     });
 
-    cssRule("html, body", {
-        backgroundColor: colorOut(globalVars.body.backgroundImage.color),
-        ...fonts({
-            size: globalVars.fonts.size.medium,
+    const htmlBodyMixin: CSSObject = {
+        background: ColorsUtils.colorOut(globalVars.body.backgroundImage.color),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("medium"),
             family: globalVars.fonts.families.body,
             color: globalVars.mainColors.fg,
         }),
         wordBreak: "break-word",
-        overscrollBehavior: "none", // For IE -> https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior
-    });
+    };
+
+    const bodyClass = style({ ...htmlBodyMixin, label: "vanillaBodyReset" });
+    document.body.classList.add(bodyClass);
 
     cssRule("*", {
         // For Mobile Safari -> https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior
-        "-webkit-overflow-scrolling": "touch",
+        WebkitOverflowScrolling: "touch",
     });
 
     cssRule("h1, h2, h3, h4, h5, h6", {
         display: "block",
         lineHeight: globalVars.lineHeights.condensed,
-        ...margins({
+        color: ColorsUtils.colorOut(globalVars.mainColors.fgHeading),
+        ...Mixins.margin({
             all: 0,
         }),
-        ...paddings({
+        ...Mixins.padding({
             all: 0,
         }),
     });
 
     cssRule("p", {
-        ...margins({
+        ...Mixins.margin({
             all: 0,
         }),
-        ...paddings({
+        ...Mixins.padding({
             all: 0,
         }),
     });
@@ -62,14 +71,29 @@ export const bodyCSS = useThemeCache(() => {
     });
 
     cssRule("button", {
-        "-webkit-appearance": "none",
-        "-moz-appearance": "none",
+        WebkitAppearance: "none",
+        MozAppearance: "none",
     });
 
     cssRule(".page-minHeight", {
         flexGrow: 1,
         display: "flex",
         flexDirection: "column",
+    });
+
+    cssRule(`input[type="number"]`, {
+        WebkitAppearance: "none",
+        MozAppearance: "textfield",
+        ...{
+            [`&::-webkit-inner-spin-button`]: {
+                WebkitAppearance: "none",
+                margin: 0,
+            },
+            [`&::-webkit-outer-spin-button`]: {
+                WebkitAppearance: "none",
+                margin: 0,
+            },
+        },
     });
 
     cssRule(
@@ -84,10 +108,13 @@ export const bodyCSS = useThemeCache(() => {
     );
 });
 
-export const bodyClasses = useThemeCache(() => {
+export const fullBackgroundClasses = useThemeCache((isRootPage = false) => {
     const globalVars = globalVariables();
     const style = styleFactory("fullBackground");
     const image = globalVars.body.backgroundImage;
+    const homePageVars = homePageVariables();
+    const source = isRootPage && !isEmpty(homePageVars.backgroundImage) ? homePageVariables() : globalVars.body;
+
     const root = style(
         {
             display: !image ? "none" : "block",
@@ -98,7 +125,7 @@ export const bodyClasses = useThemeCache(() => {
             height: viewHeight(100),
             zIndex: -1,
         },
-        background(image),
+        Mixins.background(source.backgroundImage),
     );
 
     return { root };

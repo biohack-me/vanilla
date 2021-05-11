@@ -7,21 +7,41 @@
 
 namespace VanillaTests\APIv2;
 
+use CommentModel;
 use DiscussionModel;
+use Gdn_Configuration;
+use Vanilla\Models\DirtyRecordModel;
+use VanillaTests\Forum\Utils\CommunityApiTestTrait;
 
 /**
  * Test the /api/v2/discussions endpoints.
  */
 class CommentsTest extends AbstractResourceTest {
 
+    use TestExpandTrait;
+    use AssertLoggingTrait;
+    use TestPrimaryKeyRangeFilterTrait;
+    use TestSortingTrait;
+    use TestFilterDirtyRecordsTrait;
+    use CommunityApiTestTrait;
+
     /**
      * {@inheritdoc}
      */
     public function __construct($name = null, array $data = [], $dataName = '') {
         $this->baseUrl = '/comments';
+        $this->resourceName = 'comment';
         $this->record += ['discussionID' => 1];
+        $this->sortFields = ['dateInserted', 'commentID'];
 
         parent::__construct($name, $data, $dataName);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    protected function getExpandableUserFields() {
+        return ['insertUser'];
     }
 
     /**
@@ -91,5 +111,78 @@ class CommentsTest extends AbstractResourceTest {
         ])->getBody();
 
         $this->assertEquals($comments, $updatedComments);
+    }
+
+    /**
+     * Test commenting on a closed discussion.
+     */
+    public function testCommentClosedDiscussion() {
+        $discussion = $this->createDiscussion();
+        $discussionID = $discussion['discussionID'];
+        $this->api()->patch("/discussions/{$discussionID}", ["closed" => 1]);
+        $this->api()->post('/comments', [
+            "body" => "an admin can post a comment on a closed discussion.",
+            "discussionID" => $discussionID,
+            "format" => "text",
+        ]);
+        $comments = $this->api()->get("/comments?discussionID={$discussionID}&sort=-dateInserted")->getBody();
+        $commentBody = $comments[0]['body'];
+        $this->assertSame("an admin can post a comment on a closed discussion.", $commentBody);
+
+        // Create a member-level user and try the same thing.
+        $username = substr(__FUNCTION__, 0, 20);
+        $user = $this->api()->post('users', [
+            'name' => $username,
+            'email' => $username.'@example.com',
+            'password' => 'vanilla'
+        ])->getBody();
+
+        $this->api()->setUserID($user['userID']);
+        $this->expectExceptionMessage('This discussion has been closed.');
+        $this->api()->post('/comments', [
+            "body" => "a member cannot post on a closed discussion.",
+            "discussionID" => $discussionID,
+            "format" => "markdown",
+        ]);
+    }
+
+    /**
+     * Ensure that there are dirtyRecords for a specific resource.
+     */
+    protected function triggerDirtyRecords() {
+        $discussion = $this->createDiscussion();
+        $comment1 = $this->createComment();
+        $comment2 = $this->createComment();
+
+        /** @var CommentModel $commentModel */
+        $commentModel = \Gdn::getContainer()->get(CommentModel::class);
+
+        $commentModel->setField($comment1["commentID"], 'Score', 10);
+        $commentModel->setField($comment2["commentID"], 'Score', 5);
+    }
+
+    /**
+     * Get the resource type.
+     *
+     *
+     * @return array
+     */
+    protected function getResourceInformation(): array {
+        return [
+            "resourceType" => "comment",
+            "primaryKey" => "commentID"
+        ];
+    }
+
+    /**
+     * Get the api query.
+     *
+     * @return array
+     */
+    protected function getQuery():array {
+        return [
+            DirtyRecordModel::DIRTY_RECORD_OPT => true,
+            'insertUserID' => $this->api()->getUserID()
+        ];
     }
 }

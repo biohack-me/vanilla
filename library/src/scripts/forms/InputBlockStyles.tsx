@@ -4,25 +4,24 @@
  * @license GPL-2.0-only
  */
 
-import { globalVariables, IIconSizes } from "@library/styles/globalStyleVars";
-import { colorOut, unit } from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
+import { globalVariables } from "@library/styles/globalStyleVars";
+import { negativeUnit } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { formElementsVariables } from "@library/forms/formElementStyles";
 import { percent } from "csx";
-import { OverflowProperty, ResizeProperty, StandardLonghandPropertiesFallback } from "csstype";
-
-export const inputBlockVariables = useThemeCache(() => {
-    const vars = globalVariables();
-    const varsLayouts = layoutVariables();
-    const mixBgAndFg = vars.mixBgAndFg;
-    const makeThemeVars = variableFactory("formElements");
-});
+import { Property } from "csstype";
+import { inputClasses, inputVariables } from "@library/forms/inputStyles";
+import { tokensClasses } from "@library/forms/select/tokensStyles";
+import { CSSObject } from "@emotion/css";
+import { checkRadioClasses } from "@library/forms/checkRadioStyles";
+import { Mixins } from "@library/styles/Mixins";
 
 export const inputBlockClasses = useThemeCache(() => {
     const style = styleFactory("inputBlock");
     const globalVars = globalVariables();
-    const vars = inputBlockVariables();
     const formElementVars = formElementsVariables();
 
     const inputText = style("inputText", {
@@ -36,22 +35,23 @@ export const inputBlockClasses = useThemeCache(() => {
     const labelAndDescription = style("labelAndDescription", {
         display: "block",
         width: percent(100),
+        color: ColorsUtils.colorOut(formElementVars.colors.fg),
     });
 
     const root = style({
         display: "block",
         width: percent(100),
-        $nest: {
+        ...{
             [`& + &`]: {
-                marginTop: unit(formElementVars.spacing.margin),
+                marginTop: styleUnit(formElementVars.spacing.margin),
             },
             [`&.isLast`]: {
-                marginBottom: unit(formElementVars.spacing.margin),
+                marginBottom: styleUnit(formElementVars.spacing.margin),
             },
             [`&.hasError .${inputText}`]: {
-                borderColor: colorOut(globalVars.messageColors.error.fg),
-                backgroundColor: colorOut(globalVars.messageColors.error.fg),
-                color: colorOut(globalVars.messageColors.error.fg),
+                borderColor: ColorsUtils.colorOut(globalVars.messageColors.error.fg),
+                backgroundColor: ColorsUtils.colorOut(globalVars.messageColors.error.fg),
+                color: ColorsUtils.colorOut(globalVars.messageColors.error.fg),
             },
             "&.isHorizontal": {
                 display: "flex",
@@ -67,34 +67,50 @@ export const inputBlockClasses = useThemeCache(() => {
                 display: "inline-flex",
                 flexGrow: 1,
             },
+            [`&.${tokensClasses().withIndicator} .tokens__value-container`]: {
+                paddingRight: styleUnit(inputVariables().sizing.height),
+            },
+            [`&.${tokensClasses().withIndicator} .tokens__indicators`]: {
+                position: "absolute",
+                top: 0,
+                right: 6,
+                bottom: 0,
+            },
         },
     });
 
     const errors = style("errors", {
         display: "block",
-        fontSize: unit(globalVars.fonts.size.small),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("small"),
+        }),
     });
+
+    const errorsPadding = style("errorsPadding", inputClasses().inputPaddingMixin);
+
     const error = style("error", {
         display: "block",
-        color: colorOut(globalVars.messageColors.error.fg),
-        $nest: {
+        color: ColorsUtils.colorOut(globalVars.messageColors.error.fg),
+        ...{
             "& + &": {
-                marginTop: unit(6),
+                marginTop: styleUnit(6),
             },
         },
     });
     const labelNote = style("labelNote", {
         display: "block",
-        fontSize: unit(globalVars.fonts.size.small),
-        fontWeight: globalVars.fonts.weights.normal,
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("small", "normal"),
+        }),
         opacity: 0.6,
     });
 
     const labelText = style("labelText", {
         display: "block",
-        fontWeight: globalVars.fonts.weights.semiBold,
-        fontSize: unit(globalVars.fonts.size.medium),
-        marginBottom: unit(formElementVars.spacing.margin / 2),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("medium", "semiBold"),
+        }),
+        marginBottom: styleUnit(formElementVars.spacing.margin),
     });
 
     const sectionTitle = style("sectionTitle", {
@@ -103,20 +119,53 @@ export const inputBlockClasses = useThemeCache(() => {
     });
 
     const fieldsetGroup = style("fieldsetGroup", {
-        marginTop: unit(formElementVars.spacing.margin),
+        marginTop: styleUnit(formElementVars.spacing.margin),
+        ...{
+            "&.noMargin": {
+                marginTop: styleUnit(0),
+            },
+        },
     });
 
-    const multiLine = (resize?: ResizeProperty, overflow?: OverflowProperty) => {
+    const multiLine = (resize?: Property.Resize, overflow?: Property.Overflow) => {
         return style("multiLine", {
-            resize: (resize ? resize : "vertical") as ResizeProperty,
-            overflow: (overflow ? overflow : "auto") as OverflowProperty,
+            ...Mixins.padding({ vertical: 9 }),
+            resize: (resize ? resize : "vertical") as Property.Resize,
+            overflow: (overflow ? overflow : "auto") as Property.Overflow,
         });
     };
+
+    const related = style("related", {
+        marginTop: styleUnit(globalVars.gutter.size),
+    });
+
+    const grid = style("grid", {
+        display: "flex",
+        flexWrap: "wrap",
+        ...{
+            [`.${checkRadioClasses().root}`]: {
+                width: percent(50),
+                alignItems: "flex-start",
+            },
+            [`&.${fieldsetGroup}`]: {
+                marginTop: styleUnit(9),
+            },
+        },
+    });
+
+    const tight = style("tight", {
+        ...{
+            [`&&&`]: {
+                marginTop: negativeUnit(9),
+            },
+        },
+    });
 
     return {
         root,
         inputText,
         errors,
+        errorsPadding,
         error,
         labelNote,
         labelText,
@@ -125,5 +174,8 @@ export const inputBlockClasses = useThemeCache(() => {
         sectionTitle,
         fieldsetGroup,
         multiLine,
+        related,
+        grid,
+        tight,
     };
 });

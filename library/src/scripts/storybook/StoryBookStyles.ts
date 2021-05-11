@@ -2,23 +2,18 @@
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
-import { useThemeCache, styleFactory, variableFactory, DEBUG_STYLES } from "@library/styles/styleUtils";
-import {
-    borders,
-    colorOut,
-    fonts,
-    importantUnit,
-    margins,
-    paddings,
-    singleBorder,
-    unit,
-} from "@library/styles/styleHelpers";
-import { border, calc, color, em, important, percent, scale, translateX } from "csx";
+import { styleFactory, variableFactory, DEBUG_STYLES } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { importantUnit, negative, singleBorder } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
+import { calc, em, percent, scale, translateX } from "csx";
 import { globalVariables } from "@library/styles/globalStyleVars";
 import { lineHeightAdjustment } from "@library/styles/textUtils";
-import { titleBarVariables } from "@library/headers/titleBarStyles";
-import { InputTextBlockBaseClass } from "@library/forms/InputBlock";
-import { iconVariables } from "@library/icons/iconClasses";
+import { titleBarVariables } from "@library/headers/TitleBar.variables";
+import { iconVariables } from "@library/icons/iconStyles";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
 
 export const storyBookVariables = useThemeCache(() => {
     const globalVars = globalVariables();
@@ -50,59 +45,73 @@ export const storyBookVariables = useThemeCache(() => {
         wideWidth: 240,
     });
 
+    const outerContainer = makeThemeVars("outerContainer", {
+        paddings: {
+            vertical: 50,
+            horizontal: 55,
+        },
+    });
+
     return {
         gaps,
         spacing,
         colors,
         tiles,
+        outerContainer,
     };
 });
 
 export const storyBookClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const vars = storyBookVariables();
-    const style = styleFactory("storyBookStyles");
+    const style = styleFactory("storyBook");
 
     const paragraph = style("paragraph", {
         display: "block",
-        ...fonts({
+        ...Mixins.font({
             size: 14,
             family: globalVars.fonts.families.body,
             weight: globalVars.fonts.weights.normal,
             lineHeight: 1.43,
         }),
-        ...margins({ bottom: vars.spacing.default }),
-        $nest: {
+        ...Mixins.margin({ bottom: vars.spacing.default }),
+        ...{
             ...lineHeightAdjustment(),
             [`& + &`]: {
-                ...margins({ top: vars.spacing.default }),
+                ...Mixins.margin({ top: vars.spacing.default }),
             },
             [`a`]: {
                 textDecoration: "underline",
+            },
+            [`code`]: {
+                backgroundColor: "rgba(0, 0, 0, .04)",
+                padding: ".2em .4em",
+                fontSize: "85%",
+                borderRadius: "4px",
             },
         },
     });
 
     const heading = style("heading", {
         display: "block",
-        ...fonts({
+        ...Mixins.font({
             family: globalVars.fonts.families.body,
             weight: globalVars.fonts.weights.bold,
             lineHeight: 1.25,
         }),
-        transform: `translateX(${em(globalVars.fonts.alignment.headings.horizontal)})`,
+        transform: `translateX(${em(globalVars.fonts.alignment.headings.horizontalOffset)})`,
     });
 
     const headingH2 = style("headingH2", {
-        ...fonts({
+        ...Mixins.font({
             size: 18,
         }),
 
-        ...paddings({
+        ...Mixins.padding({
             bottom: vars.spacing.tight,
-            horizontal: unit(vars.spacing.tight / 2),
+            horizontal: styleUnit(vars.spacing.tight / 2),
         }),
-        ...margins({
+        ...Mixins.margin({
             top: vars.spacing.extraLarge,
             bottom: vars.spacing.tight,
         }),
@@ -111,25 +120,24 @@ export const storyBookClasses = useThemeCache(() => {
             width: 1,
             color: vars.colors.border,
         }),
-        width: calc(`100% + ${unit(vars.spacing.tight / 2)}`),
-        transform: translateX(`-${unit(vars.spacing.tight / 2)}`),
-        $nest: {
+        width: calc(`100% + ${styleUnit(vars.spacing.tight / 2)}`),
+        ...{
             [`& + *:not(.${paragraph})`]: {
-                marginTop: unit(32),
+                marginTop: styleUnit(32),
             },
         },
     });
 
     const headingH1 = style("headingH1", {
-        ...fonts({
+        ...Mixins.font({
             size: 24,
             family: globalVars.fonts.families.body,
             weight: globalVars.fonts.weights.bold,
         }),
-        marginBottom: unit(16),
-        $nest: {
-            [`& .${headingH2}`]: {
-                ...margins({
+        marginBottom: styleUnit(16),
+        ...{
+            [`.${headingH2}`]: {
+                ...Mixins.margin({
                     top: vars.spacing.large,
                 }),
             },
@@ -137,28 +145,42 @@ export const storyBookClasses = useThemeCache(() => {
     });
 
     const headingH3 = style("headingH1", {
-        ...fonts({
+        ...Mixins.font({
             size: 14,
             family: globalVars.fonts.families.body,
             weight: globalVars.fonts.weights.semiBold,
         }),
-        marginBottom: unit(4),
+        marginBottom: styleUnit(4),
     });
 
     const unorderedList = style("unorderedList", {});
 
-    const listItem = style("listItem", {});
+    const listVars = {
+        spacing: {
+            top: em(0.5),
+            left: em(2),
+        },
+    };
+
+    const listItem = style("listItem", {
+        position: "relative",
+        listStylePosition: "inside",
+        listStyle: "inside",
+        ...Mixins.margin({
+            top: listVars.spacing.top,
+            left: listVars.spacing.left,
+        }),
+    });
+
     const separator = style("separator", {});
     const link = style("link", {});
 
     const containerOuter = style("containerOuter", {
+        minHeight: "100vh",
         position: "relative",
         display: "block",
         maxWidth: percent(100),
-        ...paddings({
-            vertical: 50,
-            horizontal: 55,
-        }),
+        ...Mixins.padding(vars.outerContainer.paddings),
     });
 
     const containerInner = style("containerInner", {
@@ -171,7 +193,7 @@ export const storyBookClasses = useThemeCache(() => {
         position: "relative",
         display: "block",
         maxWidth: percent(100),
-        width: unit(672),
+        width: styleUnit(672),
         margin: "auto",
     });
 
@@ -179,7 +201,7 @@ export const storyBookClasses = useThemeCache(() => {
         position: "relative",
         display: "block",
         maxWidth: percent(100),
-        width: unit(216),
+        width: styleUnit(216),
     });
 
     const tiles = style("tiles", {
@@ -188,8 +210,15 @@ export const storyBookClasses = useThemeCache(() => {
         alignItems: "stretch",
         justifyContent: "flex-start",
         flexWrap: "wrap",
-        width: calc(`100% + ${unit(vars.gaps.tile * 2)}`),
-        transform: translateX(`-${unit(vars.gaps.tile)}`),
+        width: calc(`100% + ${styleUnit(vars.gaps.tile * 8)}`),
+        transform: translateX(`-${styleUnit(vars.gaps.tile * 3.5)}`),
+        ...panelLayoutVariables()
+            .mediaQueries()
+            .oneColumnDown({
+                display: "block",
+                width: percent(100),
+                transform: "none",
+            }),
     });
 
     const tile = style("tile", {
@@ -197,39 +226,39 @@ export const storyBookClasses = useThemeCache(() => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        minHeight: unit(vars.tiles.height),
-        minWidth: unit(vars.tiles.width),
-        margin: unit(vars.gaps.tile),
-        ...borders({
+        minHeight: styleUnit(vars.tiles.height),
+        minWidth: styleUnit(vars.tiles.width),
+        margin: styleUnit(vars.gaps.tile),
+        ...Mixins.border({
             width: 1,
             color: vars.colors.border,
             radius: 0,
         }),
-        padding: unit(16),
+        padding: styleUnit(16),
     });
 
     const tilesAndText = style("tilesAndText", {
         display: "flex",
         width: percent(100),
-        margin: unit(vars.gaps.tile),
-        $nest: {
+        margin: styleUnit(vars.gaps.tile),
+        ...{
             [`.${tile}`]: {
                 margin: 0,
-                minWidth: unit(vars.tiles.width),
+                minWidth: styleUnit(vars.tiles.width),
             },
         },
     });
 
     const tileTitle = style("tileTitle", {
-        fontSize: unit(14),
-        marginTop: unit(10),
+        fontSize: styleUnit(14),
+        marginTop: styleUnit(10),
     });
     const tileText = style("tileText", {
-        width: calc(`100% - ${unit(vars.tiles.width)}`),
+        width: calc(`100% - ${styleUnit(vars.tiles.width)}`),
     });
 
     const tileTextPaddingLeft = style("tileTextPaddingLeft", {
-        ...paddings({
+        ...Mixins.padding({
             vertical: 6,
             left: 28,
         }),
@@ -250,13 +279,13 @@ export const storyBookClasses = useThemeCache(() => {
                 fg = globalVars.mainColors.bg;
                 break;
             case "titleBar":
-                bg = titleBarVars.colors.bg;
+                bg = titleBarVars.colors.bg.mix(titleBarVars.colors.fg, 0.5);
                 fg = titleBarVars.colors.fg;
                 break;
         }
         return style("tileType", {
-            backgroundColor: colorOut(bg),
-            color: colorOut(fg),
+            backgroundColor: ColorsUtils.colorOut(bg),
+            color: ColorsUtils.colorOut(fg),
         });
     };
 
@@ -268,16 +297,16 @@ export const storyBookClasses = useThemeCache(() => {
 
     const compactTilesAndText = style("compactTilesAndText", {
         flexDirection: "column",
-        width: unit(vars.tiles.wideWidth),
-        $nest: {
+        width: styleUnit(vars.tiles.wideWidth),
+        ...{
             [`.${headingH3}`]: {
-                marginTop: unit(vars.spacing.verticalTitle),
+                marginTop: styleUnit(vars.spacing.verticalTitle),
             },
             [`.${tileText}`]: {
                 width: percent(100),
             },
             [`.${paragraph}`]: {
-                ...margins({
+                ...Mixins.margin({
                     top: vars.spacing.tight,
                     bottom: 0,
                 }),
@@ -289,6 +318,13 @@ export const storyBookClasses = useThemeCache(() => {
     const smallerLogo = style("smallerLogo", {
         height: importantUnit(iconVars.vanillaLogo.height / 2),
         width: importantUnit(iconVars.vanillaLogo.width / 2),
+    });
+
+    const fullPage = style("fullPage", {
+        ...Mixins.margin({
+            vertical: negative(vars.outerContainer.paddings.vertical),
+            horizontal: negative(vars.outerContainer.paddings.horizontal),
+        }),
     });
 
     return {
@@ -315,5 +351,6 @@ export const storyBookClasses = useThemeCache(() => {
         tileTextPaddingLeft,
         compactTilesAndText,
         smallerLogo,
+        fullPage,
     };
 });

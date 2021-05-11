@@ -66,19 +66,28 @@ class LocalesApiController extends Controller {
      * @return array[]
      */
     private function getEnabledLocales(): array {
-        $locales = [];
-        $locales += $this->localeModel->enabledLocalePacks(true);
-        $result = [[
-            'localeID' => 'en',
-            'localeKey' => 'en',
-            'regionalKey' => 'en',
-        ]];
+        $locales = $this->localeModel->enabledLocalePacks(true);
+        $hasEnLocale = false;
+        $result = [];
         foreach ($locales as $localeID => $locale) {
-            $result[] = [
+            $localeItem = [
                 'localeID' => $localeID,
-                'localeKey' => substr($locale['Locale'], 0, 2),
+                'localeKey' => $locale['Locale'],
                 'regionalKey' => $locale['Locale'],
             ];
+
+            if ($localeItem['localeKey'] === 'en') {
+                $hasEnLocale = true;
+            }
+            $result[] = $localeItem;
+        }
+
+        if (!$hasEnLocale) {
+            $result = array_merge([[
+                'localeID' => 'en',
+                'localeKey' => 'en',
+                'regionalKey' => 'en',
+            ]], $result);
         }
 
         return $result;
@@ -101,9 +110,17 @@ class LocalesApiController extends Controller {
             $displayNames = [];
             foreach ($locales as $locale) {
                 $displayName = \Locale::getDisplayLanguage($row["localeKey"], $locale);
-
+                $displayNameRegion = \Locale::getDisplayRegion($row["localeKey"], $locale);
+                $displayName = (empty($displayNameRegion)) ? $displayName : $displayName . " ($displayNameRegion)";
                 // Standardize capitalization
                 $displayName = mb_convert_case($displayName, MB_CASE_TITLE);
+
+                // If I set the translation key
+                // localeOverrides.zh.* = Override in all other langauges
+                // localeOverrides.zh.zh_TW = Override in one specific language.
+                $wildCardOverrideKey = "localeOverrides.{$row["localeKey"]}.*";
+                $specificOverrideKey = "localeOverrides.{$row["localeKey"]}.$locale";
+                $displayName = c($specificOverrideKey, c($wildCardOverrideKey, $displayName));
 
                 $displayNames[$locale] = $displayName;
             }
@@ -129,13 +146,6 @@ class LocalesApiController extends Controller {
     public function index_translations(string $locale, array $query = []) {
         $this->permission();
 
-        $in = $this->schema([
-            'etag:s?' => 'Whether or not output is cached.'
-        ], 'in');
-        $out = $this->schema([':o'], 'out');
-
-        $query = $in->validate($query);
-
         $this->locale->set($locale);
 
         // Don't bother validating the translations since they are a free-form array.
@@ -145,10 +155,7 @@ class LocalesApiController extends Controller {
             $translations = (object)[];
         }
         $r = new Data($translations);
-        if (!empty($query['etag'])) {
-            $r->setHeader('Cache-Control', 'public, max-age=604800');
-        }
-
+        $r->setHeader('Cache-Control', 'public, max-age=1800');
         return $r;
     }
 
@@ -168,5 +175,24 @@ class LocalesApiController extends Controller {
             ->setHeader('Content-Type', 'application/javascript; charset=utf-8');
 
         return $translations;
+    }
+
+    /**
+     * Validator for locale field
+     *
+     * @param string $locale
+     * @param \Garden\Schema\ValidationField $validationField
+     * @return bool
+     */
+    public function validateLocale(string $locale, \Garden\Schema\ValidationField $validationField): bool {
+        $locales = $this->getEnabledLocales();
+        foreach ($locales as $localePack) {
+            if ($localePack['localeID'] === $locale
+            || $localePack['localeKey'] === $locale
+            || $localePack['regionalKey'] === $locale) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -11,6 +11,7 @@ if [ "$TRAVIS_BRANCH" = "master" ]; then
 fi
 
 if [ "$DO_LINT" = true ]; then
+    .circleci/scripts/php-lint.sh ./addons
     .circleci/scripts/php-lint.sh ./applications
     .circleci/scripts/php-lint.sh ./conf
     .circleci/scripts/php-lint.sh ./library
@@ -21,7 +22,7 @@ else
 fi
 
 if [ "$DO_LINT" = true ]; then
-    ./vendor/bin/phpunit -c phpunit.xml.dist --coverage-clover=coverage.clover --exclude-group=ignore
+    php --define pcov.enabled=1 ./vendor/bin/phpunit -c phpunit.xml.dist --coverage-clover=coverage.clover --exclude-group=ignore
 else
     echo "Skipping code coverage..."
     ./vendor/bin/phpunit -c phpunit.xml.dist --exclude-group=ignore

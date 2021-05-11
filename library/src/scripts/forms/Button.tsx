@@ -6,11 +6,12 @@
 
 import React from "react";
 import { getOptionalID, IOptionalComponentID } from "@library/utility/idUtils";
-import { buttonClasses, ButtonTypes, buttonUtilityClasses } from "@library/forms/buttonStyles";
+import { buttonClasses, buttonUtilityClasses } from "../forms/buttonStyles";
 import classNames from "classnames";
 import { titleBarClasses } from "@library/headers/titleBarStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 
-interface IProps extends IOptionalComponentID {
+export interface IButtonProps extends IOptionalComponentID, React.HTMLAttributes<HTMLButtonElement> {
     children: React.ReactNode;
     className?: string;
     disabled?: boolean;
@@ -21,21 +22,22 @@ interface IProps extends IOptionalComponentID {
     title?: string;
     submit?: boolean;
     ariaLabel?: string;
-    baseClass?: ButtonTypes;
+    buttonType?: ButtonTypes;
     ariaHidden?: boolean;
     tabIndex?: number;
     lang?: string;
-    buttonRef?: React.RefObject<HTMLButtonElement>;
+    buttonRef?: React.Ref<HTMLButtonElement>;
     role?: string;
     onKeyDownCapture?: (event: any) => void;
     controls?: string;
+    style?: {};
 }
 
 interface IState {
     id?: string;
 }
 
-export const getButtonStyleFromBaseClass = (type: ButtonTypes | undefined) => {
+export const getClassForButtonType = (type: ButtonTypes | undefined) => {
     if (type) {
         const buttonUtils = buttonUtilityClasses();
         const classes = buttonClasses();
@@ -54,6 +56,8 @@ export const getButtonStyleFromBaseClass = (type: ButtonTypes | undefined) => {
                 return classes.primary;
             case ButtonTypes.TRANSPARENT:
                 return classes.transparent;
+            case ButtonTypes.OUTLINE:
+                return classes.outline;
             case ButtonTypes.TRANSLUCID:
                 return classes.translucid;
             case ButtonTypes.TITLEBAR_LINK:
@@ -70,6 +74,8 @@ export const getButtonStyleFromBaseClass = (type: ButtonTypes | undefined) => {
                 return "btn btn-secondary";
             case ButtonTypes.DASHBOARD_LINK:
                 return "btn btn-link";
+            case ButtonTypes.NOT_STANDARD:
+                return classes.notStandard;
             default:
                 return "";
         }
@@ -81,13 +87,13 @@ export const getButtonStyleFromBaseClass = (type: ButtonTypes | undefined) => {
 /**
  * A stylable, configurable button component.
  */
-export default class Button extends React.Component<IProps, IState> {
-    public static defaultProps: Partial<IProps> = {
+export default class Button extends React.Component<IButtonProps, IState> {
+    public static defaultProps: Partial<IButtonProps> = {
         id: undefined,
         disabled: false,
         prefix: "button",
         legacyMode: false,
-        baseClass: ButtonTypes.STANDARD,
+        buttonType: ButtonTypes.STANDARD,
     };
 
     constructor(props) {
@@ -98,29 +104,31 @@ export default class Button extends React.Component<IProps, IState> {
     }
 
     public render() {
-        const componentClasses = classNames(
-            getButtonStyleFromBaseClass(this.props.baseClass),
-            { Button: this.props.legacyMode },
-            this.props.className,
-        );
+        const {
+            buttonType,
+            legacyMode,
+            className,
+            id,
+            submit,
+            ariaLabel,
+            ariaHidden,
+            controls,
+            buttonRef,
+            ...restProps
+        } = this.props;
+
+        const componentClasses = classNames(getClassForButtonType(buttonType), { Button: legacyMode }, className);
 
         return (
             <button
                 id={this.state.id}
-                disabled={this.props.disabled}
-                type={this.props.submit ? "submit" : "button"}
+                type={submit ? "submit" : "button"}
                 className={componentClasses}
-                onClick={this.props.onClick}
-                title={this.props.title}
-                aria-label={this.props.ariaLabel || this.props.title}
-                aria-hidden={this.props.ariaHidden}
-                tabIndex={this.props.tabIndex}
-                ref={this.props.buttonRef}
-                onKeyDown={this.props.onKeyDown}
-                lang={this.props.lang}
-                role={this.props.role}
-                onKeyDownCapture={this.props.onKeyDownCapture}
-                aria-controls={this.props.controls}
+                aria-label={ariaLabel ?? restProps.title}
+                aria-hidden={ariaHidden}
+                ref={buttonRef}
+                aria-controls={controls}
+                {...restProps}
             >
                 {this.props.children}
             </button>

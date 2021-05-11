@@ -11,7 +11,7 @@
  *
  * @param array $params The parameters passed into the function.
  * @param Smarty $smarty The smarty object rendering the template.
- * @return The HTML img tag or site title if no logo is set.
+ * @return string The HTML img tag or site title if no logo is set.
  */
 function smarty_function_logo($params, &$smarty) {
     $options = [];
@@ -31,6 +31,9 @@ function smarty_function_logo($params, &$smarty) {
     }
     if (isset($params['width'])) {
         $options['width']  = $params['width'];
+    }
+    if (isset($params['fallbackLogo'])) {
+        $options['fallbackLogo']  = $params['fallbackLogo'];
     }
 
     $result = Gdn_Theme::logo($options);

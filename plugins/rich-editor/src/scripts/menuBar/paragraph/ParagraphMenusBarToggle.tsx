@@ -16,7 +16,7 @@ import {
     Heading4Icon,
     Heading5Icon,
 } from "@library/icons/editorIcons";
-import { srOnly } from "@library/styles/styleHelpers";
+import { Mixins } from "@library/styles/Mixins";
 import { t } from "@library/utility/appUtils";
 import { IWithEditorProps } from "@rich-editor/editor/context";
 import { withEditor } from "@rich-editor/editor/withEditor";
@@ -29,11 +29,12 @@ import ActiveFormatIcon from "@rich-editor/toolbars/pieces/ActiveFormatIcon";
 import classNames from "classnames";
 import Quill, { RangeStatic } from "quill/core";
 import React from "react";
-import { style } from "typestyle";
+import { style } from "@library/styles/styleShim";
 import uniqueId from "lodash/uniqueId";
 import { IconForButtonWrap } from "@rich-editor/editor/pieces/IconForButtonWrap";
 import { richEditorVariables } from "@rich-editor/editor/richEditorVariables";
 import { FocusWatcher, TabHandler } from "@vanilla/dom-utils";
+import ScreenReaderContent from "@library/layout/ScreenReaderContent";
 
 export enum IMenuBarItemTypes {
     CHECK = "checkbox",
@@ -90,7 +91,7 @@ export class ParagraphMenusBarToggle extends React.PureComponent<IProps, IState>
      * @inheritDoc
      */
     public componentDidMount() {
-        this.focusWatcher = new FocusWatcher(this.selfRef.current!, newHasFocusState => {
+        this.focusWatcher = new FocusWatcher(this.selfRef.current!, (newHasFocusState) => {
             if (!newHasFocusState) {
                 this.setState({ hasFocus: false });
             }
@@ -129,7 +130,7 @@ export class ParagraphMenusBarToggle extends React.PureComponent<IProps, IState>
         const formatter = new Formatter(this.quill, this.props.lastGoodSelection);
         const menuActiveFormats = menuState(formatter, this.props.activeFormats);
         const topLevelIcons = this.topLevelIcons(menuActiveFormats);
-
+        const label = t("Toggle Paragraph Format Menu");
         return (
             <div
                 id={this.componentID}
@@ -145,7 +146,7 @@ export class ParagraphMenusBarToggle extends React.PureComponent<IProps, IState>
                     type="button"
                     id={this.buttonID}
                     ref={this.buttonRef}
-                    aria-label={t("Toggle Paragraph Format Menu")}
+                    aria-label={label}
                     aria-controls={this.menuID}
                     aria-expanded={this.isMenuVisible}
                     disabled={this.props.disabled}
@@ -157,14 +158,14 @@ export class ParagraphMenusBarToggle extends React.PureComponent<IProps, IState>
                     onClick={this.pilcrowClickHandler}
                     onKeyDown={this.handleEscape}
                 >
+                    <ScreenReaderContent>{label}</ScreenReaderContent>
                     <IconForButtonWrap icon={<ActiveFormatIcon activeFormats={menuActiveFormats} />} />
                 </button>
                 <div
                     id={this.menuID}
                     className={classNames(
                         this.dropDownClasses,
-                        classes.menuBar,
-                        this.isMenuVisible ? "" : style(srOnly()),
+                        this.isMenuVisible ? "" : style(Mixins.absolute.srOnly()),
                     )}
                     style={this.toolbarStyles}
                     role="menu"
@@ -196,7 +197,7 @@ export class ParagraphMenusBarToggle extends React.PureComponent<IProps, IState>
         return this.props.currentSelection;
     }
 
-    private topLevelIcons = menuActiveFormats => {
+    private topLevelIcons = (menuActiveFormats) => {
         let headingMenuIcon = <Heading2Icon />;
         if (menuActiveFormats.headings.heading3) {
             headingMenuIcon = <Heading3Icon />;

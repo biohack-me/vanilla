@@ -8,8 +8,11 @@
 namespace VanillaTests\Library\Vanilla\Web;
 
 use Garden\Web\Data;
+use Garden\Web\Exception\ClientException;
+use Garden\Web\Exception\ForbiddenException;
 use Garden\Web\RequestInterface;
 use PHPUnit\Framework\TestCase;
+use Vanilla\Exception\PermissionException;
 use Vanilla\Web\SmartIDMiddleware;
 use Vanilla\Web\UserSmartIDResolver;
 use VanillaTests\BootstrapTrait;
@@ -32,13 +35,21 @@ class SmartIDMiddlewareTest extends TestCase {
     protected $userResolver;
 
     /**
+     * @var \Gdn_Session
+     */
+    protected $session;
+
+    /**
      * Create a configured test middleware for each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         $this->middleware =  new TestSmartIDMiddleware();
         $this->middleware->addSmartID('CategoryID', 'categories', ['name', 'urlcode'], 'Category');
 
-        $usr = $this->userResolver = new UserSmartIDResolver();
+        $this->session = new \Gdn_Session();
+        $this->session->UserID = 123;
+
+        $usr = $this->userResolver = new UserSmartIDResolver($this->session);
         $usr->setEmailEnabled(true)
             ->setViewEmail(true);
         $this->middleware->addSmartID('UserID', 'users', '*', $usr);
@@ -84,6 +95,7 @@ class SmartIDMiddlewareTest extends TestCase {
             ['/users/$name:baz', '/users/(User.UserID.name:baz)'],
             ['/users/$foozbook:123', '/users/(UserAuthentication.UserID.providerKey:foozbook.foreignUserKey:123)'],
             ['/users/$query:userID?userID=$name:baz', '/users/(User.UserID.name:baz)'],
+            ['/users/$me', '/users/123'],
         ];
 
         return array_column($r, null, 0);
@@ -112,6 +124,7 @@ class SmartIDMiddlewareTest extends TestCase {
             'basic' => [['categoryID' => '$name:foo'], ['categoryID' => '(Category.CategoryID.name:foo)']],
             'suffix' => [['parentCategoryID' => '$urlcode:foo'], ['parentCategoryID' => '(Category.CategoryID.urlcode:foo)']],
             'callback' => [['insertUserID' => '$name:baz'], ['insertUserID' => '(User.UserID.name:baz)']],
+            'fully qualified' => [['parentID' => '$userID.name:baz'], ['parentID' => '(User.UserID.name:baz)']],
         ];
 
         return $r;
@@ -140,6 +153,7 @@ class SmartIDMiddlewareTest extends TestCase {
             'basic' => [['categoryID' => '$name:foo'], ['categoryID' => '(Category.CategoryID.name:foo)']],
             'nested' => [['r' => ['categoryID' => '$urlcode:foo']], ['r' => ['categoryID' => '(Category.CategoryID.urlcode:foo)']]],
             'callback' => [['insertUserID' => '$name:baz'], ['insertUserID' => '(User.UserID.name:baz)']],
+            'fully qualified' => [['parentID' => '$userID.name:baz'], ['parentID' => '(User.UserID.name:baz)']],
         ];
 
         return $r;
@@ -162,10 +176,10 @@ class SmartIDMiddlewareTest extends TestCase {
 
     /**
      * Email smart IDs should fail if email addresses are not enabled.
-     *
-     * @expectedException \Garden\Web\Exception\ForbiddenException
      */
     public function testNoEmail() {
+        $this->expectException(ForbiddenException::class);
+
         $this->userResolver
             ->setViewEmail(true)
             ->setEmailEnabled(false);
@@ -175,10 +189,10 @@ class SmartIDMiddlewareTest extends TestCase {
 
     /**
      * Email smart IDs should fail if email addresses are not enabled.
-     *
-     * @expectedException \Vanilla\Exception\PermissionException
      */
     public function testNoEmailPermission() {
+        $this->expectException(PermissionException::class);
+
         $this->userResolver
             ->setViewEmail(false)
             ->setEmailEnabled(true);
@@ -188,55 +202,98 @@ class SmartIDMiddlewareTest extends TestCase {
 
     /**
      * Column names are whitelisted.
-     *
-     * @expectedException \Garden\Web\Exception\ClientException
      */
     public function testBadColumn() {
+        $this->expectException(ClientException::class);
+
         $this->callMiddleware(new Request('/categories/$foo:bar'));
     }
 
     /**
      * The directory before the smart ID must be in the whitelist.
-     *
-     * @expectedException \Garden\Web\Exception\ClientException
      */
     public function testBadResource() {
+        $this->expectException(ClientException::class);
+
         $this->callMiddleware(new Request('/foo/$bar:baz'));
     }
 
     /**
      * Path smart IDs must have a resource before them.
-     *
-     * @expectedException \Garden\Web\Exception\ClientException
      */
     public function testNoResource() {
+        $this->expectException(ClientException::class);
+
         $this->callMiddleware(new Request('/$foo:bar'));
     }
 
     /**
      * Query substitution smart IDs must be in the querystring.
-     *
-     * @expectedException \Garden\Web\Exception\ClientException
      */
     public function testInvalidQueryField() {
+        $this->expectException(ClientException::class);
+
         $this->callMiddleware(new Request('/$query:bar'));
     }
 
     /**
      * The columns must be an array or "*".
-     *
-     * @expectedException \InvalidArgumentException
      */
     public function testBadColumns() {
+        $this->expectException(\InvalidArgumentException::class);
+
         $this->middleware->addSmartID('FooID', 'foo', 'bar', 'Baz');
     }
 
     /**
      * The resolver must be a string or callable.
-     *
-     * @expectedException \InvalidArgumentException
      */
     public function testBadResolver() {
+        $this->expectException(\InvalidArgumentException::class);
+
         $this->middleware->addSmartID('FooID', 'foo', '*', 123);
+    }
+
+    /**
+     * The `$me` smart ID without a session should give the guest ID.
+     */
+    public function testGuestMe() {
+        $this->session->UserID = 0;
+
+        $request = new Request('/users/$me');
+        $r = $this->callMiddleware($request);
+        $this->assertEquals($r->getPath(), '/users/0');
+    }
+
+    /**
+     * Test the basic full ID suffix access.
+     */
+    public function testAddRemoveFullSuffix(): void {
+        $this->middleware->addFullSuffix('foo');
+        $this->assertTrue($this->middleware->hasFullSuffix('foo'));
+        $this->middleware->removeFullSuffix('foo');
+        $this->assertFalse($this->middleware->hasFullSuffix('foo'));
+    }
+
+    /**
+     * When you remove a fully qualified suffix you should not match its smart ID.
+     */
+    public function testNoFullSuffix(): void {
+        $request = new Request('/', 'POST', [
+            'parentID' => '$userID.name:baz'
+        ]);
+        $r = $this->callMiddleware($request);
+        $this->assertEquals(['parentID' => '(User.UserID.name:baz)'], $r->getBody());
+        $this->middleware->removeFullSuffix('ID');
+        $r = $this->callMiddleware($request);
+        $this->assertEquals($request->getBody(), $r->getBody());
+    }
+
+    /**
+     * Test the basic accessors for the base path.
+     */
+    public function testBasePathAccessors() {
+        $this->middleware->setBasePath('/foo');
+        $this->assertSame('/foo', $this->middleware->getBasePath());
     }
 }

@@ -1,5 +1,7 @@
 <?php if (!defined('APPLICATION')) exit();
 
+/** @var \EntryController $this */
+
 // Get the connection information.
 if (!($ConnectName = $this->Form->getFormValue('FullName'))) {
     $ConnectName = $this->Form->getFormValue('Name');
@@ -81,7 +83,7 @@ if (!$hasUserID) {
                     '<span class="Name">'.htmlspecialchars($ConnectName).'</span>',
                     '<span class="Source">'.htmlspecialchars($ConnectSource).'</span>');
 
-                echo wrap(t('ConnectCreateAccount', 'Add Info &amp; Create Account'), 'h3');
+                echo wrap(t('ConnectCreateAccount', 'Add Info &amp; Create Account'), 'h3', ["aria-level" => 2]);
 
                 echo '</div>';
                 ?>
@@ -101,40 +103,45 @@ if (!$hasUserID) {
                     echo $this->Form->textBox('Email');
                     ?>
                 </li>
-                <?php endif; ?>
+        <?php endif; ?>
 
-                <?php
-                    $PasswordMessage = t('ConnectLeaveBlank', 'Leave blank unless connecting to an existing account.');
-                    if ($displayConnectName && !$this->data('HideName')) : ?>
+        <?php if ($displayConnectName && !$this->data('HideName')) : ?>
+
                 <li>
                     <?php
 
+                    // One User was found in GDN_User based on the Email.
                     if (count($ExistingUsers) == 1 && $NoConnectName) {
-                        $PasswordMessage = t('ConnectExistingPassword', 'Enter your existing account password.');
                         $Row = reset($ExistingUsers);
 
                         echo '<div class="FinePrint">', t('ConnectAccountExists', 'You already have an account here.'), '</div>',
                         wrap(sprintf(t('ConnectRegisteredName', 'Your registered username: <strong>%s</strong>'), htmlspecialchars($Row['Name'])), 'div', ['class' => 'ExistingUsername']);
                         $this->addDefinition('NoConnectName', true);
                         echo $this->Form->hidden('UserSelect', ['Value' => $Row['UserID']]);
-                    } else {
-                        echo $this->Form->label('Username', 'ConnectName');
-                        echo '<div class="FinePrint">', t('ConnectChooseName', 'Choose a name to identify yourself on the site.'), '</div>';
-
-                        if (count($ExistingUsers) > 0) {
-                            foreach ($ExistingUsers as $Row) {
-                                echo wrap($this->Form->radio('UserSelect', $Row['Name'], ['value' => $Row['UserID']]), 'div');
-                            }
-                            echo wrap($this->Form->radio('UserSelect', t('Other'), ['value' => 'other']), 'div');
-                        }
                     }
 
-                    if (!$NoConnectName) {
+                    // Found User's Name in GDN_User.
+                    if (count($ExistingUsers) >= 1 && !$NoConnectName){
+                        echo $this->Form->label('Username', 'ConnectName');
+                        echo \Gdn::translate('ConnectWithExistingUser', 'One or more users with your name already exist, would you like to connect as them?');
+                        $connectNameMessage = (!$allowConnect) ? '' : ' <span class="FinePrint">'.\Gdn::translate('(Requires a password.)').'</span>';
+                        foreach ($ExistingUsers as $Row) {
+                            echo wrap($this->Form->radio('UserSelect', $Row['Name'] . $connectNameMessage, ['value' => $Row['UserID'], 'class' => 'existingConnectName']), 'div');
+                        }
+                        $connectChooseName = ' <span class="FinePrint">('.\Gdn::translate('ConnectChooseName', 'Choose a name to identify yourself on the site.').')</span>';
+                        echo wrap($this->Form->radio('UserSelect', 'Other'.$connectChooseName, ['value' => 'other']), 'div');
                         echo $this->Form->textbox('ConnectName');
+                    }
+
+                    // No Name was passed over SSO and...
+                    // No Users were found in GDN_User
+                    if (count($ExistingUsers) === 0 && !$NoConnectName) {
+                        echo \Gdn::translate('ConnectChooseName', 'Choose a name to identify yourself on the site.');
+                        echo $this->Form->textbox('ConnectName', ["aria-label" => t("Username")]);
                     }
                     ?>
                 </li>
-                <?php endif; ?>
+        <?php endif; ?>
 
                 <?php $this->fireEvent('RegisterBeforePassword'); ?>
 
@@ -147,6 +154,7 @@ if (!$hasUserID) {
                 if (!$this->data('HidePassword')) {
                     echo '<li id="ConnectPassword">';
                     echo $this->Form->label('Password', 'ConnectPassword');
+                    $PasswordMessage = t('ConnectExistingPassword', 'Enter your existing account password.');
                     echo wrap($PasswordMessage, 'div', ['class' => 'FinePrint']);
                     echo $this->Form->input('ConnectPassword', 'password');
                     echo '</li>';

@@ -471,7 +471,7 @@ class UpdateModel extends Gdn_Model {
      * Offers a quick and dirty way of parsing an addon's info array without using eval().
      *
      * @param string $path The path to the info array.
-     * @param string $variable The name of variable containing the information.
+     * @param string|false $variable The name of variable containing the information.
      * @return array|false The info array or false if the file could not be parsed.
      * @deprecated since 2.3
      */
@@ -656,6 +656,7 @@ class UpdateModel extends Gdn_Model {
     public function runStructure($captureOnly = false) {
         $this->saveStatus(self::STATUS_RUNNING);
 
+        $userID = Gdn::session()->UserID;
         try {
             $r = $this->runStructureInternal($captureOnly);
             $this->saveStatus(self::STATUS_SUCCESS);
@@ -663,6 +664,14 @@ class UpdateModel extends Gdn_Model {
         } catch (\Throwable $ex) {
             $this->saveStatus(self::STATUS_ERROR, $ex->getMessage());
             throw $ex;
+        } finally {
+            if ($userID && $userID !== Gdn::session()->UserID) {
+                Gdn::session()->start($userID, false, false);
+            } elseif (!$userID && null !== c('Garden.Installed', false)) {
+            // Vanilla has an alternate install method where this config value is set to null.
+            // When this using this alternate install method we don't have authenticators configured and can't end the session.
+                Gdn::session()->end();
+            }
         }
     }
 
@@ -689,9 +698,13 @@ class UpdateModel extends Gdn_Model {
             if ($structure = $addon->getSpecial('structure')) {
                 Logger::event(
                     'addon_structure',
-                    Logger::INFO,
+                    Logger::DEBUG,
                     "Executing structure for {addonKey}.",
-                    ['addonKey' => $addon->getKey(), 'structureType' => 'file']
+                    [
+                        'addonKey' => $addon->getKey(),
+                        'structureType' => 'file',
+                        \Vanilla\Logger::FIELD_CHANNEL => \Vanilla\Logger::CHANNEL_SYSTEM,
+                    ]
                 );
 
                 try {
@@ -703,9 +716,10 @@ class UpdateModel extends Gdn_Model {
                         Gdn::session()->start($systemUserID, false, false);
                     }
                 } catch (\Throwable $ex) {
-                    trigger_error("Error running structure: ".$ex->getMessage(), E_USER_WARNING);
                     if (debug()) {
                         throw $ex;
+                    } else {
+                        trigger_error("Error running structure: ".$ex->getMessage(), E_USER_WARNING);
                     }
                 }
             }
@@ -720,9 +734,13 @@ class UpdateModel extends Gdn_Model {
                 if (is_object($plugin) && method_exists($plugin, 'structure')) {
                     Logger::event(
                         'addon_structure',
-                        Logger::INFO,
+                        Logger::DEBUG,
                         "Executing structure for {addonKey}.",
-                        ['addonKey' => $addon->getKey(), 'structureType' => 'method']
+                        [
+                            'addonKey' => $addon->getKey(),
+                            'structureType' => 'method',
+                            \Vanilla\Logger::FIELD_CHANNEL => \Vanilla\Logger::CHANNEL_SYSTEM
+                        ]
                     );
 
                     try {
@@ -744,7 +762,11 @@ class UpdateModel extends Gdn_Model {
                     'addon_permissions',
                     Logger::INFO,
                     "Defining permissions for {addonKey}.",
-                    ['addonKey' => $addon->getKey(), 'permissions' => $permissions]
+                    [
+                        'addonKey' => $addon->getKey(),
+                        'permissions' => $permissions,
+                        Logger::FIELD_CHANNEL => Logger::CHANNEL_SYSTEM,
+                    ]
                 );
                 Gdn::permissionModel()->define($permissions);
             }

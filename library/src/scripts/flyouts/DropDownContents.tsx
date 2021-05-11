@@ -12,16 +12,18 @@ import { TabHandler } from "@vanilla/dom-utils";
 
 export interface IProps {
     id: string;
-    parentID: string;
     className?: string;
     children: React.ReactNode;
     isVisible?: boolean;
     renderAbove: boolean;
     renderLeft: boolean;
+    renderCenter: boolean;
     legacyMode?: boolean;
     openAsModal?: boolean;
     selfPadded?: boolean;
     size: DropDownContentSize;
+    horizontalOffset?: boolean;
+    contentRef?: React.RefObject<HTMLDivElement>;
 }
 
 export enum DropDownContentSize {
@@ -42,30 +44,33 @@ export default class DropDownContents extends React.Component<IProps> {
               })
             : undefined;
         const asModalClasses = this.props.openAsModal ? classNames("dropDown-asModal", classes.asModal) : undefined;
-
-        if (this.props.isVisible) {
-            return (
-                <div
-                    id={this.props.id}
-                    aria-labelledby={this.props.parentID}
-                    className={classNames(
-                        asDropDownClasses,
-                        asModalClasses,
-                        this.props.className,
-                        !this.props.selfPadded ? classes.verticalPadding : "",
-                    )}
-                    style={flyoutPosition(this.props.renderAbove, this.props.renderLeft, !!this.props.legacyMode)}
-                    onClick={this.doNothing}
-                    onMouseDown={this.forceTryFocus}
-                >
-                    {this.props.children}
-                </div>
-            );
-        } else {
-            return (
-                <div id={this.props.id} aria-hidden={true} aria-labelledby={this.props.parentID} className="sr-only" />
-            ); // for accessibility
+        if (this.props.openAsModal) {
+            return this.props.children;
         }
+
+        return (
+            <div
+                ref={this.props.contentRef}
+                id={this.props.id}
+                className={classNames(asDropDownClasses, asModalClasses, this.props.className, {
+                    [classes.verticalPadding]: !this.props.selfPadded,
+                    [classes.contentOffsetCenter]: this.props.renderCenter,
+                    [classes.contentOffsetLeft]: this.props.horizontalOffset && this.props.renderLeft,
+                    [classes.contentOffsetRight]: this.props.horizontalOffset && !this.props.renderLeft,
+                })}
+                style={flyoutPosition(
+                    this.props.renderAbove,
+                    this.props.renderLeft,
+                    !!this.props.legacyMode,
+                    this.props.renderCenter,
+                )}
+                onClick={this.doNothing}
+                tabIndex={-1}
+                onMouseDown={this.forceTryFocus}
+            >
+                {this.props.children}
+            </div>
+        );
     }
 
     /**
@@ -79,8 +84,8 @@ export default class DropDownContents extends React.Component<IProps> {
     private forceTryFocus = (e: React.MouseEvent) => {
         if (e.target instanceof HTMLElement) {
             if (!TabHandler.isTabbable(e.target)) {
-                e.preventDefault();
-                document.body.focus();
+                // this.doNothing(e);
+                // this.selfRef.current && this.selfRef.current.focus();
             }
         }
     };

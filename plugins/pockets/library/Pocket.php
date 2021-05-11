@@ -4,6 +4,9 @@
  * @license GPL-2.0-only
  */
 
+use Vanilla\Addons\Pockets\PocketsModel;
+use Vanilla\Widgets\WidgetService;
+
 /**
  * Class Pocket
  */
@@ -58,6 +61,9 @@ class Pocket {
     /** $var string Whether the pocket is in test mode. */
     public $TestMode = false;
 
+    /** @var array */
+    public $Data = [];
+
     /** $var bool Whether to disable the pocket for embedded comments. * */
     public $EmbeddedNever = false;
 
@@ -65,15 +71,26 @@ class Pocket {
     public $ShowInDashboard = false;
 
     /** @var array */
-    public static $NameTranslations = ['conversations' => 'inbox', 'messages' => 'inbox', 'categories' => 'discussions', 'discussion' => 'comments'];
+    public static $NameTranslations = ['conversations' => 'inbox', 'messages' => 'inbox', 'discussion' => 'comments'];
+
+    /** @var array */
+    public $Attributes = [];
+
+    /** @var string|null */
+    private $widgetID = null;
+
+    /** @var array */
+    private $widgetParameters = [];
+
+    /** @var WidgetService */
+    private $widgetService;
 
     /**
      * Pocket constructor.
-     *
-     * @param string $location
      */
-    public function __construct($location = '') {
-        $this->Location = $location;
+    public function __construct(WidgetService $widgetService) {
+        $this->widgetService = $widgetService;
+
     }
 
     /**
@@ -95,6 +112,9 @@ class Pocket {
      * @return bool
      */
     public function canRender($data) {
+        $testMode = self::inTestMode($this);
+        $pocketAdmin = checkPermission('Plugins.Pockets.Manage');
+
         if (!$this->ShowInDashboard && inSection('Dashboard')) {
             return false;
         }
@@ -116,12 +136,16 @@ class Pocket {
             return false;
         }
 
-        if (self::inTestMode($this) && !checkPermission('Plugins.Pockets.Manage')) {
+        if ($testMode && !$pocketAdmin) {
             return false;
         }
 
         // Check to see if the page matches.
-        if ($this->Page && strcasecmp($this->Page, val('PageName', $data)) != 0) {
+        $page = $this->Page ?? '';
+        $homepageMatches = (strtolower($page) === 'home' || strtolower($page) === 'sitehome') && $data['isHomepage'];
+        $pageMatches = $homepageMatches || strtolower($page) === strtolower($data['PageName']);
+        if ($page && !$pageMatches) {
+            // A page is set, but we don't match it.
             return false;
         }
 
@@ -163,8 +187,11 @@ class Pocket {
             }
         }
 
-        // If we've passed all of the tests then the pocket can be processed.
-        return true;
+        /** @var \Garden\EventManager $eventManager */
+        $eventManager = Gdn::getContainer()->get(\Garden\EventManager::class);
+        $eventResult = $eventManager->fireFilter('pocket_canRender', true, $this, $data);
+
+        return $eventResult;
     }
 
     /**
@@ -181,14 +208,17 @@ class Pocket {
         $this->Page = $data['Page'];
         $this->MobileOnly = $data['MobileOnly'];
         $this->MobileNever = $data['MobileNever'];
-        $this->Type = val('Type', $data, Pocket::TYPE_DEFAULT);
-        $this->EmbeddedNever = val('EmbeddedNever', $data);
-        $this->ShowInDashboard = val('ShowInDashboard', $data);
-        $this->TestMode = val('TestMode', $data);
+        $this->Type = $data['Type'] ?? Pocket::TYPE_DEFAULT;
+        $this->EmbeddedNever = $data['EmbeddedNever'] ?? null;
+        $this->ShowInDashboard = $data['ShowInDashboard'] ?? $data;
+        $this->TestMode = $data['TestMode'] ?? null;
+        $this->Data = $data;
+        $this->widgetParameters = $data['WidgetParameters'] ?? [];
+        $this->widgetID = $data['WidgetID'] ?? null;
 
         // parse the frequency.
         $repeat = $data['Repeat'];
-        list($this->RepeatType, $this->RepeatFrequency) = Pocket::parseRepeat($repeat);
+        [$this->RepeatType, $this->RepeatFrequency] = Pocket::parseRepeat($repeat);
     }
 
     /**
@@ -294,16 +324,27 @@ class Pocket {
     public function toString() {
         static $plugin;
         if (!isset($plugin)) {
-            $plugin = Gdn::pluginManager()->getPluginInstance('PocketsPlugin', Gdn_PluginManager::ACCESS_CLASSNAME);
+            $plugin = PocketsPlugin::instance();
         }
 
         $plugin->EventArguments['Pocket'] = $this;
         $plugin->fireEvent('ToString');
 
-        if (strcasecmp($this->Format, 'raw') == 0) {
-            return $this->Body;
-        } else {
-            return Gdn_Format::to($this->Body, $this->Format);
+        $format = strtolower($this->Format);
+
+        switch ($format) {
+            case PocketsModel::FORMAT_CUSTOM:
+                return $this->Body;
+            case PocketsModel::FORMAT_WIDGET:
+                $factory = $this->widgetService->getFactoryByID($this->widgetID);
+                if (!$factory) {
+                    trigger_error("Could not find widget factory for pocket {$this->Name}", E_USER_WARNING);
+                    return '';
+                }
+                $output = $factory->renderWidget($this->widgetParameters);
+                return $output;
+            default:
+                return \Gdn::formatService()->renderHTML($this->Body, $this->Format);
         }
     }
 
@@ -312,27 +353,16 @@ class Pocket {
      *
      * @param string $name The name of the pocket.
      * @param string $value The contents of the pocket.
+     *
+     * @return int|false
+     *
+     * @deprecated PocketsModel::touchPocket()
      */
     public static function touch($name, $value) {
-        $model = new Gdn_Model('Pocket');
-        $pockets = $model->getWhere(['Name' => $name])->resultArray();
-
-        if (empty($pockets)) {
-            $pocket = [
-                'Name' => $name,
-                'Location' => 'Content',
-                'Sort' => 0,
-                'Repeat' => Pocket::REPEAT_BEFORE,
-                'Body' => $value,
-                'Format' => 'Raw',
-                'Disabled' => Pocket::DISABLED,
-                'MobileOnly' => 0,
-                'MobileNever' => 0,
-                'EmbeddedNever' => 0,
-                'ShowInDashboard' => 0,
-                'Type' => 'default'
-                ];
-            $model->save($pocket);
-        }
+        /** @var PocketsModel $model */
+        $model = \Gdn::getContainer()->get(PocketsModel::class);
+        return $model->touchPocket($name, [
+            'Body' => $value,
+        ]);
     }
 }

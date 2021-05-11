@@ -3,9 +3,9 @@
  * @license GPL-2.0-only
  */
 
-import { Omit } from "@library/@types/utils";
 import { AxiosError, AxiosResponse } from "axios";
 import { IUserFragment } from "@library/@types/api/users";
+import { RecordID } from "@vanilla/utils";
 
 export enum LoadStatus {
     PENDING = "PENDING",
@@ -14,7 +14,27 @@ export enum LoadStatus {
     ERROR = "ERROR",
 }
 
-export interface ILoadable<T, E = IApiError> {
+export type Loadable<T, E = any> =
+    | {
+          status: LoadStatus.PENDING | LoadStatus.LOADING;
+          error?: undefined;
+          data?: undefined;
+      }
+    | {
+          status: LoadStatus.SUCCESS;
+          error?: undefined;
+          data: T;
+      }
+    | {
+          status: LoadStatus.ERROR;
+          error: E;
+          data?: undefined;
+      };
+
+/**
+ * @deprecated use Loadable instead. It has stricter types.
+ */
+export interface ILoadable<T = never, E = IApiError> {
     status: LoadStatus;
     error?: E;
     data?: T;
@@ -55,11 +75,12 @@ export type MultiTypeRecord<T, Subtract extends keyof T, TypeName extends string
 
 export interface INavigationItem {
     name: string;
-    url: string;
-    parentID: number;
-    recordID: number;
+    url?: string;
+    parentID: RecordID;
+    recordID: RecordID;
     sort: number | null;
     recordType: string;
+    isLink?: boolean;
 }
 
 export interface IApiDateInfo {
@@ -92,4 +113,14 @@ export enum PublishStatus {
     DELETED = "deleted",
     UNDELETED = "undeleted",
     PUBLISHED = "published",
+}
+
+export enum Format {
+    TEXT = "text",
+    TEXTEX = "textex",
+    MARKDOWN = "markdown",
+    WYSIWYG = "wysiwyg",
+    HTML = "html",
+    BBCODE = "bbcode",
+    RICH = "rich",
 }

@@ -42,8 +42,9 @@ class PostController extends VanillaController {
     /**
      * General "post" form, allows posting of any kind of form. Attach to PostController_AfterFormCollection_Handler.
      *
-     * @since 2.0.0
-     * @access public
+     * @param string $currentFormName
+     * @deprecated
+     * @codeCoverageIgnore
      */
     public function index($currentFormName = 'discussion') {
         $this->addJsFile('jquery.autosize.min.js');
@@ -79,9 +80,6 @@ class PostController extends VanillaController {
     /**
      * Get available announcement options for discussions.
      *
-     * @since 2.1
-     * @access public
-     *
      * @return array
      */
     public function announceOptions() {
@@ -106,16 +104,14 @@ class PostController extends VanillaController {
     /**
      * Create or update a discussion.
      *
-     * @since 2.0.0
-     * @access public
-     *
-     * @param int $categoryID Unique ID of the category to add the discussion to.
+     * @param int|string $categoryID Unique ID of the category to add the discussion to.
+     * @throws Gdn_UserException Invalid draftID provided.
      */
-    public function discussion($categoryUrlCode = '') {
+    public function discussion($categoryID = '') {
         // Override CategoryID if categories are disabled
         $useCategories = $this->ShowCategorySelector = (bool)c('Vanilla.Categories.Use');
         if (!$useCategories) {
-            $categoryUrlCode = '';
+            $categoryID = '';
         }
 
         // Setup head
@@ -136,8 +132,8 @@ class PostController extends VanillaController {
         if (isset($this->Discussion)) {
             $this->CategoryID = $this->Discussion->CategoryID;
             $category = CategoryModel::categories($this->CategoryID);
-        } elseif ($categoryUrlCode != '') {
-            $category = CategoryModel::categories($categoryUrlCode);
+        } elseif ($categoryID != '') {
+            $category = CategoryModel::categories($categoryID);
 
             if ($category) {
                 $this->CategoryID = val('CategoryID', $category);
@@ -180,13 +176,7 @@ class PostController extends VanillaController {
         } else {
             // New discussion? Make sure a discussion ID didn't sneak in.
             $this->Form->removeFormValue('DiscussionID');
-            // Make sure a group discussion doesn't get announced outside the groups category.
-            $formAnnounce = $this->Form->_FormValues['Announce'];
-            if (isset($formAnnounce) && $formAnnounce === '1') {
-                if (isset($this->Data['Group'])) {
-                    $this->Form->setFormValue('Announce', '2');
-                }
-            }
+
             // Permission to add.
             if ($this->Category) {
                 $this->categoryPermission($this->Category, 'Vanilla.Discussions.Add');
@@ -198,8 +188,9 @@ class PostController extends VanillaController {
 
         touchValue('Type', $this->Data, 'Discussion');
 
+        $id = $category['CategoryID'] ?? null;
         // Remove Announce parameter if it was injected into the form.
-        if (!CategoryModel::checkPermission($category['CategoryID'], 'Vanilla.Discussions.Announce')) {
+        if (!CategoryModel::checkPermission($id, 'Vanilla.Discussions.Announce')) {
             $this->Form->removeFormValue('Announce');
         }
 
@@ -255,6 +246,10 @@ class PostController extends VanillaController {
             if ($draftID == 0) {
                 $draftID = $this->Form->getFormValue('DraftID', 0);
                 if ($draftID) {
+                    if (!is_numeric($draftID)) {
+                        throw new Gdn_UserException("Invalid draft ID.");
+                    }
+
                     $draftObject = $this->DraftModel->getID($draftID, DATASET_TYPE_ARRAY);
                     if (!$draftObject) {
                         throw notFoundException('Draft');
@@ -273,6 +268,13 @@ class PostController extends VanillaController {
             if (!$preview) {
                 if (!is_object($this->Category) && is_array($categoryData) && isset($formValues['CategoryID'])) {
                     $this->Category = val($formValues['CategoryID'], $categoryData);
+                    $formCategoryID = $formValues['CategoryID'];
+                    if ($formCategoryID) {
+                        $formCategory = $categoryModel->getID($formCategoryID);
+                        if (!$formCategory) {
+                            $this->Form->addError(t('Category does not exist.'));
+                        }
+                    }
                 }
 
                 if (is_object($this->Category)) {
@@ -303,13 +305,12 @@ class PostController extends VanillaController {
                     $hasWordCharacter = preg_match('/\w/u', $name) === 1;
 
                     if (!$hasWordCharacter || ($name != '' && Gdn_Format::text($name) == '')) {
-
                         $this->Form->addError(t('You have entered an invalid discussion title'), 'Name');
                         $isTitleValid = false;
                     }
                 }
 
-                if ($isTitleValid) {
+                if ($isTitleValid && isset($formValues['Name'])) {
                     // Trim the name.
                     $formValues['Name'] = $name;
                     $this->Form->setFormValue('Name', $name);
@@ -367,6 +368,7 @@ class PostController extends VanillaController {
             } elseif ($discussionID > 0 || $draftID > 0) {
                 // Make sure that the ajax request form knows about the newly created discussion or draft id
                 $this->setJson('DiscussionID', $discussionID);
+                $this->setJson('CategoryID', $this->Form->getFormValue('CategoryID', $this->CategoryID));
                 $this->setJson('DraftID', $draftID);
 
                 if (!$preview) {
@@ -421,14 +423,11 @@ class PostController extends VanillaController {
      *
      * Will throw an error if both params are blank.
      *
-     * @since 2.0.0
-     * @access public
-     *
      * @param int $discussionID Unique ID of the discussion to edit.
      * @param int $draftID Unique ID of draft discussion to edit.
      */
-    public function editDiscussion($discussionID = '', $draftID = '') {
-        if ($draftID != '') {
+    public function editDiscussion($discussionID = 0, $draftID = 0) {
+        if ($draftID != 0) {
             $record = $this->Draft = $this->DraftModel->getID($draftID);
             $this->CategoryID = $this->Draft->CategoryID;
 
@@ -448,11 +447,17 @@ class PostController extends VanillaController {
         // Verify we can add to the category content
         $this->categoryPermission($this->CategoryID, 'Vanilla.Discussions.Add');
 
-        if (c('Garden.ForceInputFormatter')) {
-            $this->Form->removeFormValue('Format');
+        if (Gdn::config('Garden.ForceInputFormatter')) {
+            $format = Gdn::config('Garden.InputFormatter', '');
+            $this->Form->setFormValue('Format', $format);
         }
 
-        $this->setData('_CancelUrl', discussionUrl($this->data('Discussion')));
+        if ($discussionID > 0) {
+            $this->setData('_CancelUrl', discussionUrl($this->data('Discussion')));
+        } else {
+            $this->setData('_CancelUrl', url('drafts'));
+        }
+
 
         // Set view and render
         $this->View = 'Discussion';
@@ -462,10 +467,8 @@ class PostController extends VanillaController {
     /**
      * Create or update a comment.
      *
-     * @since 2.0.0
-     * @access public
-     *
-     * @param int $DiscussionID Unique ID to add the comment to. If blank, this method will throw an error.
+     * @param int|string $DiscussionID Unique ID to add the comment to. If blank, this method will throw an error.
+     * @throws Gdn_UserException Invalid draftID provided.
      */
     public function comment($DiscussionID = '') {
         // Get $DiscussionID from RequestArgs if valid
@@ -517,49 +520,7 @@ class PostController extends VanillaController {
                 $this->Form->addHidden('vanilla_url', $vanilla_url);
                 $this->Form->addHidden('vanilla_category_id', $vanilla_category_id);
 
-                $PageInfo = fetchPageInfo($vanilla_url);
-
-                if (!($Title = $this->Form->getFormValue('Name'))) {
-                    $Title = val('Title', $PageInfo, '');
-                    if ($Title == '') {
-                        $Title = t('Undefined discussion subject.');
-                        if (!empty($PageInfo['Exception']) && $PageInfo['Exception'] === "Couldn't connect to host.") {
-                            $Title .= ' '.t('Page timed out.');
-                        }
-
-                    }
-                }
-
-                $Description = val('Description', $PageInfo, '');
-                $Images = val('Images', $PageInfo, []);
-                $LinkText = t('EmbededDiscussionLinkText', 'Read the full story here');
-
-                if (!$Description && count($Images) == 0) {
-                    $Body = formatString(
-                        '<p><a href="{Url}">{LinkText}</a></p>',
-                        ['Url' => $vanilla_url, 'LinkText' => $LinkText]
-                    );
-                } else {
-                    $Body = formatString('
-                <div class="EmbeddedContent">{Image}<strong>{Title}</strong>
-                   <p>{Excerpt}</p>
-                   <p><a href="{Url}">{LinkText}</a></p>
-                   <div class="ClearFix"></div>
-                </div>', [
-                        'Title' => $Title,
-                        'Excerpt' => $Description,
-                        'Image' => (count($Images) > 0 ? img(val(0, $Images), ['class' => 'LeftAlign']) : ''),
-                        'Url' => $vanilla_url,
-                        'LinkText' => $LinkText
-                    ]);
-                }
-
-                if ($Body == '') {
-                    $Body = $vanilla_url;
-                }
-                if ($Body == '') {
-                    $Body = t('Undefined discussion body.');
-                }
+                $PageInfo = $this->DiscussionModel->fetchPageInfo($vanilla_url);
 
                 // Validate the CategoryID for inserting.
                 $Category = CategoryModel::categories($vanilla_category_id);
@@ -602,9 +563,9 @@ class PostController extends VanillaController {
                     'CategoryID' => $vanilla_category_id,
                     'ForeignID' => $vanilla_identifier,
                     'Type' => $vanilla_type,
-                    'Name' => $Title,
-                    'Body' => $Body,
-                    'Format' => 'Html',
+                    'Name' => $PageInfo['Name'],
+                    'Body' => $PageInfo['Body'],
+                    'Format' => $PageInfo['Format'],
                     'Attributes' => dbencode($Attributes)
                 ];
                 $this->EventArguments['Discussion'] =& $EmbeddedDiscussionData;
@@ -660,6 +621,9 @@ class PostController extends VanillaController {
         $Session = Gdn::session();
         $CommentID = isset($this->Comment) && property_exists($this->Comment, 'CommentID') ? $this->Comment->CommentID : '';
         $DraftID = isset($this->Comment) && property_exists($this->Comment, 'DraftID') ? $this->Comment->DraftID : '';
+        if (!is_numeric($DraftID) && $DraftID !== '') {
+            throw new Gdn_UserException("Invalid draft ID.");
+        }
         $this->EventArguments['CommentID'] = $CommentID;
         $this->EventArguments['DraftID'] = $DraftID;
 
@@ -728,7 +692,7 @@ class PostController extends VanillaController {
                 }
             }
 
-            $Type = getIncomingValue('Type');
+            $Type = $this->Request->getValue('Type');
             $Draft = $Type == 'Draft';
             $this->EventArguments['Draft'] = $Draft;
             $Preview = $Type == 'Preview';
@@ -820,6 +784,7 @@ class PostController extends VanillaController {
                 } else {
                     // Make sure that the ajax request form knows about the newly created comment or draft id
                     $this->setJson('CommentID', $CommentID);
+                    $this->setJson('DiscussionID', $DiscussionID);
                     $this->setJson('DraftID', $DraftID);
 
                     if ($Preview) {
@@ -888,7 +853,7 @@ class PostController extends VanillaController {
                             $CountComments = $this->CommentModel->getCountByDiscussion($DiscussionID);
                             $Limit = is_object($this->data('Comments')) ? $this->data('Comments')->numRows() : $Discussion->CountComments;
                             $Offset = $CountComments - $Limit;
-                            $this->CommentModel->setWatch($this->Discussion, $Limit, $Offset, $CountComments);
+                            $this->DiscussionModel->setWatch($this->Discussion, $Limit, $Offset, $CountComments);
                         }
                     } else {
                         // If this was a draft save, notify the user about the save
@@ -946,9 +911,6 @@ class PostController extends VanillaController {
      * Triggers saving the extra info about a comment
      * like notifications and unread totals.
      *
-     * @since 2.0.?
-     * @access public
-     *
      * @param int $commentID Unique ID of the comment.
      * @param bool $inserted
      */
@@ -962,13 +924,10 @@ class PostController extends VanillaController {
      *
      * Will throw an error if both params are blank.
      *
-     * @since 2.0.0
-     * @access public
-     *
      * @param int $commentID Unique ID of the comment to edit.
      * @param int $draftID Unique ID of the draft to edit.
      */
-    public function editComment($commentID = '', $draftID = '') {
+    public function editComment($commentID = 0, $draftID = 0) {
         if (is_numeric($commentID) && $commentID > 0) {
             $this->Form->setModel($this->CommentModel);
             $this->Comment = $this->CommentModel->getID($commentID);
@@ -980,21 +939,19 @@ class PostController extends VanillaController {
         // Normalize the edit data.
         $this->applyFormatCompatibility($this->Comment, 'Body', 'Format');
 
-        if (c('Garden.ForceInputFormatter')) {
-            $this->Form->removeFormValue('Format');
+        if (Gdn::config('Garden.ForceInputFormatter')) {
+            $format = Gdn::config('Garden.InputFormatter', '');
+            $this->Form->setFormValue('Format', $format);
         }
 
         $this->View = 'editcomment';
-        $this->comment($this->Comment->DiscussionID);
+        $this->comment($this->Comment->DiscussionID ?? 0);
     }
 
     /**
      * Include CSS for all methods.
      *
      * Always called by dispatcher before controller's requested method.
-     *
-     * @since 2.0.0
-     * @access public
      */
     public function initialize() {
         parent::initialize();
@@ -1002,63 +959,10 @@ class PostController extends VanillaController {
         $this->CssClass = 'NoPanel';
     }
 
-    public function notifyNewDiscussion($discussionID) {
-        if (!c('Vanilla.QueueNotifications')) {
-            throw forbiddenException('NotifyNewDiscussion');
-        }
-
-        if (!$this->Request->isPostBack()) {
-            throw forbiddenException('GET');
-        }
-
-        // Grab the discussion.
-        $discussion = $this->DiscussionModel->getID($discussionID);
-        if (!$discussion) {
-            throw notFoundException('Discussion');
-        }
-
-        if (val('Notified', $discussion) != ActivityModel::SENT_PENDING) {
-            die('Not pending');
-        }
-
-        // Mark the notification as in progress.
-        $this->DiscussionModel->setField($discussionID, 'Notified', ActivityModel::SENT_INPROGRESS);
-
-        $discussionType = val('Type', $discussion);
-        if ($discussionType) {
-            $code = "HeadlineFormat.Discussion.{$discussionType}";
-        } else {
-            $code = 'HeadlineFormat.Discussion';
-        }
-
-        $headlineFormat = t($code, '{ActivityUserID,user} started a new discussion: <a href="{Url,html}">{Data.Name,text}</a>');
-        $category = CategoryModel::categories(val('CategoryID', $discussion));
-        $activity = [
-            'ActivityType' => 'Discussion',
-            'ActivityUserID' => $discussion->InsertUserID,
-            'HeadlineFormat' => $headlineFormat,
-            'RecordType' => 'Discussion',
-            'RecordID' => $discussionID,
-            'Route' => discussionUrl($discussion, '', '/'),
-            'Data' => [
-                'Name' => $discussion->Name,
-                'Category' => val('Name', $category)
-            ]
-        ];
-
-        $activityModel = new ActivityModel();
-        $this->DiscussionModel->notifyNewDiscussion($discussion, $activityModel, $activity);
-        $activityModel->saveQueue();
-        $this->DiscussionModel->setField($discussionID, 'Notified', ActivityModel::SENT_OK);
-
-        die('OK');
-    }
-
     /**
      * Pre-populate the form with values from the query string.
      *
      * @param Gdn_Form $form
-     * @param bool $LimitCategories Whether to turn off the category dropdown if there is only one category to show.
      */
     protected function populateForm($form) {
         $get = $this->Request->get();
@@ -1082,7 +986,6 @@ function checkOrRadio($fieldName, $labelCode, $listOptions, $attributes = []) {
 
     if (count($listOptions) == 2 && array_key_exists(0, $listOptions)) {
         unset($listOptions[0]);
-        $value = array_pop(array_keys($listOptions));
 
         // This can be represented by a checkbox.
         return $form->checkBox($fieldName, $labelCode);

@@ -6,40 +6,32 @@
 
 import { StoryHeading } from "@library/storybook/StoryHeading";
 import { storiesOf } from "@storybook/react";
-import React from "react";
+import React, { CSSProperties } from "react";
 import { StoryContent } from "@library/storybook/StoryContent";
 import { StoryParagraph } from "@library/storybook/StoryParagraph";
-import RadioTabs from "@library/forms/radioTabs/RadioTabs";
 import { t } from "@library/utility/appUtils";
-import RadioTab from "@library/forms/radioTabs/RadioTab";
 import InputBlock from "@library/forms/InputBlock";
 import InputTextBlock from "@library/forms/InputTextBlock";
 import MultiUserInput from "@library/features/users/MultiUserInput";
 import { IComboBoxOption } from "@library/features/search/SearchBar";
-import DateRange from "@library/forms/DateRange";
 import Checkbox from "@library/forms/Checkbox";
-import StoryExampleDropDownSearch from "@library/embeddedContent/StoryExampleDropDownSearch";
+import StoryExampleDropDownSearch from "@library/flyouts/StoryExampleDropDownSearch";
 import { uniqueIDFromPrefix } from "@library/utility/idUtils";
 import RadioButton from "@library/forms/RadioButton";
-import { inputBlockClasses } from "@library/forms/InputBlockStyles";
 import "@library/forms/datePicker.scss";
 import RadioButtonGroup from "@library/forms/RadioButtonGroup";
 import CheckboxGroup from "@library/forms/CheckboxGroup";
 import { StorySmallContent } from "@library/storybook/StorySmallContent";
+import { FormToggle } from "@library/forms/FormToggle";
+import { flexHelper } from "@library/styles/styleHelpers";
+import { cssOut } from "@dashboard/compatibilityStyles/cssOut";
+import { suggestedTextStyleHelper } from "@library/features/search/suggestedTextStyles";
+import LazyDateRange from "@library/forms/LazyDateRange";
 
-const story = storiesOf("Form Elements", module);
+const story = storiesOf("Forms/User Facing", module);
 
-// Radio as tabs
-
-const doNothing = () => {};
-
-story.add("Inputs", () => {
-    let activeTab = "Tab A";
-    const classesInputBlock = inputBlockClasses();
-
-    const doNothing = () => {
-        return;
-    };
+story.add("Elements", () => {
+    let activeItem = "Tab A";
 
     /**
      * Simple form setter.
@@ -53,23 +45,47 @@ story.add("Inputs", () => {
 
     const radioButtonGroup1 = uniqueIDFromPrefix("radioButtonGroupA");
 
+    cssOut(`.suggestedTextInput-option`, suggestedTextStyleHelper().option);
+
     return (
         <StoryContent>
             <StoryHeading depth={1}>Form Elements</StoryHeading>
             <StoryHeading>Checkbox</StoryHeading>
-            <Checkbox label={t("Simple Checkbox")} />
+            <CheckboxGroup label={"Check Box States"}>
+                <Checkbox label="Normal" />
+                <Checkbox label="Hover/Focus" fakeFocus />
+                <Checkbox label="Checked" defaultChecked />
+                <Checkbox label="Disabled" disabled />
+                <Checkbox label="Checked & Disabled" defaultChecked disabled />
+            </CheckboxGroup>
+            <StoryHeading>Hidden Label</StoryHeading>
+            <Checkbox label="Tooltip Label" tooltipLabel />
             <StoryHeading>Checkboxes - In a Group</StoryHeading>
             <CheckboxGroup label={"A sleuth of check boxes"}>
-                <Checkbox label={t("Option A")} />
-                <Checkbox label={t("Option B")} />
-                <Checkbox label={t("Option C")} />
-                <Checkbox label={t("Option D")} />
+                <Checkbox label="Option A" />
+                <Checkbox label="Option B" />
+                <Checkbox label="Option C" />
+                <Checkbox label="Option D" />
             </CheckboxGroup>
+            <StoryHeading>Toggles</StoryHeading>
+            <div style={flexHelper().middle() as CSSProperties}>
+                <StoryToggle accessibleLabel="Enabled" enabled={true} />
+                <StoryToggle accessibleLabel="Disabled" enabled={false} />
+                <StoryToggle accessibleLabel="Indeterminate" indeterminate enabled={true} />
+                <StoryToggle accessibleLabel="Indeterminate" indeterminate enabled={false} />
+            </div>
+            <StoryHeading>Toggles (Slim)</StoryHeading>
+            <div style={flexHelper().middle() as CSSProperties}>
+                <StoryToggle accessibleLabel="Enabled" enabled={true} slim />
+                <StoryToggle accessibleLabel="Disabled" enabled={false} slim />
+                <StoryToggle accessibleLabel="Indeterminate" indeterminate enabled={true} slim />
+                <StoryToggle accessibleLabel="Indeterminate" indeterminate enabled={false} slim />
+            </div>
             <StoryHeading>Radio Buttons - In a Group</StoryHeading>
             <RadioButtonGroup label={"Gaggle of radio buttons"}>
-                <RadioButton label={"Option A"} name={radioButtonGroup1} />
+                <RadioButton label={"Option A"} name={radioButtonGroup1} defaultChecked />
                 <RadioButton label={"Option B"} name={radioButtonGroup1} />
-                <RadioButton label={"Option C"} name={radioButtonGroup1} />
+                <RadioButton label={"Option C (hovered)"} name={radioButtonGroup1} fakeFocus />
                 <RadioButton label={"Option D"} name={radioButtonGroup1} />
                 <RadioButton label={"Option E"} name={radioButtonGroup1} />
             </RadioButtonGroup>
@@ -88,17 +104,6 @@ story.add("Inputs", () => {
             <StoryParagraph>
                 The state for this component needs to be managed by the parent. (Will not update here when you click)
             </StoryParagraph>
-            <RadioTabs
-                accessibleTitle={t("Search in:")}
-                prefix="advancedSearchDomain"
-                setData={doNothing}
-                activeTab={activeTab}
-                childClass="advancedSearchDomain-tab"
-            >
-                <RadioTab label={t("Tab A")} position="left" data={"Tab A"} />
-                <RadioTab label={t("Tab B")} position="right" data={"Tab B"} />
-                <RadioTab label={t("Tab C")} position="right" data={"Tab C"} />
-            </RadioTabs>
             <StoryHeading>Tokens Input</StoryHeading>
             <MultiUserInput
                 onChange={handleUserChange}
@@ -121,12 +126,24 @@ story.add("Inputs", () => {
                     },
                 ]}
             />
-            <StoryHeading>DropDown with search</StoryHeading>
-            <StoryExampleDropDownSearch onChange={doNothing} />
+            <StoryHeading>Dropdown with search</StoryHeading>
+            <StoryExampleDropDownSearch />
             <StoryHeading>Date Range</StoryHeading>
             <StorySmallContent>
-                <DateRange onStartChange={doNothing} onEndChange={doNothing} start={undefined} end={undefined} />
+                <LazyDateRange onStartChange={doNothing} onEndChange={doNothing} start={undefined} end={undefined} />
             </StorySmallContent>
         </StoryContent>
     );
 });
+
+const doNothing = () => {
+    return;
+};
+
+function StoryToggle(props: Omit<React.ComponentProps<typeof FormToggle>, "onChange">) {
+    return (
+        <InputBlock label={props.accessibleLabel}>
+            <FormToggle {...props} enabled={false} onChange={doNothing} />
+        </InputBlock>
+    );
+}

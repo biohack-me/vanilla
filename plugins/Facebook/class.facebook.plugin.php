@@ -5,15 +5,19 @@
  * @package Facebook
  */
 
+use Vanilla\Web\CurlWrapper;
+
 /**
  * Class FacebookPlugin
  */
-class FacebookPlugin extends Gdn_Plugin {
+class FacebookPlugin extends SSOAddon {
 
     const API_VERSION = '2.7';
 
     /** Authentication table key. */
     const PROVIDER_KEY = 'Facebook';
+
+    private const AUTHENTICATION_SCHEME = 'facebook';
 
     /** @var string  */
     protected $_AccessToken = null;
@@ -32,6 +36,15 @@ class FacebookPlugin extends Gdn_Plugin {
     public function __construct(SsoUtils $ssoUtils) {
         parent::__construct();
         $this->ssoUtils = $ssoUtils;
+    }
+
+    /**
+     * Get the AuthenticationSchemeAlias value.
+     *
+     * @return string The AuthenticationSchemeAlias.
+     */
+    protected function getAuthenticationSchemeAlias(): string {
+        return self::AUTHENTICATION_SCHEME;
     }
 
     /**
@@ -104,8 +117,7 @@ class FacebookPlugin extends Gdn_Plugin {
             trace("  GET  $url");
         }
 
-        $response = curl_exec($ch);
-
+        $response = CurlWrapper::curlExec($ch, false);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
         curl_close($ch);
@@ -196,7 +208,7 @@ class FacebookPlugin extends Gdn_Plugin {
             sprite('ReactFacebook', 'Sprite ReactSprite', t('Share on Facebook')),
             url($sharingUrl, true),
             'ReactButton PopupWindow',
-            ['rel' => 'nofollow']
+            ['rel' => 'nofollow', 'role' => 'button']
         );
     }
 
@@ -256,7 +268,7 @@ class FacebookPlugin extends Gdn_Plugin {
             'Icon' => $this->getWebResource('icon.png', '/'),
             'Name' => 'Facebook',
             'ProviderKey' => self::PROVIDER_KEY,
-            'ConnectUrl' => $this->authorizeUri(false, self::profileConnecUrl()),
+            'ConnectUrl' => $this->authorizeUri(false, self::profileConnectUrl()),
             'Profile' => [
                 'Name' => val('name', $profile),
                 'Photo' => "//graph.facebook.com/{$profile['id']}/picture?width=200&height=200"
@@ -285,7 +297,7 @@ class FacebookPlugin extends Gdn_Plugin {
         $sender->_setBreadcrumbs(t('Connections'), '/profile/connections');
 
         // Get the access token.
-        $accessToken = $this->getAccessToken($code, self::profileConnecUrl());
+        $accessToken = $this->getAccessToken($code, self::profileConnectUrl());
 
         // Get the profile.
         $profile = $this->getProfile($accessToken);
@@ -307,7 +319,7 @@ class FacebookPlugin extends Gdn_Plugin {
         $this->EventArguments['User'] = $sender->User;
         $this->fireEvent('AfterConnection');
 
-        redirectTo(userUrl($sender->User, '', 'connections'));
+        redirectTo(self::profileConnectUrl());
     }
 
     /**
@@ -471,8 +483,8 @@ class FacebookPlugin extends Gdn_Plugin {
         curl_setopt($c, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($c, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
         curl_setopt($c, CURLOPT_URL, $url);
-        $contents = curl_exec($c);
 
+        $contents = CurlWrapper::curlExec($c, false);
         $info = curl_getinfo($c);
         if (strpos(val('content_type', $info, ''), '/javascript') !== false) {
             $tokens = json_decode($contents, true);
@@ -503,7 +515,8 @@ class FacebookPlugin extends Gdn_Plugin {
         curl_setopt($c, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($c, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
         curl_setopt($c, CURLOPT_URL, $url);
-        $contents = curl_exec($c);
+
+        $contents = CurlWrapper::curlExec($c, false);
         $profile = json_decode($contents, true);
         return $profile;
     }
@@ -582,7 +595,7 @@ class FacebookPlugin extends Gdn_Plugin {
      * @return mixed|string
      */
     public function getTargetUri() {
-        $target = Gdn::request()->getValueFrom(Gdn_Request::INPUT_GET, 'Target', '/');
+        $target = Gdn::request()->getValueFrom(Gdn_Request::INPUT_GET, 'Target', Gdn::request()->getPath());
         if (ltrim($target, '/') == 'entry/signin' || ltrim($target, '/') == 'entry/facebook') {
             $target = '/';
         }
@@ -594,8 +607,8 @@ class FacebookPlugin extends Gdn_Plugin {
      *
      * @return string URL.
      */
-    public static function profileConnecUrl() {
-        return url(userUrl(Gdn::session()->User, false, 'facebookconnect'), true);
+    public static function profileConnectUrl() {
+        return url('entry/connect/facebook', true);
     }
 
     /**
@@ -664,7 +677,12 @@ class FacebookPlugin extends Gdn_Plugin {
         // Save the facebook provider type.
         Gdn::sql()->replace(
             'UserAuthenticationProvider',
-            ['AuthenticationSchemeAlias' => 'facebook', 'URL' => '...', 'AssociationSecret' => '...', 'AssociationHashMethod' => '...'],
+            [
+                'AuthenticationSchemeAlias' => self::AUTHENTICATION_SCHEME,
+                'URL' => '...',
+                'AssociationSecret' => '...',
+                'AssociationHashMethod' => '...'
+            ],
             ['AuthenticationKey' => self::PROVIDER_KEY],
             true
         );

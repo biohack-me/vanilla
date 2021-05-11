@@ -10,13 +10,14 @@ import DayPickerInput from "react-day-picker/DayPickerInput";
 import { t } from "@library/utility/appUtils";
 import moment, { Moment } from "moment";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import { guessOperatingSystem, OS } from "@vanilla/utils";
 import { dropDownClasses } from "@library/flyouts/dropDownStyles";
 import { dayPickerClasses } from "@library/forms/datePickerStyles";
 import classNames from "classnames";
-import { formatDate, parseDate } from "react-day-picker/moment";
 import { LeftChevronIcon, RightChevronIcon } from "@library/icons/common";
+import RelativePortal from "react-relative-portal";
+import "@library/forms/DatePicker.libStyles.scss";
 
 interface IProps {
     value: string; // ISO formatted date
@@ -65,8 +66,6 @@ export default class DatePicker extends React.PureComponent<IProps, IState> {
                 <DayPickerInput
                     format="YYYY-MM-DD"
                     placeholder={t(`yyyy-mm-dd`)}
-                    formatDate={formatDate}
-                    parseDate={parseDate}
                     value={value}
                     overlayComponent={this.CustomOverlay}
                     onDayChange={this.handleDayPickerChange}
@@ -166,7 +165,7 @@ export default class DatePicker extends React.PureComponent<IProps, IState> {
      * Handle changes in the native input.
      */
     private handleNativeInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        this.updateDate(event.target.valueAsDate, event.target.value === "");
+        this.updateDate(event.target.valueAsDate ? moment(event.target.valueAsDate) : null, event.target.value === "");
     };
 
     /**
@@ -178,9 +177,12 @@ export default class DatePicker extends React.PureComponent<IProps, IState> {
             isRightAligned: this.props.alignment === "right",
         });
         return (
-            <div className={classNames("dropDown", classes.root)} {...props}>
-                <div className={contentsClasses}>{children}</div>
-            </div>
+            // dayPickerClasses needs to be reapplied here, because it's rendered outside the root
+            <RelativePortal component="div" top={0} right={0} className={dayPickerClasses().root}>
+                <div className={classNames("dropDown", classes.root)} {...props}>
+                    <div className={contentsClasses}>{children}</div>
+                </div>
+            </RelativePortal>
         );
     };
 
@@ -199,10 +201,10 @@ export default class DatePicker extends React.PureComponent<IProps, IState> {
             <div className={classNames("datePicker-header", classes.header)}>
                 <h3 className={classNames("datePicker-title", classes.title)}>{title}</h3>
                 <span className={classNames("datePicker-navigation", className, classes.navigation)}>
-                    <Button baseClass={ButtonTypes.ICON} onClick={prev}>
+                    <Button buttonType={ButtonTypes.ICON} onClick={prev}>
                         <LeftChevronIcon centred={true} />
                     </Button>
-                    <Button baseClass={ButtonTypes.ICON} onClick={next}>
+                    <Button buttonType={ButtonTypes.ICON} onClick={next}>
                         <RightChevronIcon centred={true} />
                     </Button>
                 </span>

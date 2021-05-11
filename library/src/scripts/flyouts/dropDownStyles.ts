@@ -5,26 +5,31 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
 import {
-    borders,
-    colorOut,
-    fonts,
-    margins,
-    paddings,
     buttonStates,
-    unit,
     userSelect,
+    IStateSelectors,
+    negativeUnit,
+    pointerEvents,
+    colorOut,
 } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
+import { Variables } from "@library/styles/Variables";
 import { shadowHelper, shadowOrBorderBasedOnLightness } from "@library/styles/shadowHelpers";
-import { NestedCSSProperties, TLength } from "typestyle/lib/types";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
-import { important, percent } from "csx";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
-import { buttonResetMixin } from "@library/forms/buttonStyles";
+import { css, CSSObject } from "@emotion/css";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { important, percent, rgba } from "csx";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
+import { buttonResetMixin } from "@library/forms/buttonMixins";
+import { metasVariables } from "@library/metas/Metas.variables";
 
 export const notUserContent = "u-notUserContent";
 
 export const dropDownVariables = useThemeCache(() => {
+    const metasVars = metasVariables();
     const globalVars = globalVariables();
     const makeThemeVars = variableFactory("dropDown");
 
@@ -43,10 +48,10 @@ export const dropDownVariables = useThemeCache(() => {
     });
 
     const metas = makeThemeVars("metas", {
-        font: {
-            size: globalVars.meta.text.fontSize,
-            color: globalVars.meta.text.color,
-        },
+        font: Variables.font({
+            size: metasVars.font.size,
+            color: metasVars.font.color,
+        }),
         padding: {
             vertical: 6,
             horizontal: 14,
@@ -65,13 +70,14 @@ export const dropDownVariables = useThemeCache(() => {
 
         padding: {
             top: 6,
+            horizontal: 14,
         },
     });
 
     const sectionTitle = makeThemeVars("sectionTitle", {
         padding: {
-            top: 6,
-            bottom: 6,
+            top: 0,
+            bottom: 0,
         },
     });
 
@@ -82,10 +88,7 @@ export const dropDownVariables = useThemeCache(() => {
     const contents = makeThemeVars("contents", {
         bg: globalVars.mainColors.bg,
         fg: globalVars.mainColors.fg,
-        border: {
-            radius: globalVars.border.radius,
-            color: globalVars.border.color,
-        },
+        border: globalVars.borderType.dropDowns,
         padding: {
             vertical: 9,
             horizontal: 16,
@@ -105,32 +108,44 @@ export const dropDownVariables = useThemeCache(() => {
 
 export const dropDownClasses = useThemeCache(() => {
     const vars = dropDownVariables();
+    const metasVars = metasVariables();
+
     const globalVars = globalVariables();
     const style = styleFactory("dropDown");
     const shadows = shadowHelper();
-    const mediaQueries = layoutVariables().mediaQueries();
+    const mediaQueries = panelLayoutVariables().mediaQueries();
 
     const root = style({
         position: "relative",
+        listStyle: "none",
     });
 
-    const contents = style("contents", {
-        position: "absolute",
-        minWidth: unit(vars.sizing.widths.default),
-        backgroundColor: colorOut(vars.contents.bg),
-        color: colorOut(vars.contents.fg),
+    const contentMixin: CSSObject = {
+        minWidth: styleUnit(vars.sizing.widths.default),
+        backgroundColor: ColorsUtils.colorOut(vars.contents.bg),
+        color: ColorsUtils.colorOut(vars.contents.fg),
         overflow: "auto",
-        ...shadowOrBorderBasedOnLightness(vars.contents.bg, borders({}), shadows.dropDown()),
-        ...borders(vars.contents.border),
-        $nest: {
-            "&&": {
-                zIndex: 3,
-            },
-            "&.isMedium": {
-                width: unit(vars.sizing.widths.medium),
-            },
+        ...Mixins.border(vars.contents.border),
+        ...shadowOrBorderBasedOnLightness(vars.contents.bg, Mixins.border(vars.contents.border), shadows.dropDown()),
+        "&&": {
+            zIndex: 3,
+            ...Mixins.border(vars.contents.border),
+        },
+        "&.isMedium": {
+            width: styleUnit(vars.sizing.widths.medium),
+        },
+    };
+    const contentsBox = style("contentBox", contentMixin);
+
+    const contents = style(
+        "contents",
+        {
+            position: "absolute",
+            ...contentMixin,
             "&.isParentWidth": {
                 minWidth: "initial",
+                left: 0,
+                right: 0,
             },
             "&.isOwnWidth": {
                 width: "initial",
@@ -139,24 +154,31 @@ export const dropDownClasses = useThemeCache(() => {
                 right: 0,
                 top: 0,
             },
-            "& .frame": {
+            ".frame": {
                 boxShadow: "none",
             },
             "&.noMinWidth": {
                 minWidth: 0,
             },
             "&.hasVerticalPadding": {
-                ...paddings({
+                ...Mixins.padding({
                     vertical: 12,
                     horizontal: important(0),
                 }),
             },
         },
-    } as NestedCSSProperties);
+        mediaQueries.oneColumnDown({
+            ...{
+                "&.isOwnWidth": {
+                    width: percent(100),
+                },
+            },
+        }),
+    );
 
     const asModal = style("asModal", {
-        $nest: {
-            "&.hasVerticalPadding": paddings({
+        ...{
+            "&.hasVerticalPadding": Mixins.padding({
                 vertical: 12,
             }),
         },
@@ -164,30 +186,41 @@ export const dropDownClasses = useThemeCache(() => {
 
     const likeDropDownContent = style("likeDropDownContent", {
         ...shadows.dropDown(),
-        backgroundColor: colorOut(globalVars.mainColors.bg),
-        ...borders(),
-    } as NestedCSSProperties);
-
-    const items = style("items", {
-        fontSize: unit(globalVars.fonts.size.medium),
+        backgroundColor: ColorsUtils.colorOut(globalVars.mainColors.bg),
+        ...Mixins.border(vars.contents.border),
     });
 
+    const items = style(
+        "items",
+        {
+            padding: 0,
+            ...Mixins.font({
+                ...globalVars.fontSizeAndWeightVars("medium"),
+            }),
+        },
+        mediaQueries.oneColumnDown({
+            ...Mixins.padding({
+                vertical: 9,
+            }),
+        }),
+    );
+
     const metaItems = style("metaItems", {
-        $nest: {
+        ...{
             "&&": {
                 display: "block",
             },
         },
-        ...paddings(vars.metas.padding),
+        ...Mixins.padding(vars.metas.padding),
     });
 
     const metaItem = style("metaItem", {
-        $nest: {
+        ...{
             "& + &": {
-                paddingTop: unit(vars.item.padding.top),
+                paddingTop: styleUnit(vars.item.padding.top),
             },
         },
-        ...fonts(vars.metas.font),
+        ...Mixins.font(vars.metas.font),
     });
 
     // wrapping element
@@ -208,92 +241,152 @@ export const dropDownClasses = useThemeCache(() => {
     });
 
     const toggleButtonIcon = style("toggleButtonIcon", {
-        $nest: {
+        ...{
             ...buttonStates({
                 allStates: {
-                    color: colorOut(globalVars.mainColors.primary),
+                    color: ColorsUtils.colorOut(globalVars.mainColors.primary),
                 },
             }),
         },
     });
 
-    // Contents (button or link)
-    // Replaces: .dropDownItem-button, .dropDownItem-link
     const action = style("action", {
-        $nest: {
+        ...{
+            "&&": actionMixin(),
+        },
+    });
+
+    const actionActive = style("actionActive", {
+        ...{
             "&&": {
-                ...buttonResetMixin(),
-                cursor: "pointer",
-                appearance: "none",
-                display: "flex",
-                alignItems: "center",
-                width: percent(100),
-                textAlign: "left",
-                minHeight: unit(vars.item.minHeight),
-                lineHeight: unit(globalVars.lineHeights.condensed),
-                ...paddings({
-                    vertical: 4,
-                    horizontal: 14,
-                }),
-                ...borders({
-                    color: "transparent",
-                    radius: 0,
-                }),
-                color: colorOut(vars.item.colors.fg),
-                ...userSelect("none"),
-                ...buttonStates({
-                    allStates: {
-                        textShadow: "none",
-                        outline: 0,
-                    },
-                    hover: {
-                        backgroundColor: colorOut(globalVars.states.hover.color),
-                    },
-                    focus: {
-                        backgroundColor: colorOut(globalVars.states.focus.color),
-                    },
-                    active: {
-                        backgroundColor: colorOut(globalVars.states.active.color),
-                    },
-                    accessibleFocus: {
-                        borderColor: colorOut(globalVars.mainColors.primary),
-                    },
-                }),
-                ...mediaQueries.oneColumnDown({
-                    fontSize: unit(vars.item.mobile.fontSize),
-                    fontWeight: globalVars.fonts.weights.semiBold,
-                    minHeight: unit(vars.item.mobile.minHeight),
-                }),
+                color: important(ColorsUtils.colorOut(globalVars.links.colors.active)!),
+                fontWeight: important(globalVars.fonts.weights.bold) as any,
             },
         },
     });
 
     const text = style("text", {
         display: "block",
+        flex: 1,
     });
 
     const separator = style("separator", {
         listStyle: "none",
-        height: unit(globalVars.separator.size),
-        backgroundColor: colorOut(globalVars.separator.color),
-        ...margins(vars.spacer.margin),
+        height: styleUnit(globalVars.separator.size),
+        backgroundColor: ColorsUtils.colorOut(globalVars.separator.color),
+        ...Mixins.margin(vars.spacer.margin),
+        border: "none",
+        "&:first-child": {
+            height: 0,
+            ...Mixins.margin({ all: 0, top: vars.spacer.margin.vertical * 1.5 }),
+        },
+        "& + &, &:last-child, &:first-child": {
+            display: "none",
+        },
+    });
+
+    const panelNavItems = style("panelNavItems", {
+        display: "flex",
+        alignItems: "flex-start",
+    });
+
+    const panel = style("panel", {
+        backgroundColor: ColorsUtils.colorOut(vars.contents.bg),
+        ...Mixins.absolute.fullSizeOfParent(),
+        zIndex: 2,
+    });
+
+    const panelFirstStyle: CSSObject = {
+        // We want the initial view to have no left space
+        "& li": {
+            paddingLeft: important(styleUnit(0)),
+        },
+        "&&": {
+            position: "relative",
+            height: "initial",
+            zIndex: 0,
+        },
+    };
+    const panelFirst = style("panelFirst", panelFirstStyle);
+
+    const panelLast = style("panelLast", {
+        ...{
+            "&&": {},
+        },
+    });
+
+    const panelContent = style("panelContent", {
+        flex: 1,
+        ...{
+            "&.isNested": {},
+        },
+    });
+    const sectionContents = style("sectionContents", {
+        display: "block",
+        position: "relative",
     });
 
     const sectionHeading = style("sectionHeading", {
-        color: colorOut(globalVars.meta.text.color),
-        fontSize: unit(globalVars.fonts.size.small),
-        textTransform: "uppercase",
-        textAlign: "center",
-        fontWeight: globalVars.fonts.weights.semiBold,
-        ...(paddings(vars.sectionTitle.padding) as NestedCSSProperties),
+        ...{
+            "&&": {
+                ...Mixins.font({
+                    ...globalVars.fontSizeAndWeightVars("small", "semiBold"),
+                    color: ColorsUtils.colorOut(metasVars.font.color),
+                    transform: "uppercase",
+                    align: "center",
+                }),
+                ...Mixins.padding(vars.sectionTitle.padding),
+            },
+            [`& + .${sectionContents} li:first-child`]: { paddingTop: styleUnit(vars.spacer.margin.vertical) },
+        },
     });
 
-    const sectionContents = style("sectionContents", {
-        display: "block",
+    const headingContentContainer = style("headingContentContainer", {
+        display: "flex",
+        alignItems: "center",
+        height: styleUnit(44),
     });
+
+    const headingTitleContainer = style("headingTitleContainer", {
+        flex: "auto",
+    });
+
+    const arrow = style("arrow", {
+        ...{
+            "&&": {
+                padding: styleUnit(globalVars.gutter.quarter),
+            },
+        },
+    });
+
+    const actionIcon = style("actionIcon", {
+        marginRight: globalVars.gutter.half,
+    });
+
+    const backButton = style(
+        "backButton",
+        {
+            ...{
+                "&&": {
+                    zIndex: 2,
+                    minHeight: styleUnit(vars.item.minHeight),
+                    transform: "translateX(12px)",
+                },
+            },
+        },
+        mediaQueries.oneColumnDown({
+            ...{
+                "&&": {
+                    minHeight: styleUnit(vars.item.mobile.minHeight),
+                },
+            },
+        }),
+    );
 
     const count = style("count", {
-        fontSize: unit(globalVars.fonts.size.small),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("small"),
+        }),
         paddingLeft: "1em",
         marginLeft: "auto",
     });
@@ -301,46 +394,117 @@ export const dropDownClasses = useThemeCache(() => {
     const verticalPadding = style(
         "verticalPadding",
         {
-            ...paddings({
+            ...Mixins.padding({
                 vertical: vars.contents.padding.vertical,
                 horizontal: 0,
             }),
         },
         mediaQueries.oneColumnDown({
-            ...paddings({
+            ...Mixins.padding({
                 vertical: 0,
             }),
         }),
     );
 
     const noVerticalPadding = style("noVerticalPadding", {
-        ...paddings({ vertical: 0 }),
+        ...Mixins.padding({ vertical: 0 }),
     });
 
     const title = style("title", {
-        ...fonts({
-            weight: globalVars.fonts.weights.semiBold,
-            size: globalVars.fonts.size.medium,
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("medium", "semiBold"),
             lineHeight: globalVars.lineHeights.condensed,
         }),
-        ...paddings({
+
+        ...Mixins.padding({
             all: 0,
         }),
-        ...margins({
+        ...Mixins.margin({
             all: 0,
         }),
         textAlign: "left",
         flexGrow: 1,
-        color: colorOut(vars.title.color),
+        color: ColorsUtils.colorOut(vars.title.color),
     });
 
     const paddedFrame = style("paddedFrame", {
-        ...paddings(vars.contents.padding),
+        ...Mixins.padding(vars.contents.padding),
+    });
+
+    const check = style("check", {
+        color: ColorsUtils.colorOut(globalVars.mainColors.primary),
+
+        /// Check to fix icon alignment.
+        transform: `translateX(4px)`,
+    });
+
+    const flyoutOffset = vars.item.padding.horizontal + globalVars.border.width;
+
+    const contentOffsetCenter = style("contentOffsetCenter", {
+        transform: `translateX(-50%)`,
+    });
+
+    const contentOffsetLeft = style("contentOffsetLeft", {
+        transform: `translateX(${styleUnit(flyoutOffset)})`,
+    });
+
+    const contentOffsetRight = style("contentOffsetRight", {
+        transform: `translateX(${negativeUnit(flyoutOffset)})`,
+    });
+
+    // Used to figure out the position of the flyout,
+    // without it being visible to the user until the calculation is complete
+    const positioning = style("positioning", {
+        ...pointerEvents(),
+        ...Mixins.absolute.srOnly(),
+    });
+
+    const closeButton = style("closeButtonOffsetRight", {
+        display: "inline-block",
+        marginRight: styleUnit(12),
+    });
+
+    const itemButton = style("itemButton", {
+        paddingLeft: globalVars.gutter.size,
+    });
+
+    const thumbnailItemLabel = css({
+        display: "inline-block",
+        marginTop: 8,
+    });
+
+    const thumbnailItemThumbnail = css({
+        display: "inline-block",
+        border: "1px solid #dddee0",
+        borderRadius: 6,
+    });
+
+    const thumbnailItem = css({
+        width: 220,
+        height: 186,
+        padding: 6,
+        borderRadius: 6,
+        display: "inline-block",
+        cursor: "pointer",
+
+        [`&:hover`]: {
+            background: ColorsUtils.colorOut(globalVars.mainColors.primary.fade(0.1)),
+        },
+
+        [`&:hover .${thumbnailItemThumbnail}`]: {
+            borderColor: ColorsUtils.colorOut(globalVars.mainColors.primary),
+        },
+    });
+
+    const gridItem = css({
+        width: 680,
+        padding: "0 10px",
     });
 
     return {
         root,
         contents,
+        contentsBox,
         asModal,
         likeDropDownContent,
         items,
@@ -350,14 +514,107 @@ export const dropDownClasses = useThemeCache(() => {
         section,
         toggleButtonIcon,
         action,
+        actionIcon,
+        actionActive,
         text,
         separator,
         sectionHeading,
         sectionContents,
         count,
+        arrow,
         verticalPadding,
         title,
         noVerticalPadding,
         paddedFrame,
+        panelFirst,
+        panelLast,
+        panelNavItems,
+        panel,
+        panelContent,
+        backButton,
+        check,
+        contentOffsetCenter,
+        contentOffsetLeft,
+        contentOffsetRight,
+        positioning,
+        closeButton,
+        itemButton,
+        headingContentContainer,
+        headingTitleContainer,
+        thumbnailItem,
+        thumbnailItemLabel,
+        thumbnailItemThumbnail,
+        gridItem,
     };
 });
+
+// Contents (button or link)
+// Replaces: .dropDownItem-button, .dropDownItem-link
+export const actionMixin = (classBasedStates?: IStateSelectors): CSSObject => {
+    const vars = dropDownVariables();
+    const globalVars = globalVariables();
+    const mediaQueries = panelLayoutVariables().mediaQueries();
+
+    return {
+        ...buttonResetMixin(),
+        cursor: "pointer",
+        appearance: "none",
+        display: "flex",
+        alignItems: "center",
+        width: percent(100),
+        textAlign: "left",
+        minHeight: styleUnit(vars.item.minHeight),
+        lineHeight: globalVars.lineHeights.condensed,
+        ...Mixins.padding({
+            vertical: 4,
+            horizontal: vars.item.padding.horizontal,
+        }),
+        ...Mixins.border({
+            color: rgba(0, 0, 0, 0),
+            radius: 0,
+        }),
+        // Override legacy style.scss with global variables by making it important.
+        // ".MenuItems a, .MenuItems a:link, .MenuItems a:visited, .MenuItems a:active "
+        color: ColorsUtils.colorOut(vars.item.colors.fg, { makeImportant: true }),
+        ...userSelect("none"),
+        ...buttonStates(
+            {
+                allStates: {
+                    textShadow: "none",
+                    outline: 0,
+                },
+                hover: {
+                    backgroundColor: important(ColorsUtils.colorOut(globalVars.states.hover.highlight) as string),
+                    color: globalVars.states.hover.contrast
+                        ? ColorsUtils.colorOut(globalVars.states.hover.contrast)
+                        : undefined,
+                },
+                focus: {
+                    backgroundColor: important(ColorsUtils.colorOut(globalVars.states.focus.highlight) as string),
+                    color: globalVars.states.hover.contrast
+                        ? ColorsUtils.colorOut(globalVars.states.focus.contrast)
+                        : undefined,
+                },
+                active: {
+                    backgroundColor: important(ColorsUtils.colorOut(globalVars.states.active.highlight) as string),
+                    color: globalVars.states.hover.contrast
+                        ? ColorsUtils.colorOut(globalVars.states.active.contrast)
+                        : undefined,
+                },
+                keyboardFocus: {
+                    borderColor: ColorsUtils.colorOut(globalVars.states.focus.highlight),
+                    color: globalVars.states.hover.contrast
+                        ? ColorsUtils.colorOut(globalVars.states.focus.contrast)
+                        : undefined,
+                },
+            },
+            undefined,
+            classBasedStates,
+        ),
+        ...mediaQueries.oneColumnDown({
+            fontSize: styleUnit(vars.item.mobile.fontSize),
+            fontWeight: globalVars.fonts.weights.semiBold,
+            minHeight: styleUnit(vars.item.mobile.minHeight),
+        }),
+    };
+};

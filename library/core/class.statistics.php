@@ -11,6 +11,8 @@
  * @since 2.0.17
  */
 
+use Vanilla\CurrentTimeStamp;
+
 /**
  * Handles install-side analytics gathering and sending.
  */
@@ -43,13 +45,13 @@ class Gdn_Statistics extends Gdn_Pluggable {
     }
 
     /**
+     * Call the analytics server.
      *
-     *
-     * @param $method
-     * @param $requestParameters
+     * @param string $method
+     * @param array $requestParameters
      * @param bool $callback
      * @param bool $parseResponse
-     * @return array|bool|mixed|type
+     * @return array|bool|mixed
      * @throws Exception
      */
     public function analytics($method, $requestParameters, $callback = false, $parseResponse = true) {
@@ -58,7 +60,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
             array_unshift($fullMethod, "analytics");
         }
 
-        list($apiController, $apiMethod) = $fullMethod;
+        [$apiController, $apiMethod] = $fullMethod;
         $apiController = strtolower($apiController);
         $apiMethod = stringEndsWith(strtolower($apiMethod), '.json', true, true).'.json';
 
@@ -123,7 +125,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
      *
      * @param $method
      * @param $parameters
-     * @return array|bool|mixed|type
+     * @return array|bool|mixed
      */
     public function api($method, $parameters) {
         $apiResponse = $this->analytics($method, $parameters, false, false);
@@ -306,7 +308,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
      * @return bool
      */
     public static function cidrCheck($iP, $cIDR) {
-        list ($net, $mask) = explode("/", $cIDR);
+        [$net, $mask] = explode("/", $cIDR);
 
         // Allow non-standard /0 syntax
         if ($mask == 0) {
@@ -818,11 +820,8 @@ class Gdn_Statistics extends Gdn_Pluggable {
             ) {
                 $cacheKey = "QueryCache.Analytics.CountViews";
 
-                // Increment. If not success, create key.
-                $incremented = Gdn::cache()->increment($cacheKey);
-                if ($incremented === Gdn_Cache::CACHEOP_FAILURE) {
-                    Gdn::cache()->store($cacheKey, 1);
-                }
+                // Increment.
+                $incremented = Gdn::cache()->increment($cacheKey, 1, [Gdn_Cache::FEATURE_INITIAL => 1]);
 
                 // Get current cache value
                 $views = Gdn::cache()->get($cacheKey);
@@ -830,11 +829,8 @@ class Gdn_Statistics extends Gdn_Pluggable {
                 if ($viewType == 'embed') {
                     $embedCacheKey = "QueryCache.Analytics.CountEmbedViews";
 
-                    // Increment. If not success, create key.
-                    $embedIncremented = Gdn::cache()->increment($embedCacheKey);
-                    if ($embedIncremented === Gdn_Cache::CACHEOP_FAILURE) {
-                        Gdn::cache()->store($embedCacheKey, 1);
-                    }
+                    // Increment.
+                    $embedIncremented = Gdn::cache()->increment($embedCacheKey, 1, [Gdn_Cache::FEATURE_INITIAL => 1]);
 
                     // Get current cache value
                     $embedViews = Gdn::cache()->get($embedCacheKey);
@@ -893,7 +889,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
      * @return int
      */
     public static function time() {
-        return time();
+        return CurrentTimeStamp::get();
     }
 
     /**
@@ -1004,7 +1000,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
             return 0;
         }
 
-        list($year, $month, $day, $hour, $minute) = [1, 1, 1, 0, 0];
+        [$year, $month, $day, $hour, $minute] = [1, 1, 1, 0, 0];
         if ($resolution == 'auto') {
             $timeslotLength = strlen($timeSlot);
         } else {
@@ -1082,7 +1078,7 @@ class Gdn_Statistics extends Gdn_Pluggable {
      * THIS METHOD USES ALL SUPPLIED ARGUMENTS IN ITS SIGNATURE HASH ALGORITHM
      * ****
      *
-     * @param type $request Array of request parameters
+     * @param array $request Array of request parameters
      * @return boolean Status of verification check, or null if no VanillaID
      */
     protected function verifySignature($request) {

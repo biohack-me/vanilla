@@ -4,7 +4,7 @@
  * @license GPL-2.0-only
  */
 
-import React from "react";
+import React, { useRef } from "react";
 import { tokensClasses } from "@library/forms/select/tokensStyles";
 import { t } from "@library/utility/appUtils";
 import { getRequiredID, IOptionalComponentID } from "@library/utility/idUtils";
@@ -15,8 +15,8 @@ import classNames from "classnames";
 import * as selectOverrides from "@library/forms/select/overwrites";
 import { inputBlockClasses } from "@library/forms/InputBlockStyles";
 
-interface IProps extends IOptionalComponentID {
-    label: string;
+export interface ITokenProps extends IOptionalComponentID {
+    label: string | null;
     labelNote?: string;
     disabled?: boolean;
     className?: string;
@@ -24,8 +24,11 @@ interface IProps extends IOptionalComponentID {
     options: IComboBoxOption[] | undefined;
     isLoading?: boolean;
     value: IComboBoxOption[];
+    onFocus?: () => void;
     onChange: (tokens: IComboBoxOption[]) => void;
-    onInputChange: (value: string) => void;
+    onInputChange?: (value: string) => void;
+    menuPlacement?: string;
+    showIndicator?: boolean;
 }
 
 interface IState {
@@ -36,10 +39,11 @@ interface IState {
 /**
  * Implements the search bar component
  */
-export default class Tokens extends React.Component<IProps, IState> {
+export default class Tokens extends React.Component<ITokenProps, IState> {
     private prefix = "tokens";
     private id: string = getRequiredID(this.props, this.prefix);
     private inputID: string = this.id + "-tokenInput";
+
     public state: IState = {
         inputValue: "",
         focus: false,
@@ -51,44 +55,59 @@ export default class Tokens extends React.Component<IProps, IState> {
         const classesInputBlock = inputBlockClasses();
 
         return (
-            <div className={classNames("tokens", classesInputBlock.root, this.props.className, classes.root)}>
-                <label htmlFor={this.inputID} className={classesInputBlock.labelAndDescription}>
-                    <span className={classesInputBlock.labelText}>{this.props.label}</span>
-                    <Paragraph className={classesInputBlock.labelNote}>{this.props.labelNote}</Paragraph>
-                </label>
-
+            <>
                 <div
-                    className={classNames(classesInputBlock.inputWrap, classes.inputWrap, {
-                        hasFocus: this.state.focus,
+                    className={classNames("tokens", classesInputBlock.root, this.props.className, classes.root, {
+                        [classes.withIndicator]: this.props.showIndicator,
                     })}
                 >
-                    <Select
-                        id={this.id}
-                        inputId={this.inputID}
-                        components={this.componentOverwrites}
-                        onChange={this.props.onChange}
-                        inputValue={this.state.inputValue}
-                        value={this.props.value}
-                        onInputChange={this.handleInputChange}
-                        isClearable={true}
-                        isDisabled={disabled}
-                        options={options}
-                        isLoading={this.showLoader}
-                        classNamePrefix={this.prefix}
-                        className={classNames(this.prefix, className)}
-                        placeholder={this.props.placeholder}
-                        aria-label={t("Search")}
-                        escapeClearsValue={true}
-                        pageSize={20}
-                        theme={this.getTheme}
-                        styles={this.getStyles()}
-                        backspaceRemovesValue={true}
-                        isMulti={true}
-                        onFocus={this.onFocus}
-                        onBlur={this.onBlur}
+                    {this.props.label !== null && (
+                        <label htmlFor={this.inputID} className={classesInputBlock.labelAndDescription}>
+                            <span className={classesInputBlock.labelText}>{this.props.label}</span>
+                            <Paragraph className={classesInputBlock.labelNote}>{this.props.labelNote}</Paragraph>
+                        </label>
+                    )}
+
+                    <div
+                        className={classNames(classesInputBlock.inputWrap, classes.inputWrap, {
+                            hasFocus: this.state.focus,
+                        })}
+                    >
+                        <Select
+                            id={this.id}
+                            inputId={this.inputID}
+                            components={this.componentOverwrites}
+                            onChange={this.props.onChange}
+                            inputValue={this.state.inputValue}
+                            value={this.props.value}
+                            onInputChange={this.handleInputChange}
+                            isClearable={true}
+                            isDisabled={disabled}
+                            options={options}
+                            isLoading={this.showLoader}
+                            classNamePrefix={this.prefix}
+                            className={classNames(this.prefix, className)}
+                            placeholder={this.props.placeholder}
+                            aria-label={t("Search")}
+                            escapeClearsValue={true}
+                            pageSize={20}
+                            theme={this.getTheme}
+                            styles={this.getStyles()}
+                            backspaceRemovesValue={true}
+                            isMulti={true}
+                            onFocus={this.onFocus}
+                            onBlur={this.onBlur}
+                        />
+                    </div>
+                    <input
+                        className={"js-" + this.prefix + "-tokenInput"}
+                        aria-hidden={true}
+                        value={JSON.stringify(this.props.value)}
+                        type="hidden"
+                        tabIndex={-1}
                     />
                 </div>
-            </div>
+            </>
         );
     }
 
@@ -96,20 +115,22 @@ export default class Tokens extends React.Component<IProps, IState> {
         return !!this.props.isLoading && this.state.inputValue.length > 0;
     }
 
-    private handleInputChange = val => {
+    private handleInputChange = (val) => {
         this.setState({ inputValue: val });
-        this.props.onInputChange(val);
+        this.props.onInputChange?.(val);
     };
 
     /*
      * Overwrite components in Select component
      */
     private get componentOverwrites() {
-        return {
+        const overwrites = {
             ClearIndicator: selectOverrides.NullComponent,
-            DropdownIndicator: selectOverrides.NullComponent,
             LoadingMessage: selectOverrides.OptionLoader,
-            Menu: this.state.inputValue.length > 0 ? selectOverrides.Menu : selectOverrides.NullComponent,
+            Menu:
+                !this.props.options || this.props.options?.length > 0
+                    ? selectOverrides.Menu
+                    : selectOverrides.NullComponent,
             MenuList: selectOverrides.MenuList,
             Option: selectOverrides.SelectOption,
             ValueContainer: selectOverrides.ValueContainer,
@@ -121,13 +142,20 @@ export default class Tokens extends React.Component<IProps, IState> {
                 ? selectOverrides.NoOptionsMessage
                 : selectOverrides.NullComponent,
             LoadingIndicator: selectOverrides.NullComponent,
+            DropdownIndicator: selectOverrides.DropdownIndicator,
         };
+
+        if (!this.props.showIndicator) {
+            overwrites["DropdownIndicator"] = selectOverrides.NullComponent;
+        }
+
+        return overwrites;
     }
 
     /**
      * Overwrite theme in Select component
      */
-    private getTheme = theme => {
+    private getTheme = (theme) => {
         return {
             ...theme,
             border: {},
@@ -140,6 +168,9 @@ export default class Tokens extends React.Component<IProps, IState> {
      * Set class for focus
      */
     private onFocus = () => {
+        if (this.props.onFocus) {
+            this.props.onFocus();
+        }
         this.setState({
             focus: true,
         });

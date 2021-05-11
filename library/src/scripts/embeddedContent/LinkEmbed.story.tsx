@@ -8,10 +8,9 @@ import { StoryHeading } from "@library/storybook/StoryHeading";
 import { storiesOf } from "@storybook/react";
 import React from "react";
 import { LinkEmbed } from "@library/embeddedContent/LinkEmbed";
+import { EmbedContext } from "@library/embeddedContent/IEmbedContext";
 
 const story = storiesOf("Embeds", module);
-
-// tslint:disable:jsx-use-translation-function
 
 const ipsum = `
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Fusce blandit lorem ac dui porta, scelerisque placerat felis finibus. Fusce vitae porttitor augue. Integer sagittis justo vitae nibh aliquet, a viverra ipsum laoreet. Interdum et malesuada fames ac ante ipsum primis in faucibus. Curabitur elit ligula, fermentum nec felis vel, aliquam interdum justo. Suspendisse et egestas neque. Vivamus volutpat odio eget enim tincidunt, in pretium arcu consectetur. Nulla sodales molestie pharetra.
@@ -40,6 +39,16 @@ story.add("LinkEmbed", () => {
                 embedType="link"
                 body={ipsum}
             />
+            <StoryHeading>In Editor</StoryHeading>
+            <EmbedContext.Provider value={{ inEditor: true, isSelected: true }}>
+                <LinkEmbed
+                    url="https://vanillaforums.com/en/"
+                    photoUrl="https://vanillaforums.com/images/metaIcons/vanillaForums.png"
+                    name="Online Community Software and Customer Forum Software by Vanilla Forums"
+                    embedType="link"
+                    body="Engage your customers with a vibrant and modern online customer community forum. A customer community helps to increases loyalty, reduce support costs and deliver feedback."
+                />
+            </EmbedContext.Provider>
         </>
     );
 });

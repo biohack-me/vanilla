@@ -449,7 +449,6 @@ class ConversationsApiController extends AbstractApiController {
             false
         );
         $data = array_values($conversationMembers);
-
         $this->userModel->expandUsers($data, ['UserID']);
         $data = array_map([$this, 'normalizeParticipantOutput'], $data);
 
@@ -521,9 +520,13 @@ class ConversationsApiController extends AbstractApiController {
         } else {
             $dbRecord['name'] = ConversationModel::participantTitle($dbRecord, false);
         }
-        $dbRecord['body'] = isset($dbRecord['LastBody'])
-            ? Gdn_Format::to($dbRecord['LastBody'], $dbRecord['LastFormat'])
-            : t('No messages.');
+
+        $defaultMsg = t('No messages.');
+        $lastBody = $dbRecord['LastBody'] ?? '';
+        $dbRecord['body'] = $lastBody
+            ?  (Gdn::formatService()->renderPlainText($dbRecord['LastBody'], $dbRecord['LastFormat']) ?: $defaultMsg)
+            : $defaultMsg;
+
         $dbRecord['url'] = url("/messages/{$dbRecord['ConversationID']}", true);
 
         if (array_key_exists('CountNewMessages', $dbRecord)) {
@@ -576,7 +579,7 @@ class ConversationsApiController extends AbstractApiController {
         if (isset($dbRecord["User"]) && is_array($dbRecord["User"])) {
             $dbRecord["User"] = array_intersect_key(
                 $dbRecord["User"],
-                array_flip(["UserID", "Name", "PhotoUrl", "DateLastActive"])
+                array_flip(["userID", "name", "photoUrl", "dateLastActive"])
             );
         } elseif (isset($dbRecord["UserID"]) && isset($dbRecord["Name"])) {
             $dbRecord['User'] = [

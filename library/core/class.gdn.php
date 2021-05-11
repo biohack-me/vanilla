@@ -11,7 +11,12 @@
  * @since 2.0
  */
 
+use Garden\EventManager;
+use Vanilla\Contracts\ConfigurationInterface;
+use Vanilla\Formatting\DateTimeFormatter;
 use Vanilla\Formatting\FormatService;
+use Vanilla\Scheduler\SchedulerInterface;
+use Vanilla\Theme\ThemeFeatures;
 
 /**
  * Framework superobject.
@@ -70,23 +75,25 @@ class Gdn {
      */
     private static $container;
 
-    /** @var object  */
-    protected static $_Config = null;
-
     /** @var boolean Whether or not Gdn::FactoryInstall should overwrite existing objects. */
     protected static $_FactoryOverwrite = true;
 
-    /** @var object  */
+    /** @var Gdn_Locale  */
     protected static $_Locale = null;
 
-    /** @var object  */
+    /** @var Gdn_Request  */
     protected static $_Request = null;
 
-    /** @var object  */
+    /** @var Gdn_PluginManager  */
     protected static $_PluginManager = null;
 
-    /** @var object  */
+    /** @var Gdn_Session  */
     protected static $_Session = null;
+
+    /**
+     * @var Gdn_Controller|null
+     */
+    protected static $controller = null;
 
     /**
      * Get the addon manager.
@@ -95,6 +102,24 @@ class Gdn {
      */
     public static function addonManager() {
         return self::factory(self::AliasAddonManager);
+    }
+
+    /**
+     * Get the addon manager.
+     *
+     * @return SchedulerInterface
+     */
+    public static function scheduler(): SchedulerInterface {
+        return self::getContainer()->get(SchedulerInterface::class);
+    }
+
+    /**
+     * Get the event manager.
+     *
+     * @return EventManager
+     */
+    public static function eventManager(): EventManager {
+        return self::getContainer()->get(EventManager::class);
     }
 
     /**
@@ -137,15 +162,13 @@ class Gdn {
     /**
      * Get a configuration setting for the application.
      *
-     * @param string $name The name of the configuration setting. Settings in different sections are seperated by a dot ('.')
+     * @param string|false $name The name of the configuration setting. Settings in different sections are seperated by a dot ('.')
      * @param mixed $default The result to return if the configuration setting is not found.
      * @return Gdn_Configuration|mixed The configuration setting.
      */
     public static function config($name = false, $default = false) {
-        if (self::$_Config === null) {
-            self::$_Config = static::getContainer()->get(self::AliasConfig);
-        }
-        $config = self::$_Config;
+        $config = static::getContainer()->get(self::AliasConfig);
+
         if ($name === false) {
             $result = $config;
         } else {
@@ -162,13 +185,20 @@ class Gdn {
      * @return Gdn_Controller
      */
     public static function controller($value = null) {
-        static $controller = null;
-
         if ($value !== null) {
-            $controller = $value;
+            self::$controller = $value;
         }
 
-        return $controller;
+        return self::$controller;
+    }
+
+    /**
+     * Set the controller to an explicit value.
+     *
+     * @param Gdn_Controller|null $controller
+     */
+    public static function setController(?Gdn_Controller $controller) {
+        self::$controller = $controller;
     }
 
     /**
@@ -187,6 +217,13 @@ class Gdn {
      */
     public static function database() {
         return self::factory(self::AliasDatabase);
+    }
+
+    /**
+     * @return DateTimeFormatter
+     */
+    public static function dateTimeFormatter(): DateTimeFormatter {
+        return self::getContainer()->get(DateTimeFormatter::class);
     }
 
     /**
@@ -426,7 +463,7 @@ class Gdn {
         $request = self::$_Request; //self::factory(self::AliasRequest);
         if (!is_null($newRequest)) {
             if (is_string($newRequest)) {
-                $request->withURI($newRequest);
+                $request->setURI($newRequest);
             } elseif (is_object($newRequest))
                 $request->fromImport($newRequest);
         }
@@ -455,10 +492,25 @@ class Gdn {
         return self::$_Session;
     }
 
+    /**
+     * Set a usermeta item for user 0.
+     *
+     * @param string $key
+     * @param null $value
+     * @deprecated Use UserMetaModel
+     */
     public static function set($key, $value = null) {
         return Gdn::userMetaModel()->setUserMeta(0, $key, $value);
     }
 
+    /**
+     * Get a usermeta item for user 0.
+     *
+     * @param string $key
+     * @param null $default
+     * @return false|mixed|null
+     * @deprecated Use UserMetaModel.
+     */
     public static function get($key, $default = null) {
         $response = Gdn::userMetaModel()->getUserMeta(0, $key, $default);
         if (sizeof($response) == 1) {
@@ -510,10 +562,17 @@ class Gdn {
     }
 
     /**
+     * Get the theme features instance.
+     */
+    public static function themeFeatures(): ThemeFeatures {
+        return self::getContainer()->get(ThemeFeatures::class);
+    }
+
+    /**
      * Translates a code into the selected locale's definition.
      *
      * @param string $code The code related to the language-specific definition.
-     * @param string $default The default value to be displayed if the translation code is not found.
+     * @param string|false $default The default value to be displayed if the translation code is not found.
      * @return string The translated string or $code if there is no value in $default.
      */
     public static function translate($code, $default = false) {
@@ -582,7 +641,6 @@ class Gdn {
         /**
          * Reset all of the cached objects that are fetched from the container.
          */
-        self::$_Config = null;
         self::$_FactoryOverwrite = true;
         self::$_Locale = null;
         self::$_Request = null;

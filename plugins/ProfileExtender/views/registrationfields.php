@@ -1,7 +1,8 @@
 <?php if (!defined('APPLICATION')) exit();
 
-if (is_array($Sender->RegistrationFields)) {
-    foreach ($Sender->RegistrationFields as $Name => $Field) {
+if (is_array($sender->RegistrationFields)) {
+    foreach ($sender->RegistrationFields as $k => $Field) {
+        $Name = $Field['Name'] ?? $k;
         $Options = [];
         if ($Field['FormType'] == 'Dropdown') {
             $values = $Field['Options'];
@@ -12,11 +13,15 @@ if (is_array($Sender->RegistrationFields)) {
             $Options = array_combine($values, $labels);
         }
 
+        if ($Field['FormType'] == 'TextBox' && !empty($Field['Options'])) {
+            $Options = $Field['Options'];
+        }
+
         if ($Field['FormType'] == 'CheckBox') {
-            echo wrap($Sender->Form->{$Field['FormType']}($Name, $Field['Label']), 'li');
+            echo wrap($sender->Form->{$Field['FormType']}($Name, $Field['Label']), 'li');
         } else {
-            echo wrap($Sender->Form->label($Field['Label'], $Name).
-                $Sender->Form->{$Field['FormType']}($Name, $Options), 'li', ['class' => 'form-group']);
+            echo wrap($sender->Form->label($Field['Label'], $Name).
+                $sender->Form->{$Field['FormType']}($Name, $Options), 'li', ['class' => 'form-group']);
         }
     }
 }

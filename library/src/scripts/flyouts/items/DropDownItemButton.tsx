@@ -6,57 +6,49 @@
 
 import React from "react";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import { dropDownClasses } from "@library/flyouts/dropDownStyles";
-import { ISelectBoxItem } from "@library/forms/select/SelectBox";
 import classNames from "classnames";
 import DropDownItem from "@library/flyouts/items/DropDownItem";
 
-export interface IDropDownItemButton {
+interface IProps {
     name?: string;
     className?: string;
     buttonClassName?: string;
     children?: React.ReactNode;
     disabled?: boolean;
     onClick: any;
-    clickData?: ISelectBoxItem;
-    index?: number;
     current?: boolean;
     lang?: string;
+    isActive?: boolean;
     buttonRef?: React.RefObject<HTMLButtonElement>;
+    role?: string;
 }
 
 /**
  * Implements button type of item for DropDownMenu
  */
-export default class DropDownItemButton extends React.Component<IDropDownItemButton> {
-    public static defaultProps = {
-        disabled: false,
-        buttonClassName: classNames("dropDownItem-button", dropDownClasses().action),
-    };
-
-    public render() {
-        const { clickData, index, children, name } = this.props;
-        const buttonContent = children ? children : name;
-        const classesDropDown = dropDownClasses();
-        const buttonClick = () => {
-            this.props.onClick(clickData, index);
-        };
-        return (
-            <DropDownItem className={classNames(this.props.className)}>
-                <Button
-                    buttonRef={this.props.buttonRef}
-                    title={this.props.name}
-                    onClick={buttonClick}
-                    className={classNames(this.props.buttonClassName, classesDropDown.action)}
-                    baseClass={ButtonTypes.CUSTOM}
-                    disabled={this.props.disabled}
-                    aria-current={this.props.current ? "true" : "false"}
-                    lang={this.props.lang}
-                >
-                    {buttonContent}
-                </Button>
-            </DropDownItem>
-        );
-    }
+export default function DropDownItemButton(props: IProps) {
+    const { children, name, disabled = false } = props;
+    const buttonContent = children ? children : name;
+    const classes = dropDownClasses();
+    const defaultButtonClass = dropDownClasses().action;
+    const buttonClassName = classNames("dropDownItem-button", props.buttonClassName ?? defaultButtonClass);
+    return (
+        <DropDownItem className={classNames(props.className)}>
+            <Button
+                buttonRef={props.buttonRef}
+                title={props.name}
+                onClick={props.onClick}
+                className={classNames(buttonClassName, classes.action, props.isActive && classes.actionActive)}
+                buttonType={ButtonTypes.CUSTOM}
+                disabled={disabled}
+                aria-current={props.current ? "true" : "false"}
+                lang={props.lang}
+                role={props.role}
+            >
+                {buttonContent}
+            </Button>
+        </DropDownItem>
+    );
 }

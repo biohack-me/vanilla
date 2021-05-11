@@ -10,6 +10,8 @@
  * @since 2.0
  */
 use Garden\Web\RequestInterface;
+use League\Uri\Http;
+use Psr\Http\Message\UriInterface;
 use Vanilla\UploadedFile;
 
 /**
@@ -25,7 +27,6 @@ use Vanilla\UploadedFile;
  *                HTTP_X_CLUSTER_CLIENT_IP, HTTP_CLIENT_IP, HTTP_X_FORWARDED_FOR, REMOTE_ADDR).
  */
 class Gdn_Request implements RequestInterface {
-
     /** Superglobal source. */
     const INPUT_CUSTOM = "custom";
 
@@ -86,6 +87,9 @@ class Gdn_Request implements RequestInterface {
     /** @var array Request data/parameters, either from superglobals or from a custom array of key/value pairs. */
     protected $_RequestArguments;
 
+    /** @var array Cache of env elements to avoid repeatedly casening strings in loops. */
+    private $envElementCache = [];
+
     /**
      * Instantiate a new instance of the {@link Gdn_Request} class.
      */
@@ -102,6 +106,7 @@ class Gdn_Request implements RequestInterface {
      * @return string Returns the current asset root.
      *
      * @deprecated 2.8 Use the explicit asset functions instead.
+     * @codeCoverageIgnore
      */
     public function assetRoot($assetRoot = null) {
         if ($assetRoot !== null) {
@@ -109,7 +114,7 @@ class Gdn_Request implements RequestInterface {
             $this->setAssetRoot($assetRoot);
             return $assetRoot;
         } else {
-            deprecated(__FUNCTION__, "addAssetRoot");
+            deprecated(__FUNCTION__, "getAssetRoot");
             $result = $this->getAssetRoot();
         }
         return $result;
@@ -149,8 +154,9 @@ class Gdn_Request implements RequestInterface {
      * Gets/Sets the domain from the current url. e.g. "http://localhost" in
      * "http://localhost/this/that/garden/index.php?/controller/action/"
      *
-     * @param $domain optional value to set
+     * @param string|null $domain Optional value to set
      * @return string | null
+     * @deprecated Use Gdn_Request::getHost() and Gdn_Request::setHost() instead.
      */
     public function domain($domain = null) {
         return $this->_parsedRequestElement('Domain', $domain);
@@ -175,9 +181,13 @@ class Gdn_Request implements RequestInterface {
      *
      * @param string $key Key to retrieve or set.
      * @param string $value Value of $Key key to set.
-     * @return string | null
+     * @return string|null
      */
     protected function _environmentElement($key, $value = null) {
+        if ($value === null && array_key_exists($key, $this->envElementCache)) {
+            return $this->envElementCache[$key];
+        }
+        $rawKey = $key;
         $key = strtoupper($key);
         if ($value !== null) {
             $this->_HaveParsedRequest = false;
@@ -205,19 +215,20 @@ class Gdn_Request implements RequestInterface {
                     break;
             }
 
+            $this->envElementCache[$rawKey] = $value;
             $this->_Environment[$key] = $value;
         }
 
-        if (array_key_exists($key, $this->_Environment)) {
-            return $this->_Environment[$key];
-        }
-
-        return null;
+        $result = $this->_Environment[$key] ?? null;
+        $this->envElementCache[$rawKey] = $result;
+        return $result;
     }
 
     /**
      * Convenience method for accessing unparsed environment data via request(ELEMENT) method calls.
      *
+     * @param string $method
+     * @param array $args
      * @return string
      */
     public function __call($method, $args) {
@@ -235,7 +246,7 @@ class Gdn_Request implements RequestInterface {
      *
      * Mostly used in conjunction with fromImport()
      *
-     * @param $export Data group to export
+     * @param string $export Data group to export.
      * @return mixed
      */
     public function export($export) {
@@ -257,7 +268,7 @@ class Gdn_Request implements RequestInterface {
      * As with the case above (OutputFormat), this value depends heavily on there being a filename
      * at the end of the URI. In the example above, filename() would return 'cashflow2009.pdf'.
      *
-     * @param $filename Optional Filename to set.
+     * @param string|null $filename Optional Filename to set.
      * @return string
      */
     public function filename($filename = null) {
@@ -292,7 +303,7 @@ class Gdn_Request implements RequestInterface {
      * @return Gdn_Request
      */
     public function fromEnvironment() {
-        $this->withURI()
+        $this->setURI()
             ->withArgs(self::INPUT_GET, self::INPUT_POST, self::INPUT_SERVER, self::INPUT_FILES, self::INPUT_COOKIES);
 
         return $this;
@@ -303,13 +314,14 @@ class Gdn_Request implements RequestInterface {
      *
      * This method allows one method to import the raw information of another request
      *
-     * @param $newRequest New Request from which to import environment and arguments.
+     * @param Gdn_Request $newRequest New Request from which to import environment and arguments.
      * @flow chain
-     * @return Gdn_Request
+     * @return $this
      */
     public function fromImport($newRequest) {
         // Import Environment
         $this->_Environment = $newRequest->export('Environment');
+        $this->envElementCache = [];
         // Import Arguments
         $this->_RequestArguments = $newRequest->export('Arguments');
 
@@ -340,6 +352,13 @@ class Gdn_Request implements RequestInterface {
      */
     public function getBody() {
         return (array)$this->getRequestArguments(self::INPUT_POST);
+    }
+
+    /**
+     * Get the raw body of the post.
+     */
+    public function getRawBody(): string {
+        return file_get_contents("php://input") ?: '';
     }
 
     /**
@@ -446,7 +465,7 @@ class Gdn_Request implements RequestInterface {
         $port = $this->getPort();
 
         // Only append the port if it is non-standard.
-        if (($port == 80 && $this->getScheme() === 'http') || ($port == 443 && $this->getScheme() === 'https')) {
+        if ($port == 80 || $port == 443) {
             $port = '';
         } else {
             $port = ':'.$port;
@@ -500,7 +519,7 @@ class Gdn_Request implements RequestInterface {
     }
 
     /**
-     * Get the path and file extenstion.
+     * Get the path and file extension.
      *
      * @return string
      */
@@ -532,6 +551,8 @@ class Gdn_Request implements RequestInterface {
     /**
      * Get an item from the query string array.
      *
+     * @param string $key
+     * @param mixed $default
      * @return string
      */
     public function getQueryItem($key, $default = null) {
@@ -586,12 +607,24 @@ class Gdn_Request implements RequestInterface {
     public function getUrl() {
         $scheme = $this->getScheme();
         $hostAndPort = $this->getHostAndPort();
-        $fullPath = $this->getFullPath();
+        $fullPath = \Vanilla\Utility\UrlUtils::encodePath($this->getFullPath());
 
         $query = $this->getQuery();
         $queryString = (empty($query) ? '' : '?'.http_build_query($query));
 
         return "{$scheme}://{$hostAndPort}{$fullPath}{$queryString}";
+    }
+
+    /**
+     * Retrieves the URI instance.
+     *
+     * This method MUST return a UriInterface instance.
+     *
+     * @link http://tools.ietf.org/html/rfc3986#section-4.3
+     * @return UriInterface Returns a UriInterface instance representing the URI of the request.
+     */
+    public function getUri() {
+        return Http::createFromString($this->getUrl());
     }
 
     /**
@@ -601,6 +634,8 @@ class Gdn_Request implements RequestInterface {
      * @param string $key Name of the request argument to retrieve.
      * @param mixed $default Value to return if argument not found.
      * @return mixed
+     * @deprecated
+     * @codeCoverageIgnore
      */
     public function getValue($key, $default = false) {
         return $this->merged($key, $default);
@@ -632,8 +667,9 @@ class Gdn_Request implements RequestInterface {
      * Gets/Sets the host from the current url. e.g. "foo.com" in
      * "http://foo.com/this/that/garden/index.php?/controller/action/"
      *
-     * @param $hostname optional value to set.
-     * @return string | null
+     * @param string|null $hostname Optional value to set.
+     * @return string|null
+     * @deprecated Use Gdn_Request::getHost() and Gdn_Request::setHost() instead.
      */
     public function host($hostname = null) {
         return $this->_environmentElement('HOST', $hostname);
@@ -641,8 +677,9 @@ class Gdn_Request implements RequestInterface {
 
     /**
      * Return the host and port together if the port isn't standard.
+     *
      * @return string
-     * @since 2.1
+     * @deprecated Use Gdn_Request::getHostAndPort() instead.
      */
     public function hostAndPort() {
         $host = $this->host();
@@ -657,7 +694,8 @@ class Gdn_Request implements RequestInterface {
     /**
      * Alias for requestAddress()
      *
-     * @return type
+     * @return string
+     * @deprecated Use Gdn_Request::getIP() instead.
      */
     public function ipAddress() {
         return $this->_Environment['ADDRESS'];
@@ -710,9 +748,10 @@ class Gdn_Request implements RequestInterface {
     /**
      * Gets/sets the port of the request.
      *
-     * @param int $Port
+     * @param int $port
      * @return int
      * @since 2.1
+     * @deprecated Use Gdn_Request::getPort() instead.
      */
     public function port($port = null) {
         return $this->_environmentElement('PORT', $port);
@@ -722,8 +761,9 @@ class Gdn_Request implements RequestInterface {
      * Gets/Sets the scheme from the current url. e.g. "http" in
      * "http://foo.com/this/that/garden/index.php?/controller/action/"
      *
-     * @param $scheme optional value to set.
+     * @param string $scheme Optional value to set.
      * @return string | null
+     * @deprecated Use Gdn_Request::getScheme() instead.
      */
     public function scheme($scheme = null) {
         return $this->_environmentElement('SCHEME', $scheme);
@@ -735,8 +775,6 @@ class Gdn_Request implements RequestInterface {
      * The purpose of this method is to consolidate all the various environment information into one
      * array under a set of common names, thereby removing the tedium of figuring out which superglobal
      * and key combination contain the requested information each time it is needed.
-     *
-     * @return void
      */
     protected function _loadEnvironment() {
         $this->_environmentElement('ConfigWebRoot', Gdn::config('Garden.WebRoot'));
@@ -903,8 +941,8 @@ class Gdn_Request implements RequestInterface {
      *    http://www.forum.com/vanilla/index.php?/discussion/345897/attachment/234/download/cashflow2009.pdf
      * then this method will return the filetype (in this case 'pdf').
      *
-     * @param $outputFormat Optional OutputFormat to set.
-     * @return string | null
+     * @param string|null $outputFormat Optional OutputFormat to set.
+     * @return string|null
      */
     public function outputFormat($outputFormat = null) {
         $outputFormat = (!is_null($outputFormat)) ? strtolower($outputFormat) : $outputFormat;
@@ -917,8 +955,6 @@ class Gdn_Request implements RequestInterface {
      * This method analyzes the Request environment and produces the ParsedRequest array which
      * contains the Path and OutputFormat keys. These are used by the Dispatcher to decide which
      * controller and method to invoke.
-     *
-     * @return void
      */
     protected function _parseRequest() {
         $this->_Parsing = true;
@@ -933,7 +969,9 @@ class Gdn_Request implements RequestInterface {
         if ($path !== false) {
             $this->path(trim($path, '/'));
         } else {
-            $expression = '/^(?:\/?'.str_replace('/', '\/', $this->_environmentElement('Folder')).')?(?:'.$this->_environmentElement('Script').')?\/?(.*?)\/?(?:[#?].*)?$/i';
+            $expression = '/^(?:\/?'.
+                str_replace('/', '\/', $this->_environmentElement('Folder')).
+                ')?(?:'.$this->_environmentElement('Script').')?\/?(.*?)\/?(?:[#?].*)?$/i';
             if (preg_match($expression, $this->_environmentElement('URI'), $match)) {
                 $this->path($match[1]);
             } else {
@@ -1027,6 +1065,7 @@ class Gdn_Request implements RequestInterface {
      *  - true: Url encode the returned path.
      *  - null: Return the path.
      * @return string | null
+     * @deprecated Use Gdn_Request::getPath() and Gdn_Request::setPath() instead.
      */
     public function path($path = null) {
         if (is_string($path)) {
@@ -1044,12 +1083,19 @@ class Gdn_Request implements RequestInterface {
         return $result;
     }
 
+    /**
+     * Get/set the request's path and query string.
+     *
+     * @param string|null $pathAndQuery Set a new path and query.
+     * @return string|null
+     * @deprecated Use Gdn_Request::setUrl() instead.
+     */
     public function pathAndQuery($pathAndQuery = null) {
         // Set the path and query if it is supplied.
         if ($pathAndQuery) {
             // Parse out the path into parts.
             $parts = parse_url($pathAndQuery);
-            $path = val('path', $parts, '');
+            $path = \Vanilla\Utility\UrlUtils::decodePath($parts['path'] ?? '');
 
             // Check for a filename.
             $filename = basename($path);
@@ -1075,7 +1121,7 @@ class Gdn_Request implements RequestInterface {
         }
 
         // Construct the path and query.
-        $result = $this->path();
+        $result = $this->path(true);
 
 //      $Filename = $this->filename();
 //      if ($Filename && $Filename != 'default')
@@ -1107,6 +1153,9 @@ class Gdn_Request implements RequestInterface {
         }
     }
 
+    /**
+     * Reset properties to default values.
+     */
     public function reset() {
         $this->_Environment = [];
         $this->_RequestArguments = [];
@@ -1126,6 +1175,8 @@ class Gdn_Request implements RequestInterface {
      * @param string|null $key The key of the post item or null to return the entire array.
      * @param mixed $default The value to return if the item isn't set.
      * @return mixed
+     * @deprecated
+     * @codeCoverageIgnore
      */
     public function merged($key = null, $default = null) {
         $merged = [];
@@ -1176,7 +1227,7 @@ class Gdn_Request implements RequestInterface {
          * @param array $files
          * @return array
          */
-        $normalizeArray = function(array $files) use (&$getUpload) {
+        $normalizeArray = function (array $files) use (&$getUpload) {
             $result = [];
             foreach ($files['tmp_name'] as $key => $val) {
                 // Consolidate the attributes and push them down the tree.
@@ -1201,7 +1252,7 @@ class Gdn_Request implements RequestInterface {
          * @param array $value
          * @return array|UploadedFile
          */
-        $getUpload = function(array $value) use (&$normalizeArray) {
+        $getUpload = function (array $value) use (&$normalizeArray) {
             if (is_array($value['tmp_name'])) {
                 // We need to go deeper.
                 $result = $normalizeArray($value);
@@ -1274,9 +1325,11 @@ class Gdn_Request implements RequestInterface {
     /**
      * Decode the environment's post depending on content type.
      *
-     * @param array $post Usually the {@link $_POST} super-global.
-     * @param array $server Usually the {@link $_SERVER} super-global.
-     * @param string $inputFile Usually **php://input** for the raw input stream.
+     * @param array $post Usually the `$_POST` super-global.
+     * @param array $server Usually the `$_SERVER` super-global.
+     * @param string $inputFile Usually `php://input` for the raw input stream.
+     * @param array|null $files Usually the `$_FILES` super-global.
+     * @return mixed Returns the decoded post.
      */
     private function decodePost($post, $server, $inputFile = 'php://input', $files = null) {
         $contentType = !isset($server['CONTENT_TYPE']) ? 'application/x-www-form-urlencoded' : $server['CONTENT_TYPE'];
@@ -1304,7 +1357,7 @@ class Gdn_Request implements RequestInterface {
     /**
      * Set the POST body for the request.
      *
-     * @param $body
+     * @param mixed $body
      * @return self
      */
     public function setBody($body) {
@@ -1319,7 +1372,7 @@ class Gdn_Request implements RequestInterface {
      * @return self
      */
     public function setExt($extension) {
-        $extension = '.'.ltrim($extension, '.');
+        $extension = $extension ? '.'.ltrim($extension, '.') : '';
 
         $this->_parsedRequestElement('Extension', $extension);
         return $this;
@@ -1370,6 +1423,23 @@ class Gdn_Request implements RequestInterface {
     public function setIP($ip) {
         $this->_environmentElement('ADDRESS', $ip);
         return $this;
+    }
+
+    /**
+     * Anonymize the IP address on the request.
+     *
+     * @param bool $full Whether or not to fully anonymize the IP address.
+     * @return string Returns the anonymous IP.
+     */
+    public function anonymizeIP(bool $full = false): string {
+        if ($full) {
+            $ip = '0.0.0.0';
+        } else {
+            $ip = $this->getIP();
+            $ip = anonymizeIP($ip);
+        }
+        $this->setIP($ip);
+        return $ip;
     }
 
     /**
@@ -1446,6 +1516,12 @@ class Gdn_Request implements RequestInterface {
         return $this;
     }
 
+    /**
+     * Set all of the request arguments of a type.
+     *
+     * @param string $paramsType One of the `INPUT_*` constants.
+     * @param array $paramsData The data to set.
+     */
     public function setRequestArguments($paramsType, $paramsData) {
         $this->_RequestArguments[$paramsType] = $paramsData;
     }
@@ -1516,6 +1592,13 @@ class Gdn_Request implements RequestInterface {
         return $this;
     }
 
+    /**
+     * Set a value on one of the core input arrays.
+     *
+     * @param string $paramType One of the `INPUT_*` constants.
+     * @param string $paramName The name of the parameter key.
+     * @param mixed $paramValue The new value.
+     */
     public function setValueOn($paramType, $paramName, $paramValue) {
         if (!isset($this->_RequestArguments[$paramType])) {
             $this->_RequestArguments[$paramType] = [];
@@ -1528,7 +1611,6 @@ class Gdn_Request implements RequestInterface {
      * Detach a dataset from the request
      *
      * @param int $paramsType type of data to remove. One of the self::INPUT_* constants
-     * @return void
      */
     public function _unsetRequestArguments($paramsType) {
         unset($this->_RequestArguments[$paramsType]);
@@ -1544,7 +1626,7 @@ class Gdn_Request implements RequestInterface {
      *    - Default port, rewrites                     http://www.forum.com/
      *    - Custom port, rewrites                      http://www.forum.com:8080/index.php?/
      *
-     * @param sring $path of the controller method.
+     * @param string $path of the controller method.
      * @param mixed $withDomain Whether or not to include the domain with the url. This can take the following values.
      * - true: Include the domain name.
      * - false: Do not include the domain. This is a relative path.
@@ -1591,11 +1673,12 @@ class Gdn_Request implements RequestInterface {
                 $path = str_replace('https:', 'http:', $path);
                 $scheme = 'http';
             }
-        } else if ($withDomain && $withDomain !== '/') {
+        } elseif ($withDomain && $withDomain !== '/') {
             $scheme = $this->scheme();
         }
 
-        if (substr($path, 0, 2) == '//' || in_array(strpos($path, '://'), [4, 5])) { // Accounts for http:// and https:// - some querystring params may have "://", and this would cause things to break.
+        if (substr($path, 0, 2) == '//' || in_array(strpos($path, '://'), [4, 5])) {
+            // Accounts for http:// and https:// - some querystring params may have "://", and this would cause things to break.
             return $path;
         }
 
@@ -1664,13 +1747,28 @@ class Gdn_Request implements RequestInterface {
     }
 
     /**
+     * Get the URL.
+     *
+     * This method simply concatenate host to URI provided.
+     *
+     * @param string $uri
+     * @return string
+     */
+    public function getSimpleUrl(string $uri = ''): string {
+        $scheme = $this->getScheme();
+        $hostAndPort = $this->getHostAndPort();
+        $assetRoot = $this->getAssetRoot();
+        return "{$scheme}://{$hostAndPort}{$assetRoot}{$uri}";
+    }
+
+    /**
      * Compare two urls for equality.
      *
      * @param string $url1 The first url to compare.
      * @param string $url2 The second url to compare.
      * @return int Returns 0 if the urls are equal or 1, -1 if they are not.
      */
-    function urlCompare($url1, $url2) {
+    public function urlCompare($url1, $url2) {
         $parts1 = parse_url($this->url($url1));
         $parts2 = parse_url($this->url($url2));
 
@@ -1736,6 +1834,7 @@ class Gdn_Request implements RequestInterface {
      *
      * @param string? $webRoot The new web root to set.
      * @return string
+     * @deprecated Use Gdn_Request::getRoot() and Gdn_Request::setRoot() instead.
      */
     public function webRoot($webRoot = null) {
         if ($webRoot !== null || !$this->_HaveParsedRequest) {
@@ -1761,14 +1860,14 @@ class Gdn_Request implements RequestInterface {
      * specific PHP superglobal and including them here causes their data to be imported into the request
      * object.
      *
-     * @param self ::INPUT_*
+     * @param string $args One or more `INPUT_*` constants.
      * @flow chain
      * @return Gdn_Request
      */
-    public function withArgs() {
-        $argAliasList = func_get_args();
-        if (count($argAliasList)) {
-            foreach ($argAliasList as $argAlias) {
+    public function withArgs(...$args) {
+        $args = func_get_args();
+        if (count($args)) {
+            foreach ($args as $argAlias) {
                 $this->_setRequestArguments(strtolower($argAlias));
             }
         }
@@ -1783,11 +1882,14 @@ class Gdn_Request implements RequestInterface {
      * itself) to be attached in front of the other request superglobals and transparently override
      * their values when they are requested via val(). This method sets that data.
      *
-     * @param $customArgs key/value array of custom request argument data.
+     * @param array $customArgs Key/value array of custom request argument data.
      * @flow chain
      * @return Gdn_Request
+     * @deprecated
+     * @codeCoverageIgnore
      */
     public function withCustomArgs($customArgs) {
+        deprecated(__METHOD__, __CLASS__.'::setAttribute()');
         $this->_setRequestArguments(self::INPUT_CUSTOM, $customArgs);
         return $this;
     }
@@ -1795,13 +1897,16 @@ class Gdn_Request implements RequestInterface {
     /**
      * Chainable URI Setter, source is a controller + method + args list
      *
-     * @param $controller Gdn_Controller Object or string controller name.
-     * @param $method Optional name of the method to call. Omit or null for default (Index).
-     * @param $args Optional argument list to forward to the method. Omit for none.
+     * @param Gdn_Controller|string $controller Object or string controller name.
+     * @param string|null $method Optional name of the method to call. Omit or null for default (Index).
+     * @param array $args Optional argument list to forward to the method. Omit for none.
      * @flow chain
      * @return Gdn_Request
+     * @deprecated
+     * @codeCoverageIgnore
      */
     public function withControllerMethod($controller, $method = null, $args = []) {
+        deprecated(__METHOD__);
         if (is_a($controller, 'Gdn_Controller')) {
             // Convert object to string
             $matches = [];
@@ -1815,16 +1920,35 @@ class Gdn_Request implements RequestInterface {
         return $this;
     }
 
+    /**
+     * Set the delivery type.
+     *
+     * @param string $deliveryType
+     * @return $this
+     */
     public function withDeliveryType($deliveryType) {
         $this->setValueOn(self::INPUT_GET, 'DeliveryType', $deliveryType);
         return $this;
     }
 
+    /**
+     * Set the delivery method.
+     *
+     * @param string $deliveryMethod
+     * @return $this
+     */
     public function withDeliveryMethod($deliveryMethod) {
         $this->setValueOn(self::INPUT_GET, 'DeliveryMethod', $deliveryMethod);
         return $this;
     }
 
+    /**
+     * Set the URL from a route.
+     *
+     * @param string $route
+     * @return $this
+     * @deprecated
+     */
     public function withRoute($route) {
         $parsedURI = Gdn::router()->getDestination($route);
         if ($parsedURI) {
@@ -1834,14 +1958,69 @@ class Gdn_Request implements RequestInterface {
     }
 
     /**
-     * Chainable URI Setter, source is a simple string
+     * Set the URI of the request.
      *
-     * @param $uri optional URI to set as as replacement for the REQUEST_URI superglobal value
-     * @flow chain
-     * @return Gdn_Request
+     * @param string $uri Optional URI to set as as replacement for the REQUEST_URI super global value.
+     * @return $this
      */
-    public function withURI($uri = null) {
+    public function setURI($uri = null) {
         $this->_environmentElement('URI', $uri);
         return $this;
+    }
+
+    /**
+     * WARNING: This method is being temporarily deprecated so that we can later change its signature to match the PSR-7
+     * `ServerRequestInterface`. DO NOT MAKE CALLS TO THIS METHOD.
+     *
+     * @param string $uri
+     * @return $this
+     * @deprecated
+     */
+    public function withURI($uri = null) {
+        deprecated('Gdn_Request::withURI()', 'Gdn_Request::setURI()');
+        return $this->setURI($uri);
+    }
+
+    /**
+     * Retrieve attributes derived from the request.
+     *
+     * The request "attributes" may be used to allow injection of any
+     * parameters derived from the request: e.g., the results of path
+     * match operations; the results of decrypting cookies; the results of
+     * deserializing non-form-encoded message bodies; etc. Attributes
+     * will be application and request specific, and CAN be mutable.
+     *
+     * @return array Attributes derived from the request.
+     */
+    public function getAttributes() {
+        return $this->getRequestArguments(self::INPUT_CUSTOM);
+    }
+
+    /**
+     * Retrieve a single derived request attribute.
+     *
+     * Retrieves a single derived request attribute as described in
+     * getAttributes(). If the attribute has not been previously set, returns
+     * the default value as provided.
+     *
+     * This method obviates the need for a hasAttribute() method, as it allows
+     * specifying a default value to return if the attribute is not found.
+     *
+     * @param string $name The attribute name.
+     * @param mixed $default Default value to return if the attribute does not exist.
+     * @return mixed
+     */
+    public function getAttribute($name, $default = null) {
+        return $this->getValueFrom(self::INPUT_CUSTOM, $name, $default);
+    }
+
+    /**
+     * Set a custom attribute on the request.
+     *
+     * @param string $name
+     * @param mixed $value
+     */
+    public function setAttribute($name, $value) {
+        $this->setValueOn(self::INPUT_CUSTOM, $name, $value);
     }
 }

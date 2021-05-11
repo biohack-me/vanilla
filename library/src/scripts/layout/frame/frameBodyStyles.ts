@@ -5,10 +5,15 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { paddings, unit, importantUnit } from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { importantUnit } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { frameVariables } from "@library/layout/frame/frameStyles";
 import { inputBlockClasses } from "@library/forms/InputBlockStyles";
+import { percent } from "csx";
+import { Mixins } from "@library/styles/Mixins";
 
 export const frameBodyClasses = useThemeCache(() => {
     const vars = frameVariables();
@@ -18,32 +23,45 @@ export const frameBodyClasses = useThemeCache(() => {
 
     const root = style({
         position: "relative",
-        ...paddings({
-            left: vars.spacing.padding,
-            right: vars.spacing.padding,
+        width: percent(100),
+        ...Mixins.padding({
+            horizontal: vars.spacing.padding,
         }),
-        $nest: {
+        ...{
             "&.isSelfPadded": {
-                ...paddings({
+                overflowX: "hidden",
+                ...Mixins.padding({
                     left: 0,
                     right: 0,
                 }),
             },
+            "&.hasVerticalPadding": {
+                ...Mixins.padding({
+                    vertical: vars.spacing.padding,
+                }),
+            },
             [`& > .${classesInputBlock.root}`]: {
-                $nest: {
+                ...{
                     "&.isFirst": {
-                        marginTop: unit(globalVars.gutter.half),
+                        marginTop: styleUnit(globalVars.gutter.half),
                     },
                     "&.isLast": {
-                        marginBottom: unit(globalVars.gutter.half),
+                        marginBottom: styleUnit(globalVars.gutter.half),
                     },
                 },
             },
         },
     });
 
+    const framePaddings = style("framePaddings", {
+        ...Mixins.padding({
+            left: vars.spacing.padding,
+            right: vars.spacing.padding,
+        }),
+    });
+
     const noContentMessage = style("noContentMessage", {
-        ...paddings({
+        ...Mixins.padding({
             top: vars.header.spacing * 2,
             right: vars.header.spacing,
             bottom: vars.header.spacing * 2,
@@ -51,17 +69,19 @@ export const frameBodyClasses = useThemeCache(() => {
         }),
     });
     const contents = style("contents", {
-        ...paddings({
+        ...Mixins.padding({
             top: vars.spacing.padding,
             right: 0,
             bottom: vars.spacing.padding,
             left: 0,
         }),
         fontSize: importantUnit(globalVars.fonts.size.medium),
-        minHeight: unit(50),
+        minHeight: styleUnit(50),
+        color: ColorsUtils.colorOut(globalVars.mainColors.fg),
     });
     return {
         root,
+        framePaddings,
         noContentMessage,
         contents,
     };

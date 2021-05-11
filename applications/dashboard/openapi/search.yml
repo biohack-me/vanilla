@@ -18,6 +18,7 @@ paths:
         schema:
           items:
             enum:
+            - article
             - discussion
             - comment
             - group
@@ -31,10 +32,13 @@ paths:
         schema:
           items:
             enum:
+            - article
             - discussion
             - comment
             - question
+            - answer
             - group
+            - poll
             type: string
           type: array
         style: form
@@ -77,9 +81,46 @@ paths:
           default: false
           type: boolean
       - description: |
+          Filter the records by KnowledgeBase ID
+        in: query
+        name: knowledgeBaseID
+        schema:
+          type: integer
+        x-search-scope: true
+      - description: |
+          Filter the records by KnowledgeCategory ID
+        in: query
+        name: knowledgeCategoryIDs
+        schema:
+          items:
+            type: integer
+          type: array
+        x-search-scope: true
+      - description: |
           Filter the records by matching part of their name.
         in: query
         name: name
+        schema:
+          type: string
+        x-search-filter: true
+      - description: |
+          Filter the records by their featured status.
+        in: query
+        name: featured
+        schema:
+          type: boolean
+        x-search-filter: true
+      - description: |
+          Filter the records by their locale.
+        in: query
+        name: locale
+        schema:
+          type: string
+        x-search-filter: true
+      - description: |
+          Filter the records by their site-section-group.
+        in: query
+        name: siteSiteSectionGroup
         schema:
           type: string
         x-search-filter: true
@@ -136,6 +177,13 @@ paths:
           maximum: 100
           minimum: 1
       - description: >
+          Expand the results to include a rendered body field.
+        in: query
+        name: expandBody
+        schema:
+          type: boolean
+          default: true
+      - description: >
           Expand associated records using one or more valid field names. A
           value of "all" will expand all expandable fields.
         in: query
@@ -144,6 +192,9 @@ paths:
           items:
             enum:
             - insertUser
+            - breadcrumbs
+            - excerpt
+            - image
             type: string
           type: array
         style: form
@@ -163,9 +214,16 @@ components:
   schemas:
     SearchResult:
       properties:
+        url:
+          description: The URL of the record.
+          type: string
         body:
           description: The content of the record.
           minLength: 1
+          nullable: true
+          type: string
+        excerpt:
+          description: An excerpt of the record.
           type: string
         categoryID:
           description: The category containing the record.
@@ -225,6 +283,25 @@ components:
           description: The user that updated the record.
           nullable: true
           type: integer
+        image:
+          description: The url of the first image in the record.
+          type: string
+        breadcrumbs:
+          description: 'List of breadcrumbs objects. Only returned if: expand[] = breadcrumbs.'
+          items:
+            properties:
+              name:
+                description: Breadcrumb element name.
+                minLength: 1
+                type: string
+                example: User Feedback
+              url:
+                description: Breadcrumb element url.
+                minLength: 1
+                type: string
+                example: 'https://vanilla.com/forum/user-feedback/'
+            type: object
+          type: array
       required:
       - recordID
       - recordType

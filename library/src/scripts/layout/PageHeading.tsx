@@ -12,44 +12,52 @@ import ConditionalWrap from "@library/layout/ConditionalWrap";
 import { pageHeadingClasses } from "@library/layout/pageHeadingStyles";
 import { IWithFontSize, useFontSizeCalculator } from "@library/layout/pageHeadingContext";
 import backLinkClasses from "@library/routing/links/backLinkStyles";
+import { iconClasses } from "@library/icons/iconStyles";
 
 interface IPageHeading {
-    title: string;
+    title?: React.ReactNode;
+    depth?: number;
     children?: React.ReactNode;
     className?: string;
     headingClassName?: string;
     actions?: React.ReactNode;
     includeBackLink?: boolean;
+    isCompactHeading?: boolean;
 }
 
 /**
  * A component representing a top level page heading.
  * Can be configured with an options menu and a backlink.
  */
-// export class PageHeading extends React.Component<IPageHeading> {
-
 export function PageHeading(props: IPageHeading) {
-    const { includeBackLink = true, actions, children, headingClassName, title, className } = props;
-
-    // public context!: React.ContextType<typeof LineHeightCalculatorContext>;
-    // public titleRef: React.RefObject<HTMLHeadingElement>;
-    const ref = useRef<HTMLHeadingElement>(null);
+    const { includeBackLink = true, actions, children, headingClassName, title, className, isCompactHeading } = props;
     const { fontSize } = useFontSizeCalculator();
 
     const classes = pageHeadingClasses();
     const linkClasses = backLinkClasses();
 
+    const backLink = isCompactHeading ? (
+        <BackLink
+            className={classNames(linkClasses.inHeading(fontSize), classes)}
+            chevronClass={iconClasses().chevronLeftSmallCompact}
+        />
+    ) : (
+        <BackLink className={classNames(linkClasses.inHeading(fontSize), classes)} />
+    );
+
     return (
         <div className={classNames(classes.root, className)}>
             <div className={classes.main}>
-                {includeBackLink && <BackLink fallbackElement={null} className={linkClasses.inHeading(fontSize)} />}
+                {includeBackLink && backLink}
                 <ConditionalWrap condition={!!actions} className={classes.titleWrap}>
-                    <Heading titleRef={ref} depth={1} title={title} className={headingClassName}>
+                    <Heading depth={props.depth} title={title} className={headingClassName}>
                         {children}
                     </Heading>
                 </ConditionalWrap>
             </div>
-            {actions && <div className={classes.actions(fontSize)}>{actions}</div>}
+            {actions && <div className={classes.actions}>{actions}</div>}
         </div>
     );
 }
+
+export default PageHeading;

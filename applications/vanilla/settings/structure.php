@@ -28,11 +28,35 @@ $Construct->table('Category');
 $CategoryExists = $Construct->tableExists();
 $CountCategoriesExists = $Construct->columnExists('CountCategories');
 $PermissionCategoryIDExists = $Construct->columnExists('PermissionCategoryID');
+$HeroImageExists = $Construct->columnExists('HeroImage');
 
 $LastDiscussionIDExists = $Construct->columnExists('LastDiscussionID');
 
 $CountAllDiscussionsExists = $Construct->columnExists('CountAllDiscussions');
 $CountAllCommentsExists = $Construct->columnExists('CountAllComments');
+
+$config = Gdn::config();
+// Rename the remnants of the Hero Image plugin.
+if ($HeroImageExists) {
+    $config->remove('EnabledPlugins.heroimage');
+    $Construct->table('Category');
+    $Construct->renameColumn('HeroImage', 'BannerImage');
+}
+
+if ($configBannerImage = Gdn::config('Garden.HeroImage')) {
+    $config->set('Garden.BannerImage', $configBannerImage);
+    $config->remove('Garden.HeroImage');
+}
+
+// Fix the casening of the Rich post format.
+// For a short period, lowercase rich format values were being saved into the config.
+if ($config->get('Garden.InputFormatter') === 'rich') {
+    $config->set('Garden.InputFormatter', 'Rich');
+}
+
+if ($config->get('Garden.MobileInputFormatter') === 'rich') {
+    $config->set('Garden.MobileInputFormatter', 'Rich');
+}
 
 $Construct->primaryKey('CategoryID')
     ->column('ParentCategoryID', 'int', true, 'key')
@@ -55,6 +79,7 @@ $Construct->primaryKey('CategoryID')
     ->column('Sort', 'int', true)
     ->column('CssClass', 'varchar(50)', true)
     ->column('Photo', 'varchar(255)', true)
+    ->column('BannerImage', 'varchar(255)', true)
     ->column('PermissionCategoryID', 'int', '-1')// default to root.
     ->column('PointsCategoryID', 'int', '0')// default to global.
     ->column('HideAllDiscussions', 'tinyint(1)', '0')
@@ -68,6 +93,8 @@ $Construct->primaryKey('CategoryID')
     ->column('LastDateInserted', 'datetime', null)
     ->column('AllowedDiscussionTypes', 'varchar(255)', null)
     ->column('DefaultDiscussionType', 'varchar(10)', null)
+    ->column('Featured', 'tinyint', '0')
+    ->column('SortFeatured', 'int', '0', 'index')
     ->set($Explicit, $Drop);
 
 $RootCategoryInserted = false;
@@ -105,7 +132,6 @@ if ($Drop || !$CategoryExists) {
 if ($CategoryExists) {
     CategoryModel::instance()->rebuildTree();
     CategoryModel::instance()->recalculateTree();
-    unset($CategoryModel);
 }
 
 // Construct the discussion table.
@@ -116,6 +142,7 @@ $BodyExists = $Construct->columnExists('Body');
 $LastCommentIDExists = $Construct->columnExists('LastCommentID');
 $LastCommentUserIDExists = $Construct->columnExists('LastCommentUserID');
 $CountBookmarksExists = $Construct->columnExists('CountBookmarks');
+$hotExists = $Construct->columnExists('hot');
 
 $Construct
     ->primaryKey('DiscussionID')
@@ -134,7 +161,7 @@ $Construct
     ->column('CountBookmarks', 'int', null)
     ->column('CountViews', 'int', '1')
     ->column('Closed', 'tinyint(1)', '0')
-    ->column('Announce', 'tinyint(1)', '0')
+    ->column('Announce', 'tinyint(1)', '0', 'index')
     ->column('Sink', 'tinyint(1)', '0')
     ->column('DateInserted', 'datetime', false, ['index', 'index.CategoryInserted'])
     ->column('DateUpdated', 'datetime', true)
@@ -142,14 +169,12 @@ $Construct
     ->column('UpdateIPAddress', 'ipaddress', true)
     ->column('DateLastComment', 'datetime', null, ['index', 'index.CategoryPages'])
     ->column('LastCommentUserID', 'int', true)
-    ->column('Score', 'float', null)
+    ->column('Score', 'float', null, ['index'])
     ->column('Attributes', 'text', true)
-    ->column('RegardingID', 'int(11)', true, 'index');
+    ->column('RegardingID', 'int(11)', true, 'index')
+    ->column('hot', 'int(11)', 0, 'index')
+;
 //->column('Source', 'varchar(20)', true)
-
-if (c('Vanilla.QueueNotifications')) {
-    $Construct->column('Notified', 'tinyint', ActivityModel::SENT_ARCHIVE);
-}
 
 $Construct
     ->set($Explicit, $Drop);
@@ -177,13 +202,13 @@ $Construct->table('UserDiscussion');
 
 $ParticipatedExists = $Construct->columnExists('Participated');
 
-$Construct->column('UserID', 'int', false, 'primary')
+$Construct->column('UserID', 'int', false, ['primary', 'index.UserID_Bookmarked'])
     ->column('DiscussionID', 'int', false, ['primary', 'key'])
     ->column('Score', 'float', null)
     ->column('CountComments', 'int', '0')
     ->column('DateLastViewed', 'datetime', null)// null signals never
     ->column('Dismissed', 'tinyint(1)', '0')// relates to dismissed announcements
-    ->column('Bookmarked', 'tinyint(1)', '0')
+    ->column('Bookmarked', 'tinyint(1)', '0', 'index.UserID_Bookmarked')
     ->column('Participated', 'tinyint(1)', '0')// whether or not the user has participated in the discussion.
     ->set($Explicit, $Drop);
 
@@ -198,10 +223,10 @@ if ($Construct->tableExists()) {
 $Construct
     ->table('Comment')
     ->primaryKey('CommentID')
-    ->column('DiscussionID', 'int', false, 'index.1')
     //->column('Type', 'varchar(10)', true)
     //->column('ForeignID', 'varchar(32)', TRUE, 'index') // For relating foreign records to discussions
-    ->column('InsertUserID', 'int', true, 'key')
+    ->column('InsertUserID', 'int', true, 'index.InsertUserID_DiscussionID')
+    ->column('DiscussionID', 'int', false, ['index.1', 'index.InsertUserID_DiscussionID'])
     ->column('UpdateUserID', 'int', true)
     ->column('DeleteUserID', 'int', true)
     ->column('Body', 'text', false, 'fulltext')
@@ -323,6 +348,7 @@ $PermissionModel->SQL = $SQL;
 $PermissionModel->define([
     'Vanilla.Approval.Require',
     'Vanilla.Comments.Me' => 1,
+    'Vanilla.Discussions.CloseOwn' => 0,
 ]);
 $PermissionModel->undefine(['Vanilla.Settings.Manage', 'Vanilla.Categories.Manage']);
 
@@ -447,6 +473,12 @@ if ($maxCommentLength > DiscussionModel::MAX_POST_LENGTH) {
     saveToConfig('Vanilla.Comment.MaxLength', DiscussionModel::MAX_POST_LENGTH);
 }
 
+$Construct->table('dirtyRecord')
+    ->column('recordType', 'varchar(50)', false, ['primary', 'index.recordType'])
+    ->column('recordID', 'int', false, ['primary'])
+    ->column('dateInserted', 'datetime', false, ['index.recordType'])
+    ->set();
+
 // Add stub content
 include(PATH_APPLICATIONS.DS.'vanilla'.DS.'settings'.DS.'stub.php');
 
@@ -479,6 +511,8 @@ foreach ($users as $user) {
     }
 }
 
-// Set current Vanilla.Version
-$appInfo = json_decode(file_get_contents(PATH_APPLICATIONS.DS.'vanilla'.DS.'addon.json'), true);
-saveToConfig('Vanilla.Version', val('version', $appInfo, 'Undefined'));
+if (!$hotExists) {
+    $SQL->update('Discussion')
+        ->set('hot', '0 + COALESCE(Score, 0) + COALESCE(CountComments, 0)', false)
+        ->put();
+}

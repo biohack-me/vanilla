@@ -8,17 +8,23 @@ namespace Vanilla\EmbeddedContent;
 
 use Garden\Container;
 use Garden\Schema\ValidationException;
+use League\Uri\Http;
+use Vanilla\EmbeddedContent\Embeds\BrightcoveEmbed;
 use Vanilla\EmbeddedContent\Embeds\CodePenEmbed;
 use Vanilla\EmbeddedContent\Embeds\ErrorEmbed;
 use Vanilla\EmbeddedContent\Embeds\FileEmbed;
 use Vanilla\EmbeddedContent\Embeds\GiphyEmbed;
+use Vanilla\EmbeddedContent\Embeds\IFrameEmbed;
 use Vanilla\EmbeddedContent\Embeds\ImageEmbed;
 use Vanilla\EmbeddedContent\Embeds\ImgurEmbed;
 use Vanilla\EmbeddedContent\Embeds\LinkEmbed;
+use Vanilla\EmbeddedContent\Embeds\TwitchEmbedFilter;
+use Vanilla\EmbeddedContent\Factories\BrightcoveEmbedFactory;
+use Vanilla\EmbeddedContent\Factories\PanoptoEmbedFactory;
+use Vanilla\EmbeddedContent\Embeds\PanoptoEmbed;
 use Vanilla\EmbeddedContent\Embeds\QuoteEmbed;
+use Vanilla\EmbeddedContent\Embeds\QuoteEmbedFilter;
 use Vanilla\EmbeddedContent\Factories\CodePenEmbedFactory;
-use Vanilla\EmbeddedContent\Factories\CommentEmbedFactory;
-use Vanilla\EmbeddedContent\Factories\DiscussionEmbedFactory;
 use Vanilla\EmbeddedContent\Factories\GiphyEmbedFactory;
 use Vanilla\EmbeddedContent\Factories\ImgurEmbedFactory;
 use Vanilla\EmbeddedContent\Factories\ScrapeEmbedFactory;
@@ -38,6 +44,7 @@ use Vanilla\EmbeddedContent\Factories\InstagramEmbedFactory;
 use Vanilla\EmbeddedContent\Embeds\InstagramEmbed;
 use Vanilla\EmbeddedContent\Factories\GettyImagesEmbedFactory;
 use Vanilla\EmbeddedContent\Embeds\GettyImagesEmbed;
+use Vanilla\Utility\UrlUtils;
 use Vanilla\Web\RequestValidator;
 
 /**
@@ -69,6 +76,9 @@ class EmbedService implements EmbedCreatorInterface {
     /** @var array Mapping of 'embedType' => EmbedClass::class */
     private $registeredEmbeds = [];
 
+    /** @var EmbedFilterInterface[] */
+    private $registeredFilters = [];
+
     /**
      * EmbedManager constructor.
      *
@@ -78,6 +88,19 @@ class EmbedService implements EmbedCreatorInterface {
     public function __construct(EmbedCache $cache, RequestValidator $requestValidator) {
         $this->cache = $cache;
         $this->requestValidator = $requestValidator;
+    }
+
+    /**
+     * Register an embed data class to map to a particular string type.
+     * This class will be instantiated through createEmbedFromData().
+     *
+     * @param EmbedFilterInterface $embedFilter An embed filter instance.
+     *
+     * @return $this
+     */
+    public function registerFilter(EmbedFilterInterface $embedFilter): EmbedService {
+        $this->registeredFilters[] = $embedFilter;
+        return $this;
     }
 
     /**
@@ -150,6 +173,7 @@ class EmbedService implements EmbedCreatorInterface {
             // Twitch
             ->registerFactory($dic->get(TwitchEmbedFactory::class))
             ->registerEmbed(TwitchEmbed::class, TwitchEmbed::TYPE)
+            ->registerFilter($dic->get(TwitchEmbedFilter::class))
             // Twitter
             ->registerFactory($dic->get(TwitterEmbedFactory::class))
             ->registerEmbed(TwitterEmbed::class, TwitterEmbed::TYPE)
@@ -162,20 +186,65 @@ class EmbedService implements EmbedCreatorInterface {
             // YouTube
             ->registerFactory($dic->get(YouTubeEmbedFactory::class))
             ->registerEmbed(YouTubeEmbed::class, YouTubeEmbed::TYPE)
+            // Panopto
+            ->registerFactory($dic->get(PanoptoEmbedFactory::class))
+            ->registerEmbed(PanoptoEmbed::class, PanoptoEmbed::TYPE)
             // Scrape-able Embeds
             ->setFallbackFactory($dic->get(ScrapeEmbedFactory::class))
             ->registerEmbed(ImageEmbed::class, ImageEmbed::TYPE)
             ->registerEmbed(LinkEmbed::class, LinkEmbed::TYPE)
             // Files - No factory for the file embed. Only comes from media endpoint.
             ->registerEmbed(FileEmbed::class, FileEmbed::TYPE)
+            // This one is extended but still gets registered
+            ->registerEmbed(IFrameEmbed::class, IFrameEmbed::TYPE)
+
             // Internal Vanilla quote embed.
             ->registerEmbed(QuoteEmbed::class, QuoteEmbed::TYPE)
-            ->registerFactory($dic->get(DiscussionEmbedFactory::class))
-            ->registerFactory($dic->get(CommentEmbedFactory::class))
+            ->registerFilter($dic->get(QuoteEmbedFilter::class))
 
-//            ->registerFactory(VimeoEmbedFactory::class)
-//            ->registerFactory(WistiaFactory::class)
+            // BrightCove
+            ->registerFactory($dic->get(BrightcoveEmbedFactory::class))
+            ->registerEmbed(BrightcoveEmbed::class, BrightcoveEmbed::TYPE)
         ;
+    }
+
+    /**
+     * Filter some embed data with on of the registered filterers.
+     *
+     * @param array $data The data to filter.
+     *
+     * @return array The filtered data.
+     */
+    public function filterEmbedData(array $data): array {
+        $type = $data['embedType'] ?? $data['type'] ?? null;
+
+        if (!$type) {
+            trigger_error(
+                "Attempted to filter embed data, but a type could not be found\n" . json_encode($data, JSON_PRETTY_PRINT),
+                E_USER_NOTICE
+            );
+        }
+
+        // Construct the embed.
+        $embed = $this->createEmbedFromData($data);
+        $embed = $this->filterEmbed($embed);
+        return $embed->jsonSerialize();
+    }
+
+    /**
+     * Filter an embed. This should always happen after creation.
+     *
+     * @param AbstractEmbed $embed
+     * @return AbstractEmbed
+     */
+    private function filterEmbed(AbstractEmbed $embed): AbstractEmbed {
+        $type = $embed->getData()['embedType'];
+        foreach ($this->registeredFilters as $filter) {
+            if ($filter->canHandleEmbedType($type)) {
+                $embed = $filter->filterEmbed($embed);
+            }
+        }
+        return $embed;
     }
 
     /**
@@ -191,6 +260,9 @@ class EmbedService implements EmbedCreatorInterface {
         // We've had some situations where the site gets in an infinite loop requesting itself.
         $this->requestValidator->blockRequestType('GET', __METHOD__ . ' may not be called during a GET request.');
 
+        // Normalize the encoding on the URL.
+        $url = (string)UrlUtils::normalizeEncoding(Http::createFromString($url));
+
         // Check the cache first.
         if (!$force) {
             $cachedEmbed = $this->cache->getCachedEmbed($url);
@@ -201,7 +273,10 @@ class EmbedService implements EmbedCreatorInterface {
 
         $factory = $this->getFactoryForUrl($url);
         $embed = $factory->createEmbedForUrl($url);
-        $this->cache->cacheEmbed($embed);
+        $embed = $this->filterEmbed($embed);
+        if ($embed->isCacheable()) {
+            $this->cache->cacheEmbed($embed);
+        }
         return $embed;
     }
 
@@ -211,9 +286,12 @@ class EmbedService implements EmbedCreatorInterface {
      * Implementations should be fast and capable of running in loop on every page load.
      *
      * @param array $data
+     * @param bool $allowExtendedContent Whether our not we allowed extended content.
+     * Notable iframe embeds are considered exteneded content.
+     *
      * @return AbstractEmbed
      */
-    public function createEmbedFromData(array $data): AbstractEmbed {
+    public function createEmbedFromData(array $data, bool $allowExtendedContent = false): AbstractEmbed {
         // Fallback in case we have bad data (will fallback to fallback embed).
         $type = $data['embedType'] ?? $data['type'] ?? null;
         try {
@@ -221,7 +299,12 @@ class EmbedService implements EmbedCreatorInterface {
             if ($embedClass === null) {
                 return new ErrorEmbed(new \Exception("Embed class for type $type not found."), $data);
             }
-            return new $embedClass($data);
+            if ($embedClass::isExtendedContent() && !$allowExtendedContent) {
+                return new ErrorEmbed(new \Exception("Embed type $type is considered extended content and not allowed in this context."), $data);
+            }
+            $embed = new $embedClass($data);
+            $embed = $this->filterEmbed($embed);
+            return $embed;
         } catch (ValidationException $e) {
             trigger_error(
                 "Validation error while instantiating embed type $type with class $embedClass and data \n"

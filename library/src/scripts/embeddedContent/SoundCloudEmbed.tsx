@@ -5,8 +5,8 @@
 
 import React from "react";
 import { IBaseEmbedProps } from "@library/embeddedContent/embedService";
-import { EmbedContainer } from "@library/embeddedContent/EmbedContainer";
-import { EmbedContent } from "@library/embeddedContent/EmbedContent";
+import { EmbedContainer } from "@library/embeddedContent/components/EmbedContainer";
+import { EmbedContent } from "@library/embeddedContent/components/EmbedContent";
 
 interface IProps extends IBaseEmbedProps {
     playlistID?: number;
@@ -23,8 +23,8 @@ export function SoundCloudEmbed(props: IProps): JSX.Element {
     const frameSource = soundCloudPlayerUrl(props);
 
     return (
-        <EmbedContainer inEditor={props.inEditor}>
-            <EmbedContent type={props.embedType} inEditor={props.inEditor}>
+        <EmbedContainer>
+            <EmbedContent type={props.embedType}>
                 <div className="embedExternal embedSoundCloud">
                     <div className="embedExternal-content">
                         <iframe width="100%" scrolling="no" src={frameSource} />
@@ -58,7 +58,7 @@ function soundCloudPlayerUrl(props: IProps): string {
         url: `https://api.soundcloud.com/${resourceType}/${resourceID}`,
     };
     const query = Object.keys(parameters)
-        .map(key => encodeURIComponent(key) + "=" + encodeURIComponent(parameters[key]))
+        .map((key) => encodeURIComponent(key) + "=" + encodeURIComponent(parameters[key]))
         .join("&");
 
     return `https://w.soundcloud.com/player/?${query}`;

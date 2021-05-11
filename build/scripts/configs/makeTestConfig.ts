@@ -4,7 +4,7 @@
  * @license GPL-2.0-only
  */
 
-import { Configuration } from "webpack";
+import webpack, { Configuration } from "webpack";
 import { makeBaseConfig } from "./makeBaseConfig";
 import EntryModel from "../utility/EntryModel";
 
@@ -19,6 +19,17 @@ export async function makeTestConfig(entryModel: EntryModel) {
         splitChunks: false,
         minimize: false,
     };
+    baseConfig.plugins?.push(
+        new webpack.DefinePlugin({
+            // Currently a warning with this. karma defines one of "development" giving a conflcit warning.
+            // We have quite a few things depending on this being "test".
+            ["process.env.NODE_ENV"]: "'test'",
+        }),
+        // Shim node builtins for some tests in the browser.
+        new webpack.ProvidePlugin({
+            process: "process/browser",
+        }),
+    );
 
     return baseConfig;
 }

@@ -2,15 +2,17 @@
 /**
  * @author Todd Burry <todd@vanillaforums.com>
  * @copyright 2009-2019 Vanilla Forums Inc.
- * @license Proprietary
+ * @license GPLv2
  */
 
 namespace VanillaTests\APIv0;
 
-
 use Garden\Http\HttpResponse;
 use VanillaTests\SharedBootstrapTestCase;
 
+/**
+ * Best test for old-school cURL tests.
+ */
 abstract class BaseTest extends SharedBootstrapTestCase {
     /** @var APIv0  $api */
     protected static $api;
@@ -18,7 +20,7 @@ abstract class BaseTest extends SharedBootstrapTestCase {
     /**
      * Make sure there is a fresh copy of Vanilla for the class' tests.
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
         parent::setUpBeforeClass();
         $api = new APIv0();
 
@@ -27,7 +29,8 @@ abstract class BaseTest extends SharedBootstrapTestCase {
         self::$api = $api;
 
         self::$api->saveToConfig([
-            'Vanilla.Discussion.SpamCount' => 100,
+            'Vanilla.Discussion.SpamCount' => 1000,
+            'Vanilla.Comment.SpamCount' => 1000,
         ]);
 
         $r = $api->get('/discussions.json');
@@ -37,7 +40,10 @@ abstract class BaseTest extends SharedBootstrapTestCase {
         }
     }
 
-    public static function tearDownAfterClass() {
+    /**
+     * @inheritDoc
+     */
+    public static function tearDownAfterClass(): void {
         self::$api->uninstall();
         self::$api->terminate();
         parent::tearDownAfterClass();

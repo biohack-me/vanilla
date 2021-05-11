@@ -12,7 +12,6 @@
  * Master application controller for Vanilla, extended by all others except Settings.
  */
 class VanillaController extends Gdn_Controller {
-
     /**
      * Include JS, CSS, and modules used by all methods.
      *
@@ -58,15 +57,34 @@ class VanillaController extends Gdn_Controller {
     }
 
     /**
-     * Check to see if we've gone off the end of the page.
+     * Get current site section locale
      *
-     * @param int $offset The offset requested.
-     * @param int $totalCount The total count of records.
-     * @throws Exception Throws an exception if the offset is past the last page.
+     * @return string
      */
-    protected function checkPageRange(int $offset, int $totalCount) {
-        if ($offset > 0 && $offset >= $totalCount) {
-            throw notFoundException();
+    protected function getContentLocale(): string {
+        /** @var \Vanilla\Site\SiteSectionModel $siteSectionModel */
+        $siteSectionModel = Gdn::getContainer()->get(\Vanilla\Site\SiteSectionModel::class);
+        /** @var \Vanilla\Contracts\Site\SiteSectionInterface $siteSection */
+        $siteSection = $siteSectionModel->getCurrentSiteSection();
+        return $siteSection->getContentLocale();
+    }
+
+    /**
+     * Get vanilla controllers status.
+     * Returns true when forum is disabled for root or specific site section.
+     *
+     * @return bool
+     */
+    public function disabled(): bool {
+        $enabled = true;
+        /** @var \Vanilla\Site\SiteSectionModel $siteSectionModel */
+        $siteSectionModel = Gdn::getContainer()->get(\Vanilla\Site\SiteSectionModel::class);
+        $apps = $siteSectionModel->applications();
+        if (count($apps) > 1) {
+            $enabled = $siteSectionModel
+                ->getCurrentSiteSection()
+                ->applicationEnabled(\Vanilla\Contracts\Site\SiteSectionInterface::APP_FORUM);
         }
+        return !$enabled;
     }
 }

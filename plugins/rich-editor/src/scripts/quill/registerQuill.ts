@@ -33,19 +33,16 @@ import CodeBlockBlot from "@rich-editor/quill/blots/blocks/CodeBlockBlot";
 
 // Custom Modules/Themes
 import VanillaTheme from "@rich-editor/quill/VanillaTheme";
-import FocusModule from "@rich-editor/quill/FocusModule";
+import EmbedSelectionModule from "@rich-editor/quill/EmbedSelectionModule";
 import EmbedInsertionModule from "@rich-editor/quill/EmbedInsertionModule";
 import HistoryModule from "@rich-editor/quill/HistoryModule";
 import ClipboardModule from "@rich-editor/quill/ClipboardModule";
 import LoadingBlot from "@rich-editor/quill/blots/embeds/LoadingBlot";
 import HeaderBlot from "@rich-editor/quill/blots/blocks/HeaderBlot";
 import SyntaxModule from "@rich-editor/quill/SyntaxModule";
-import {
-    OrderedListGroup,
-    UnorderedListGroup,
-    ListItem,
-    ListItemWrapper,
-} from "@rich-editor/quill/blots/blocks/ListBlot";
+import { OrderedListGroupBlot, UnorderedListGroupBlot } from "@rich-editor/quill/blots/lists/ListGroupBlot";
+import { ListItemWrapperBlot } from "@rich-editor/quill/blots/lists/ListItemWrapperBlot";
+import { ListLineBlot } from "@rich-editor/quill/blots/lists/ListLineBlot";
 
 let wasRegistered = false;
 
@@ -65,10 +62,10 @@ export default function registerQuill() {
             "formats/spoiler/wrapper": SpoilerWrapperBlot,
             "formats/codeBlock": CodeBlockBlot,
             "formats/header": HeaderBlot,
-            "formats/list/unordedGroup": UnorderedListGroup,
-            "formats/list/orderedGroup": OrderedListGroup,
-            "formats/list/item": ListItem,
-            "formats/list/wrapper": ListItemWrapper,
+            "formats/list/unordedGroup": UnorderedListGroupBlot,
+            "formats/list/orderedGroup": OrderedListGroupBlot,
+            "formats/list/item": ListLineBlot,
+            "formats/list/wrapper": ListItemWrapperBlot,
             "formats/embed-error": EmbedErrorBlot,
             "formats/embed-loading": LoadingBlot,
             "formats/embed-external": ExternalEmbedBlot,
@@ -88,7 +85,7 @@ export default function registerQuill() {
             "formats/indent": Indent,
             "themes/vanilla": VanillaTheme,
             "modules/embed/insertion": EmbedInsertionModule,
-            "modules/embed/focus": FocusModule,
+            "modules/embed/selection": EmbedSelectionModule,
             "modules/history": HistoryModule,
             "modules/clipboard": ClipboardModule,
             "modules/syntax": SyntaxModule,
@@ -106,7 +103,7 @@ export default function registerQuill() {
         "formats/codeInline",
     ];
 
-    inlineFormatBlots.forEach(blotLookup => {
+    inlineFormatBlots.forEach((blotLookup) => {
         const BlotClass = Quill.import(blotLookup);
         BlotClass.order = [...BlotClass.order, CodeInlineBlot.blotName];
     });
@@ -121,7 +118,7 @@ export default function registerQuill() {
         "formats/strike",
     ];
 
-    blotsAllowingMentionComboBox.forEach(blotLookup => {
+    blotsAllowingMentionComboBox.forEach((blotLookup) => {
         const BlotClass = Quill.import(blotLookup);
         BlotClass.allowedChildren = [...BlotClass.allowedChildren, MentionComboBoxBlot];
     });

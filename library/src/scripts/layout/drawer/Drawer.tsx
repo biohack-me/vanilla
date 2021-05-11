@@ -7,7 +7,7 @@
 import React from "react";
 import { drawerClasses } from "@library/layout/drawer/drawerStyles";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import { uniqueIDFromPrefix } from "@library/utility/idUtils";
 import classNames from "classnames";
 
@@ -46,7 +46,7 @@ export default class Drawer extends React.Component<IDrawerProps, IState> {
                     aria-controls={this.contentID}
                     aria-expanded={this.state.open}
                     disabled={this.props.disabled}
-                    baseClass={ButtonTypes.CUSTOM}
+                    buttonType={ButtonTypes.CUSTOM}
                     className={classNames("drawer-toggle", classes.toggle)}
                     onClick={this.toggle}
                 >

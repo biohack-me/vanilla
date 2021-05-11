@@ -4,25 +4,30 @@
  * @license GPL-2.0-only
  */
 
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
-import { percent, color } from "csx";
-import { paddings, unit } from "@library/styles/styleHelpers";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
+import { percent } from "csx";
+import { styleUnit } from "@library/styles/styleUnit";
 import { globalVariables } from "@library/styles/globalStyleVars";
+import { CSSObject } from "@emotion/css";
+import { Mixins } from "@library/styles/Mixins";
+import { ISpacing } from "@library/styles/cssUtilsTypes";
 
 export const containerVariables = useThemeCache(() => {
-    const vars = layoutVariables();
+    const vars = panelLayoutVariables();
     const globalVars = globalVariables();
     const makeThemeVars = variableFactory("containerVariables");
 
-    const spacing = makeThemeVars("spacing", {
-        padding: {
-            horizontal: vars.gutter.size,
+    let spacing = makeThemeVars("spacing", {
+        padding: globalVars.constants.fullGutter / 2,
+        mobile: {
+            padding: globalVars.widget.padding,
         },
     });
 
     const sizing = makeThemeVars("sizes", {
-        full: vars.contentSizes.full,
+        full: vars.contentWidth,
         narrowContentSize: vars.contentSizes.narrow,
     });
 
@@ -37,30 +42,58 @@ export const containerVariables = useThemeCache(() => {
     };
 });
 
-export const containerClasses = useThemeCache(() => {
-    const style = styleFactory("container");
-    const globalVars = globalVariables();
+export const containerMainStyles = (): CSSObject => {
     const vars = containerVariables();
-    const mediaQueries = layoutVariables().mediaQueries();
-
-    const root = style(
-        {
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            boxSizing: "border-box",
-            width: percent(100),
-            maxWidth: globalVars.content.width,
-            marginLeft: "auto",
-            marginRight: "auto",
-            ...paddings(vars.spacing.padding),
+    return {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+        boxSizing: "border-box",
+        width: percent(100),
+        maxWidth: styleUnit(vars.sizing.full + vars.spacing.padding * 2),
+        marginLeft: "auto",
+        marginRight: "auto",
+        ...Mixins.padding({
+            horizontal: vars.spacing.padding,
+        }),
+        "&.isNarrow": {
+            maxWidth: vars.sizing.narrowContentSize,
         },
+    };
+};
+
+export function containerMainMediaQueries() {
+    const mediaQueries = panelLayoutVariables().mediaQueries();
+    const vars = containerVariables();
+    return mediaQueries.oneColumnDown({
+        ...Mixins.padding({
+            horizontal: vars.spacing.mobile.padding,
+        }),
+    });
+}
+
+export const containerClasses = useThemeCache((options?: { desktopSpacing?: ISpacing; maxWidth?: number }) => {
+    const style = styleFactory("container");
+    const mediaQueries = panelLayoutVariables().mediaQueries();
+    const vars = containerVariables();
+    const root = style(containerMainStyles(), containerMainMediaQueries());
+
+    const fullGutter = style(
+        "fullGutter",
+        {
+            ...containerMainStyles(),
+            ...Mixins.padding({
+                horizontal: vars.spacing.padding * 2,
+            }),
+            ...(options?.maxWidth ? { maxWidth: options.maxWidth } : {}),
+        },
+        options?.desktopSpacing && Mixins.padding(options.desktopSpacing),
         mediaQueries.oneColumnDown({
-            ...paddings({
-                horizontal: 8,
+            ...Mixins.padding({
+                horizontal: vars.spacing.mobile.padding * 2,
             }),
         }),
     );
 
-    return { root };
+    return { root, fullGutter };
 });

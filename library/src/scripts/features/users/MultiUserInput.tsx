@@ -12,14 +12,15 @@ import UserSuggestionModel, {
     IInjectableSuggestionsProps,
 } from "@library/features/users/suggestion/UserSuggestionModel";
 import apiv2 from "@library/apiv2";
-import Tokens from "@library/forms/select/Tokens";
 import { connect } from "react-redux";
+import { LazyTokens } from "@library/forms/select/LazyTokens";
 
 interface IProps extends IInjectableSuggestionsProps {
     suggestionActions: UserSuggestionActions;
     onChange: (users: IComboBoxOption[]) => void;
     value: IComboBoxOption[];
     className?: string;
+    label?: string;
 }
 
 /**
@@ -27,10 +28,10 @@ interface IProps extends IInjectableSuggestionsProps {
  */
 export class MultiUserInput extends React.Component<IProps> {
     public render() {
-        const { suggestions, currentUsername } = this.props;
+        const { suggestions, label } = this.props;
         let options: IComboBoxOption[] | undefined;
         if (suggestions.status === LoadStatus.SUCCESS && suggestions.data) {
-            options = suggestions.data.map(suggestion => {
+            options = suggestions.data.map((suggestion) => {
                 return {
                     value: suggestion.userID,
                     label: suggestion.name,
@@ -39,8 +40,8 @@ export class MultiUserInput extends React.Component<IProps> {
         }
 
         return (
-            <Tokens
-                label={t("Author")}
+            <LazyTokens
+                label={label ? t(label) : t("Author")}
                 options={options}
                 isLoading={suggestions.status === LoadStatus.LOADING || suggestions.status === LoadStatus.PENDING}
                 onChange={this.props.onChange}
@@ -55,15 +56,14 @@ export class MultiUserInput extends React.Component<IProps> {
      * React to changes in the token input.
      */
     private onInputChange = (value: string) => {
+        value = value.trim();
+        if (!value) return;
         this.props.suggestionActions.loadUsers(value);
     };
 }
 
-const withRedux = connect(
-    UserSuggestionModel.mapStateToProps,
-    dispatch => ({
-        suggestionActions: new UserSuggestionActions(dispatch, apiv2),
-    }),
-);
+const withRedux = connect(UserSuggestionModel.mapStateToProps, (dispatch) => ({
+    suggestionActions: new UserSuggestionActions(dispatch, apiv2),
+}));
 
 export default withRedux(MultiUserInput);

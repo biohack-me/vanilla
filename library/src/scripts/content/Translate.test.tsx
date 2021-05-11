@@ -11,8 +11,6 @@ import Translate from "@library/content/Translate";
 import { render } from "enzyme";
 import { expect } from "chai";
 
-// tslint:disable:jsx-use-translation-function
-
 describe("<Translate />", () => {
     it("renders nothing when given an empty string source", () => {
         const rendered = render(<Translate source="" />);
@@ -31,7 +29,7 @@ describe("<Translate />", () => {
         const expected = "Before<div>Hello Test</div>After";
         const testStrings = ["Before<0/>After", "Before<0 />After"];
 
-        testStrings.forEach(str => {
+        testStrings.forEach((str) => {
             const rendered = render(
                 <div>
                     <Translate source={str} c0={<TestComponent />} />
@@ -61,7 +59,7 @@ describe("<Translate />", () => {
         const interpolatedContent = "Interpolated $$ < ?Content";
         const testString = `Before<0>${interpolatedContent}</0>After`;
         const expected = `Before<div>${escapeHTML(interpolatedContent)}</div>After`;
-        const c0 = content => <TestComponent content={content} />;
+        const c0 = (content) => <TestComponent content={content} />;
 
         const rendered = render(
             <div>

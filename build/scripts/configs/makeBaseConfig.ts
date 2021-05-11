@@ -4,16 +4,18 @@
  * @license GPL-2.0-only
  */
 
-import * as path from "path";
-import webpack from "webpack";
-import { PRETTIER_FILE, VANILLA_ROOT } from "../env";
-import PrettierPlugin from "prettier-webpack-plugin";
-import { BuildMode, getOptions } from "../options";
 import chalk from "chalk";
-import { printVerbose } from "../utility/utils";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
-import EntryModel from "../utility/EntryModel";
+import * as path from "path";
+import { svgLoader } from "./svgLoader";
+import webpack from "webpack";
 import WebpackBar from "webpackbar";
+import { BuildMode, getOptions } from "../buildOptions";
+import { VANILLA_ROOT } from "../env";
+import EntryModel from "../utility/EntryModel";
+import { printVerbose } from "../utility/utils";
+const CircularDependencyPlugin = require("circular-dependency-plugin");
+import globby from "globby";
 
 /**
  * Create the core webpack config.
@@ -25,7 +27,7 @@ export async function makeBaseConfig(entryModel: EntryModel, section: string) {
 
     const modulePaths = [
         "node_modules",
-        ...entryModel.addonDirs.map(dir => path.resolve(dir, "node_modules")),
+        ...entryModel.addonDirs.map((dir) => path.resolve(dir, "node_modules")),
         path.join(VANILLA_ROOT, "node_modules"),
     ];
 
@@ -34,21 +36,26 @@ export async function makeBaseConfig(entryModel: EntryModel, section: string) {
 ${chalk.green(aliases)}`;
     printVerbose(message);
 
-    const babelPlugins: string[] = [];
+    const babelPlugins: any[] = [];
     const hotLoaders: any[] = [];
     const hotAliases: any = {};
     if (options.mode === BuildMode.DEVELOPMENT) {
-        babelPlugins.push(require.resolve("react-hot-loader/babel"));
-        hotLoaders.push(require.resolve("react-hot-loader/webpack"));
-        hotAliases["react-dom"] = require.resolve("@hot-loader/react-dom");
+        // This plugin has very flaky detection of env variables.
+        // It can't seem to detect that we are no in production mode.
+        // So we need to disable the ENV check.
+        babelPlugins.push([require.resolve("react-refresh/babel"), { skipEnvCheck: true }]);
     }
-
-    // Leaving this out until we get the docs actually generating. Huge slowdown.
-    // const storybookLoaders = section === "storybook" ? [require.resolve("react-docgen-typescript-loader")] : [];
-    const storybookLoaders: never[] = [];
 
     const config: any = {
         context: VANILLA_ROOT,
+        // Currently have some memory issues from this.
+        // cache: {
+        //     type: "filesystem",
+        //     buildDependencies: {
+        //         config: [...globby.sync(path.resolve(__dirname, "*")), path.resolve(VANILLA_ROOT, "yarn.lock")],
+        //     },
+        //     name: `${section}-${options.mode}`,
+        // },
         module: {
             rules: [
                 {
@@ -58,12 +65,22 @@ ${chalk.green(aliases)}`;
                             "quill",
                             "p-debounce",
                             "@vanilla/.*",
-                            "react-redux",
-                            "react-spring",
+                            "@monaco-editor/react.*",
+                            "ajv.*",
+                            "d3-.*",
+                            "@reduxjs/toolkit.*",
+                            "@?react-spring.*",
+                            "delaunator.*",
+                            "buffer",
                         ];
                         const exclusionRegex = new RegExp(`node_modules/(${modulesRequiringTranspilation.join("|")})/`);
 
                         if (modulePath.includes("core-js")) {
+                            return true;
+                        }
+
+                        if (modulePath.includes("swagger-ui-react")) {
+                            // Do not do additional transpilation of swagger-ui.
                             return true;
                         }
 
@@ -80,36 +97,34 @@ ${chalk.green(aliases)}`;
                                 cacheDirectory: true,
                             },
                         },
-                        ...storybookLoaders,
                     ],
                 },
                 {
                     test: /\.html$/,
                     use: "raw-loader",
                 },
-                {
-                    test: /\.svg$/,
-                    use: [
-                        {
-                            loader: "html-loader",
-                            options: {
-                                minimize: true,
-                            },
-                        },
-                    ],
-                },
+                svgLoader(),
                 {
                     test: /\.s?css$/,
                     use: [
-                        [
-                            BuildMode.DEVELOPMENT,
-                            BuildMode.TEST,
-                            BuildMode.TEST_DEBUG,
-                            BuildMode.TEST_WATCH,
-                            BuildMode.DEVELOPMENT,
-                        ].includes(options.mode) || section === "storybook"
-                            ? "style-loader"
-                            : MiniCssExtractPlugin.loader,
+                        BuildMode.PRODUCTION === options.mode
+                            ? MiniCssExtractPlugin.loader
+                            : {
+                                  loader: "style-loader",
+                                  options: {
+                                      insert: function insertAtTop(element: HTMLElement) {
+                                          const staticStylesheets = document.head.querySelectorAll(
+                                              'link[rel="stylesheet"][static="1"]',
+                                          );
+                                          const lastStaticStylesheet = staticStylesheets[staticStylesheets.length - 1];
+                                          if (lastStaticStylesheet) {
+                                              document.head.insertBefore(element, lastStaticStylesheet.nextSibling);
+                                          } else {
+                                              document.head.appendChild(element);
+                                          }
+                                      },
+                                  },
+                              },
                         {
                             loader: "css-loader",
                             options: {
@@ -121,8 +136,8 @@ ${chalk.green(aliases)}`;
                             loader: "postcss-loader",
                             options: {
                                 sourceMap: true,
-                                config: {
-                                    path: path.resolve(__dirname),
+                                postcssOptions: {
+                                    config: path.resolve(VANILLA_ROOT, "build/scripts/configs/postcss.config.js"),
                                 },
                             },
                         },
@@ -146,10 +161,15 @@ ${chalk.green(aliases)}`;
         ] as any[],
         resolve: {
             modules: modulePaths,
+            mainFields: ["browser", "module", "main"],
             alias: {
                 ...hotAliases,
                 ...entryModel.aliases,
                 "library-scss": path.resolve(VANILLA_ROOT, "library/src/scss"),
+                "react-select": require.resolve("react-select/dist/react-select.esm.js"),
+                typestyle: path.resolve(VANILLA_ROOT, "library/src/scripts/styles/styleShim.ts"),
+                // Legacy mapping that doesn't exist any more. Even has a lint rule against it.
+                "@vanilla/library/src/scripts": path.resolve(VANILLA_ROOT, "library/src/scripts"),
             },
             extensions: [".ts", ".tsx", ".js", ".jsx"],
             // This needs to be true so that the same copy of a node_module gets shared.
@@ -172,33 +192,42 @@ ${chalk.green(aliases)}`;
     if (options.mode === BuildMode.PRODUCTION) {
         config.plugins.push(
             new MiniCssExtractPlugin({
-                filename: "[name].min.css",
+                filename: "[name].[contenthash].min.css",
+                chunkFilename: "[name].[contenthash].min.css",
             }),
         );
     }
 
-    if (options.fix) {
-        config.plugins.unshift(getPrettierPlugin());
-    }
+    // Fix modules like swagger-ui that need buffer.
+    // Webpack no-longer applies it automatically with webpack 5.
+    // https://github.com/webpack/changelog-v5/issues/10#issuecomment-615877593
+    config.plugins.push(
+        new webpack.ProvidePlugin({
+            Buffer: ["buffer", "Buffer"],
+        }),
+    );
 
-    // This is the only flag we are given by infrastructure to indicate we are in a lower memory environment.
     config.plugins.push(
         new WebpackBar({
             name: section,
         }),
     );
 
-    return config;
-}
+    if (options.circular) {
+        config.plugins.push(
+            new CircularDependencyPlugin({
+                // exclude detection of files based on a RegExp
+                exclude: /a\.js|node_modules|rich-editor/,
+                // add errors to webpack instead of warnings
+                failOnError: true,
+                // allow import cycles that include an asyncronous import,
+                // e.g. via import(/* webpackMode: "weak" */ './file.js')
+                allowAsyncCycles: false,
+                // set the current working directory for displaying module paths
+                cwd: process.cwd(),
+            }),
+        );
+    }
 
-/**
- * Get a prettier plugin instance. This will autoformat source code as its built.
- */
-function getPrettierPlugin() {
-    const prettierConfig = require(PRETTIER_FILE);
-    return new PrettierPlugin({
-        ...prettierConfig,
-        parser: "typescript",
-        extensions: [".ts", ".tsx"],
-    });
+    return config;
 }

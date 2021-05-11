@@ -58,7 +58,10 @@ class Gdn_Theme {
      * @return string
      */
     public static function breadcrumbs($data, $homeLink = true, $options = []) {
-        $format = '<a href="{Url,html}" itemprop="url"><span itemprop="title">{Name,html}</span></a>';
+        // Format breadcrumb that is part of breadcrumb structured data.
+        $format = '<a itemprop="item" href="{Url,html}"><span itemprop="name">{Name,html}</span></a>';
+        // Format the home link which is not part of breadcrumb structured data.
+        $baseFormat = '<a href="{Url,html}"><span>{Name,html}</span></a>';
 
         $result = '';
 
@@ -73,7 +76,7 @@ class Gdn_Theme {
                 $homeUrl = url('/', true);
             }
 
-            $row = ['Name' => $homeLink, 'Url' => $homeUrl, 'CssClass' => 'CrumbLabel HomeCrumb'];
+            $row = ['Name' => $homeLink, 'Url' => $homeUrl, 'CssClass' => 'HomeCrumb'];
             if (!is_string($homeLink)) {
                 $row['Name'] = t('Home');
             }
@@ -91,11 +94,13 @@ class Gdn_Theme {
         $count = 0;
         $dataCount = 0;
         $homeLinkFound = false;
+        $position = 1;
+        $displayStructuredData = false;
 
         foreach ($data as $row) {
             $dataCount++;
 
-            if ($homeLinkFound && Gdn::request()->urlCompare($row['Url'], $defaultRoute) === 0) {
+            if ($homeLinkFound && Gdn::request()->urlCompare($row['Url'] ?? '', $defaultRoute) === 0) {
                 continue; // don't show default route twice.
             } else {
                 $homeLinkFound = true;
@@ -103,27 +108,25 @@ class Gdn_Theme {
 
             // Add the breadcrumb wrapper.
             if ($count > 0) {
-                $result .= '<span itemprop="child" itemscope itemtype="http://data-vocabulary.org/Breadcrumb">';
+                $result .= '<span itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem">';
+                $result .= '<meta itemprop="position" content="'.$position++.'" />';
+                $displayStructuredData = true;
             }
 
-            $row['Url'] = $row['Url'] ? url($row['Url']) : '#';
+            $row['Url'] = !empty($row['Url']) ? url($row['Url']) : '#';
             $cssClass = 'CrumbLabel '.val('CssClass', $row);
             if ($dataCount == count($data)) {
                 $cssClass .= ' Last';
             }
 
-            $label = '<span class="'.$cssClass.'">'.formatString($format, $row).'</span> ';
+            $label = '<span class="'.$cssClass.'">'.(($count === 0) ? formatString($baseFormat, $row) : formatString($format, $row).'</span>').'</span>';
             $result = concatSep('<span class="Crumb">'.t('Breadcrumbs Crumb', '›').'</span> ', $result, $label);
 
             $count++;
         }
 
-        // Close the stack.
-        for ($count--; $count > 0; $count--) {
-            $result .= '</span>';
-        }
-
-        $result = '<span class="Breadcrumbs" itemscope itemtype="http://data-vocabulary.org/Breadcrumb">'.$result.'</span>';
+        // Display as BreadcrumbList if there is structured data.
+        $result = '<span class="Breadcrumbs" '.(($displayStructuredData) ? 'itemscope itemtype="http://schema.org/BreadcrumbList"' : '').'>'.$result.'</span>';
         return $result;
     }
 
@@ -155,7 +158,7 @@ class Gdn_Theme {
     /**
      * Call before starting a row of bullet-seperated items.
      *
-     * @param strng|bool $sep The seperator used to seperate each section.
+     * @param string|bool $sep The seperator used to seperate each section.
      * @since 2.1
      */
     public static function bulletRow($sep = false) {
@@ -385,6 +388,10 @@ class Gdn_Theme {
         $logo = c('Garden.Logo');
         $title = c('Garden.Title', 'Title');
 
+        if (!$logo && isset($properties['fallbackLogo']) && isUrl($properties['fallbackLogo'])) {
+            $logo = $properties['fallbackLogo'];
+        }
+
         if ($logo) {
             $properties += ['alt' => $title];
 
@@ -413,16 +420,21 @@ class Gdn_Theme {
      * Returns the mobile banner logo. If there is no mobile logo defined then this will just return
      * the regular logo or the mobile title.
      *
+     * @param array $properties
      * @return string
      */
-    public static function mobileLogo() {
+    public static function mobileLogo($properties = []) {
         $logo = c('Garden.MobileLogo', c('Garden.Logo'));
         $title = c('Garden.MobileTitle', c('Garden.Title', 'Title'));
+
+        if (!$logo && isset($properties['fallbackLogo']) && isUrl($properties['fallbackLogo'])) {
+            $logo = $properties['fallbackLogo'];
+        }
 
         if ($logo) {
             return img(Gdn_Upload::url($logo), ['alt' => $title]);
         } else {
-            return $title;
+            return htmlEsc($title);
         }
     }
 
@@ -452,7 +464,16 @@ class Gdn_Theme {
                     $result = "<!-- Error: $name doesn't exist -->";
                 }
             } else {
-                $module = new $name(Gdn::controller(), '');
+                if (!Gdn::controller()) {
+                    return "<!-- Error: Could not render module without a Gdn_Controller instance. -->";
+                }
+
+                if (is_a($name, \Vanilla\Web\JsInterpop\AbstractReactModule::class)) {
+                    $module = \Gdn::getContainer()->get($name);
+                } else {
+                    $module = \Gdn::getContainer()->getArgs($name, [Gdn::controller(), '']);
+                }
+
                 $module->Visible = true;
 
                 // Add properties passed in from the controller.
@@ -515,6 +536,13 @@ class Gdn_Theme {
         }
 
         return 'unknown';
+    }
+
+    /**
+     * Reset the current section.
+     */
+    public static function resetSection() {
+        self::$_Section = [];
     }
 
     /**

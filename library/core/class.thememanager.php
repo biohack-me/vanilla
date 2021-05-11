@@ -393,11 +393,13 @@ class Gdn_ThemeManager extends Gdn_Pluggable {
             $this->themeHook($oldTheme, self::ACTION_DISABLE, true);
             Logger::event(
                 'theme_changed',
+                Logger::INFO,
                 'The {themeType} theme was changed from {oldTheme} to {newTheme}.',
                 [
                     'themeType' => 'desktop',
                     'oldTheme' => $oldTheme,
-                    'newTheme' => $newTheme
+                    'newTheme' => $newTheme,
+                    Logger::FIELD_CHANNEL => Logger::CHANNEL_ADMIN,
                 ]
             );
         }
@@ -580,6 +582,8 @@ class Gdn_ThemeManager extends Gdn_Pluggable {
                 saveToConfig('Garden.MobileTheme', $themeName);
             } else {
                 saveToConfig('Garden.Theme', $themeName);
+                // Cleanup from the other theme page.
+                removeFromConfig('Garden.CurrentTheme');
             }
 
             $this->setLayout($themeInfo);
@@ -590,12 +594,13 @@ class Gdn_ThemeManager extends Gdn_Pluggable {
             $this->themeHook($oldTheme, self::ACTION_DISABLE, true);
             Logger::event(
                 'theme_changed',
-                Logger::NOTICE,
+                Logger::INFO,
                 'The {themeType} theme changed from {oldTheme} to {newTheme}.',
                 [
                     'themeType' => $isMobile ? 'mobile' : 'desktop',
                     'oldTheme' => $oldTheme,
-                    'newTheme' => $themeName
+                    'newTheme' => $themeName,
+                    Logger::FIELD_CHANNEL => Logger::CHANNEL_ADMIN,
                 ]
             );
         }

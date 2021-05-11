@@ -5,7 +5,7 @@
  */
 
 import { delegateEvent, removeDelegatedEvent } from "@vanilla/dom-utils";
-import { debug } from "@vanilla/utils";
+import { debug, logError } from "@vanilla/utils";
 import { useEditorContents } from "@rich-editor/editor/contentContext";
 import { useEditor } from "@rich-editor/editor/context";
 import { richEditorClasses } from "@rich-editor/editor/richEditorStyles";
@@ -25,6 +25,7 @@ const DEFAULT_CONTENT = [{ insert: "\n" }];
 interface IProps {
     legacyTextArea?: HTMLInputElement | HTMLTextAreaElement;
     placeholder?: string;
+    placeholderClassName?: string;
 }
 
 /**
@@ -37,7 +38,7 @@ export default function EditorContent(props: IProps) {
     useQuillInstance(quillMountRef);
     useLegacyTextAreaSync(props.legacyTextArea);
     useDebugPasteListener(props.legacyTextArea);
-    useQuillAttributeSync(props.placeholder);
+    useQuillAttributeSync(props.placeholder, props.placeholderClassName);
     useLoadStatus();
     useInitialValue();
     useOperationsQueue();
@@ -55,7 +56,7 @@ export default function EditorContent(props: IProps) {
  */
 export function useQuillInstance(mountRef: React.RefObject<HTMLDivElement>, extraOptions?: QuillOptionsStatic) {
     const ref = useRef<Quill>();
-    const { setQuillInstance } = useEditor();
+    const { setQuillInstance, onFocus } = useEditor();
 
     useEffect(() => {
         registerQuill();
@@ -71,6 +72,9 @@ export function useQuillInstance(mountRef: React.RefObject<HTMLDivElement>, extr
         };
         if (mountRef.current) {
             const quill = new Quill(mountRef.current, options);
+            quill.on("selection-change", () => {
+                onFocus?.(quill.hasFocus());
+            });
             quill.setContents(DEFAULT_CONTENT);
             setQuillInstance(quill);
             ref.current = quill;
@@ -91,17 +95,17 @@ export function useQuillInstance(mountRef: React.RefObject<HTMLDivElement>, extr
 /**
  * Apply our CSS classes/styles and other attributes to quill's root. (Not a react component).
  */
-function useQuillAttributeSync(placeholder?: string) {
+function useQuillAttributeSync(placeholder?: string, placeholderClass?: string) {
     const { legacyMode, quill } = useEditor();
     const classesRichEditor = richEditorClasses(legacyMode);
     const classesUserContent = userContentClasses();
     const quillRootClasses = useMemo(
         () =>
-            classNames("richEditor-text", "userContent", classesRichEditor.text, {
+            classNames("richEditor-text", "userContent", placeholderClass, classesRichEditor.text, {
                 // These classes shouln't be applied until the forum is converted to the new styles.
                 [classesUserContent.root]: !legacyMode,
             }),
-        [classesRichEditor.text, classesUserContent.root, legacyMode],
+        [classesRichEditor.text, classesUserContent.root, legacyMode, placeholderClass],
     );
 
     useEffect(() => {
@@ -148,8 +152,11 @@ function useInitialValue() {
 
     useEffect(() => {
         if (quill && initialValue && initialValue.length > 0) {
-            if (prevInitialValue !== initialValue && prevReinitialize !== reinitialize) {
+            const initializeChangedToTrue = !prevReinitialize && reinitialize;
+            if (prevInitialValue !== initialValue && initializeChangedToTrue) {
                 quill.setContents(initialValue);
+                quill.setSelection(0, 0);
+                quill.history.clear();
             }
         }
     }, [quill, initialValue, reinitialize, prevInitialValue, prevReinitialize]);
@@ -164,18 +171,22 @@ function useOperationsQueue() {
         if (!operationsQueue || !quill || operationsQueue.length === 0) {
             return;
         }
-        operationsQueue.forEach(operation => {
+        operationsQueue.forEach((operation) => {
             const scrollLength = quill.scroll.length();
 
-            if (typeof operation === "string") {
-                quill.clipboard.dangerouslyPasteHTML(scrollLength, operation);
-                // Trim starting whitespace if we have it.
-                if (quill.getText(0, 1) === "\n") {
-                    quill.updateContents([{ delete: 1 }]);
+            try {
+                if (typeof operation === "string") {
+                    quill.clipboard.dangerouslyPasteHTML(scrollLength, operation);
+                    // Trim starting whitespace if we have it.
+                    if (quill.getText(0, 1) === "\n") {
+                        quill.updateContents([{ delete: 1 }]);
+                    }
+                } else {
+                    const offsetOperations = scrollLength > 1 ? { retain: scrollLength } : { delete: 1 };
+                    quill.updateContents([offsetOperations, ...operation]);
                 }
-            } else {
-                const offsetOperations = scrollLength > 1 ? { retain: scrollLength } : { delete: 1 };
-                quill.updateContents([offsetOperations, ...operation]);
+            } catch (err) {
+                logError("There was an error converting html into rich format. Content may not be accurate", err);
             }
         });
         clearOperationsQueue && clearOperationsQueue();
@@ -249,7 +260,9 @@ function useQuoteButtonHandler() {
             event.preventDefault();
             const embedInserter: EmbedInsertionModule = quill.getModule("embed/insertion");
             const url = triggeringElement.getAttribute("data-scrape-url") || "";
-            embedInserter.scrapeMedia(url);
+
+            // A slight min-time to ensure the user's page is finished scrolling before the new content loads in.
+            embedInserter.scrapeMedia(url, 500);
 
             // Just in case the browser doesn't support this API.
             if (quill.root.scrollIntoView) {
@@ -322,6 +335,7 @@ function useDebugPasteListener(textArea?: HTMLInputElement | HTMLTextAreaElement
 function useUpdateHandler() {
     const { onChange, quill } = useEditor();
     const editorContents = useEditorContents();
+    const { updateSelection } = editorContents;
 
     const getOperations = useCallback((): DeltaOperation[] => {
         if (!quill) {
@@ -330,38 +344,49 @@ function useUpdateHandler() {
 
         HeaderBlot.resetCounters();
         const headers = (quill.scroll.descendants(
-            blot => blot instanceof HeaderBlot,
+            (blot) => blot instanceof HeaderBlot,
             0,
             quill.scroll.length(),
         ) as any) as HeaderBlot[]; // Explicit mapping of types because the parchments types suck.
 
-        headers.forEach(header => header.setGeneratedID());
+        headers.forEach((header) => header.setGeneratedID());
         quill.update(Quill.sources.API);
         return quill.getContents().ops!;
     }, [quill]);
 
-    const handleUpdate = useCallback(
-        throttle((type: string, newValue, oldValue, source: Sources) => {
+    const handleUpdate = useMemo(() => {
+        // This is an incredibly performance sensitive operation
+        // As it can trigger re-renders of a lot of react components
+        // and also change very rapidly.
+        const triggerSelectionUpdate = throttle(() => {
             if (!quill) {
                 return;
             }
-            if (onChange && type === Quill.events.TEXT_CHANGE && source !== Quill.sources.SILENT) {
-                onChange(getOperations());
+            updateSelection(quill.getSelection());
+        }, 1000 / 60); // Throttle to 60 FPS.
+
+        const triggerTextUpdate = throttle(() => {
+            if (!onChange) {
+                return;
+            }
+            onChange(getOperations());
+        }, 1000 / 60); // Throttle to 60 FPS.
+
+        const updateFn = (type: string, newValue, oldValue, source: Sources) => {
+            if (!quill) {
+                return;
+            }
+            if (source === Quill.sources.SILENT) {
+                return;
+            }
+            if (type === Quill.events.TEXT_CHANGE) {
+                triggerTextUpdate();
             }
 
-            let shouldDispatch = false;
-            if (type === Quill.events.SELECTION_CHANGE) {
-                shouldDispatch = true;
-            } else if (source !== Quill.sources.SILENT) {
-                shouldDispatch = true;
-            }
-
-            if (shouldDispatch) {
-                editorContents.updateSelection(quill.getSelection());
-            }
-        }, 1000 / 60), // Throttle to 60 FPS.
-        [quill, onChange, getOperations],
-    );
+            triggerSelectionUpdate();
+        };
+        return updateFn;
+    }, [quill, onChange, getOperations, updateSelection]);
 
     return handleUpdate;
 }

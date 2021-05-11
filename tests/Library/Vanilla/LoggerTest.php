@@ -7,16 +7,27 @@
 
 namespace VanillaTests\Library\Vanilla;
 
+use Psr\Log\InvalidArgumentException;
+use Psr\Log\LoggerInterface;
 use Psr\Log\Test\LoggerInterfaceTest;
 use Vanilla\Logger;
+use VanillaTests\BootstrapTrait;
 
+/**
+ * Test of basic logging.
+ */
 class LoggerTest extends LoggerInterfaceTest {
+    use BootstrapTrait;
+
     /**
      * @var TestLogger $logger;
      */
     private $logger;
 
-    protected function setUp() {
+    /**
+     * @inheritDoc
+     */
+    protected function setUp(): void {
         $this->logger = new TestLogger();
     }
 
@@ -42,12 +53,22 @@ class LoggerTest extends LoggerInterfaceTest {
         }
     }
 
+    /**
+     * Should throw when an invalid level is given.
+     */
+    public function testThrowsOnInvalidLevel() {
+        $this->expectException(InvalidArgumentException::class);
+        parent::testThrowsOnInvalidLevel();
+    }
+
     protected function assertLog(TestLogger $logger, $level, $message, $context) {
         $logger->parent->log($level, $message, $context);
         list($lastLevel, $lastMessage, $lastContext) = $logger->last;
         $this->assertSame($level, $lastLevel);
         $this->assertSame($message, $lastMessage);
-        $this->assertSame($context, $lastContext);
+
+        $common = array_intersect_key($lastContext, $context);
+        $this->assertSame($context, $common);
     }
 
     protected function assertNotLog(TestLogger $logger, $level, $message, $context) {
@@ -59,9 +80,11 @@ class LoggerTest extends LoggerInterfaceTest {
     }
 
     /**
-     * @return \Psr\Log\Test\LoggerInterface
+     * Get the logger that will be tested.
+     *
+     * @return LoggerInterface
      */
-    function getLogger() {
+    public function getLogger() {
         return $this->logger->parent;
     }
 
@@ -72,7 +95,7 @@ class LoggerTest extends LoggerInterfaceTest {
      *
      * @return string[]
      */
-    function getLogs() {
+    public function getLogs() {
         return $this->logger->logs;
     }
 }

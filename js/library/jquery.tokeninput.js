@@ -253,6 +253,7 @@ $.TokenList = function (input, url_or_data, settings) {
             outline: "none"
         })
         .attr("id", $(input).data("settings").idPrefix + input.id)
+        .attr("aria-label", $(input).data("settings").ariaLabel)
         .focus(function () {
             if ($(input).data("settings").disabled) {
                 return false;
@@ -603,7 +604,7 @@ $.TokenList = function (input, url_or_data, settings) {
 
         // The 'delete token' button
         if(!readonly) {
-          $("<span>" + $(input).data("settings").deleteText + "</span>")
+          $("<span tabindex='0'>" + $(input).data("settings").deleteText + "</span>")
               .addClass($(input).data("settings").classes.tokenDelete)
               .appendTo($this_token)
               .click(function () {

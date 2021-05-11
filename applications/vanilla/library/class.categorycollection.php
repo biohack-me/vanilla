@@ -5,6 +5,10 @@
  * @license GPL-2.0-only
  */
 
+use Garden\EventManager;
+use Vanilla\Models\DirtyRecordModel;
+use Vanilla\Utility\ArrayUtils;
+
 /**
  * Manages categories as a whole.
  *
@@ -12,14 +16,24 @@
  */
 class CategoryCollection {
 
+    use \Vanilla\Events\DirtyRecordTrait;
+
     /**
      * @var string The cache key prefix that stores categories by ID.
      */
     private static $CACHE_CATEGORY = '/cat/';
+
     /**
      * @var string The cache key prefix that stores category IDs by slug (URL code).
      */
     private static $CACHE_CATEGORY_SLUG = '/catslug/';
+
+    /**
+     * @var string The cache key prefix that stores category descendant IDs by slug (URL code).
+     */
+    private static $CACHE_CATEGORY_DESCENDANTS = '/catdescendants/';
+
+    /**
 
     /**
      * @var int The absolute select limit of the categories.
@@ -30,6 +44,9 @@ class CategoryCollection {
      * @var Gdn_Cache The cache dependency.
      */
     private $cache;
+
+    /** @var bool */
+    private $cacheReadOnly = false;
 
     /**
      * @var int
@@ -123,6 +140,9 @@ class CategoryCollection {
         $this->categorySlugs = [];
         $this->cache->increment(self::$CACHE_CATEGORY.'inc', 1, [Gdn_Cache::FEATURE_INITIAL => 1]);
         $this->cacheInc = null;
+        /** @var EventManager $eventManager */
+        $eventManager = \Gdn::getContainer()->get(EventManager::class);
+        $eventManager->fire('flushCategoryCache');
     }
 
     /**
@@ -200,18 +220,17 @@ class CategoryCollection {
             // This category came from the database, so must be calculated.
             $this->calculateStatic($category);
 
-            $this->cache->store(
+            $this->cacheStore(
                 $this->cacheKey(self::$CACHE_CATEGORY, $category['CategoryID']),
                 $category
             );
-            $this->cache->store(
+            $this->cacheStore(
                 $this->cacheKey(self::$CACHE_CATEGORY_SLUG, $category['UrlCode']),
                 (int)$category['CategoryID']
             );
 
             $this->calculateDynamic($category);
-            $this->categories[(int)$category['CategoryID']] = $category;
-            $this->categorySlugs[strtolower($category['UrlCode'])] = (int)$category['CategoryID'];
+            $this->setLocal($category);
 
             return $category;
         } else {
@@ -228,6 +247,26 @@ class CategoryCollection {
     }
 
     /**
+     * Set a category in the local cache.
+     *
+     * @param array $category
+     */
+    public function setLocal(array $category): void {
+        $this->categories[(int)$category['CategoryID']] = $category;
+        $this->categorySlugs[strtolower($category['UrlCode'])] = (int)$category['CategoryID'];
+    }
+
+    /**
+     * Check whether or not the local cache has a category.
+     *
+     * @param int $id The ID of the category.
+     * @return bool
+     */
+    public function hasLocal($id): bool {
+        return isset($this->categories[$id]);
+    }
+
+    /**
      * Generate a full cache key.
      *
      * All cache keys should be generated using this function to support cache increments.
@@ -238,7 +277,8 @@ class CategoryCollection {
      */
     private function cacheKey($type, $id) {
         switch ($type) {
-            case self::$CACHE_CATEGORY;
+            case self::$CACHE_CATEGORY:
+            case self::$CACHE_CATEGORY_DESCENDANTS:
                 $r = $this->getCacheInc().$type.$id;
                 return $r;
             case self::$CACHE_CATEGORY_SLUG;
@@ -306,7 +346,7 @@ class CategoryCollection {
 
         $category = $this->get($categoryID);
 
-        if ($category === null) {
+        if (!$category) {
             return $result;
         }
 
@@ -375,11 +415,11 @@ class CategoryCollection {
             foreach ($dbCategories as &$category) {
                 $this->calculateStatic($category);
 
-                $this->cache->store(
+                $this->cacheStore(
                     $this->cacheKey(self::$CACHE_CATEGORY, $category['CategoryID']),
                     $category
                 );
-                $this->cache->store(
+                $this->cacheStore(
                     $this->cacheKey(self::$CACHE_CATEGORY_SLUG, $category['UrlCode']),
                     (int)$category['CategoryID']
                 );
@@ -415,13 +455,14 @@ class CategoryCollection {
             'collapsecategories' => false,
             'permission' => 'PermsDiscussionsView'
         ];
+        $dirtyRecords = $options[DirtyRecordModel::DIRTY_RECORD_OPT] ?? false;
         $options = array_change_key_case($options) ?: [];
         $options = $options + $defaultOptions ;
 
         $currentDepth = 1;
         $parents = [$parentID];
         for ($i = 0; $i < $options['maxdepth']; $i++) {
-            $children = $this->getChildrenByParents($parents, $options['permission']);
+            $children = $this->getChildrenByParents($parents, $options['permission'], [DirtyRecordModel::DIRTY_RECORD_OPT => $dirtyRecords]);
             if (empty($children)) {
                 break;
             }
@@ -459,17 +500,67 @@ class CategoryCollection {
     }
 
     /**
+     * Get the id's of a category's descendants.
+     *
+     * @param int $parentID
+     *
+     * @return array
+     */
+    public function getDescendantIDs(int $parentID = -1): array {
+        $cacheKey = $this->cacheKey(self::$CACHE_CATEGORY_DESCENDANTS, $parentID);
+        $cachedIDs = $this->cache->get($this->cacheKey(self::$CACHE_CATEGORY_DESCENDANTS, $parentID));
+        if ($cachedIDs !== Gdn_Cache::CACHEOP_FAILURE) {
+            return $cachedIDs;
+        }
+
+        $resultIDs = [];
+        $seenParentIDs = [];
+
+        $sql = clone $this->sql;
+        $sql->reset();
+        $allIDs = $sql->select("CategoryID, ParentCategoryID")->get("Category")->resultArray();
+        $categoryIDByParentID = ArrayUtils::arrayColumnArrays($allIDs, "CategoryID", "ParentCategoryID");
+
+        $getChildren = function (int $categoryID) use (&$resultIDs, &$seenParentIDs, &$categoryIDByParentID, &$getChildren) {
+            if (in_array($categoryID, $seenParentIDs)) {
+                return;
+            } else {
+                $seenParentIDs[] = $categoryID;
+            }
+
+            $children = $categoryIDByParentID[$categoryID] ?? [];
+            foreach ($children as $childID) {
+                $resultIDs[] = $childID;
+
+                $getChildren($childID);
+            }
+        };
+
+        $getChildren($parentID);
+
+        $this->cacheStore($cacheKey, $resultIDs);
+        return $resultIDs;
+    }
+
+    /**
      * Get all of the children of a parent category.
      *
      * @param int[] $parentIDs The IDs of the parent categories.
      * @param string $permission The name of the permission to check.
+     * @param array $options
      * @return array Returns an array of child categories.
      */
-    private function getChildrenByParents(array $parentIDs, $permission = 'PermsDiscussionsView') {
+    private function getChildrenByParents(array $parentIDs, $permission = 'PermsDiscussionsView', array $options = []) {
         if (!$this->cache instanceof Gdn_Dirtycache) {
             $select = 'CategoryID';
         } else {
             $select = '*';
+        }
+
+        $dirtyRecords = $options[DirtyRecordModel::DIRTY_RECORD_OPT] ?? false;
+
+        if ($dirtyRecords) {
+            $this->joinDirtyRecordTable($this->sql, 'CategoryID', 'category');
         }
 
         $data = $this
@@ -619,15 +710,15 @@ class CategoryCollection {
         $category = $this->sql->getWhere('Category', ['CategoryID' => $categoryID])->firstRow(DATASET_TYPE_ARRAY);
         if ($category) {
             $this->calculateStatic($category);
-            $this->cache->store(
+            $this->cacheStore(
                 $this->cacheKey(self::$CACHE_CATEGORY, $category['CategoryID']),
                 $category
             );
-            $this->cache->store(
+            $this->cacheStore(
                 $this->cacheKey(self::$CACHE_CATEGORY_SLUG, $category['UrlCode']),
                 (int)$category['CategoryID']
             );
-
+            $this->calculateDynamic($category);
             $this->categories[(int)$category['CategoryID']] = $category;
             $this->categorySlugs[strtolower($category['UrlCode'])] = (int)$category['CategoryID'];
             return true;
@@ -654,6 +745,14 @@ class CategoryCollection {
     public function setUserCalculator($userCalculator) {
         $this->userCalculator = $userCalculator;
         return $this;
+    }
+
+    /**
+     * Reset the local cache.
+     */
+    public function reset(): void {
+        $this->categorySlugs = [];
+        $this->categories = [];
     }
 
     /**
@@ -712,5 +811,40 @@ class CategoryCollection {
         foreach ($children as $child) {
             $this->flattenTreeInternal($child, $result);
         }
+    }
+
+    /**
+     * Store an item in the cache, accounting for the read-only flag.
+     *
+     * @param string $key
+     * @param mixed $value
+     * @param array $options
+     * @return void
+     */
+    private function cacheStore($key, $value, $options = []): void {
+        if ($this->cacheReadOnly) {
+            return;
+        }
+
+        $this->cache->store($key, $value, $options);
+    }
+
+    /**
+     * Is this collection avoiding write operations to the cache?
+     *
+     * @return boolean
+     */
+    public function isCacheReadOnly(): bool {
+        return $this->cacheReadOnly;
+    }
+
+    /**
+     * Should this collection avoid writing to the cache?
+     *
+     * @param boolean $cacheReadOnly
+     * @return void
+     */
+    public function setCacheReadOnly(bool $cacheReadOnly): void {
+        $this->cacheReadOnly = $cacheReadOnly;
     }
 }

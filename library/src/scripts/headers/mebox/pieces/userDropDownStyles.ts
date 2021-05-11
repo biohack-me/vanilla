@@ -5,9 +5,10 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { debugHelper, unit } from "@library/styles/styleHelpers";
-import { componentThemeVariables, useThemeCache } from "@library/styles/styleUtils";
-import { style } from "typestyle";
+import { debugHelper } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { componentThemeVariables, styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 
 export const userDropDownVariables = useThemeCache(() => {
     const globalVars = globalVariables();
@@ -49,41 +50,47 @@ export const userDropDownVariables = useThemeCache(() => {
 export const userDropDownClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const vars = userDropDownVariables();
-    const debug = debugHelper("userDropDown");
+    const style = styleFactory("userDropDown");
 
-    const userCardPhotoLink = style({
-        display: "block",
-        ...debug.name("userCardPhotoLink"),
+    const userCard = style("userCard", {
+        listStyle: "none",
     });
 
-    const userCardPhoto = style({
+    const userCardPhotoLink = style("userCardPhotoLink", {
+        display: "block",
+    });
+
+    const userCardPhoto = style("userCardPhoto", {
         border: `solid 1px ${globalVars.mixBgAndFg(0.3)}`,
-        marginTop: unit(vars.userCard.topMargin),
+        marginTop: styleUnit(vars.userCard.topMargin),
         marginLeft: "auto",
         marginRight: "auto",
-        ...debug.name("userCardPhoto"),
     });
 
-    const userCardName = style({
+    const userCardName = style("userCardName", {
         display: "block",
         color: "inherit",
         fontWeight: vars.userName.fontWeight,
-        fontSize: unit(vars.userName.fontSize),
+        fontSize: styleUnit(vars.userName.fontSize),
         lineHeight: vars.userName.lineHeight,
         textAlign: "center",
-        marginTop: unit(vars.userName.topMargin),
+        marginTop: styleUnit(vars.userName.topMargin),
         marginRight: "auto",
-        marginBottom: unit(vars.userName.bottomMargin),
+        marginBottom: styleUnit(vars.userName.bottomMargin),
         marginLeft: "auto",
-        paddingRight: unit(vars.userName.paddingRight),
-        paddingLeft: unit(vars.userName.paddingLeft),
-        ...debug.name("userCardName"),
+        paddingRight: styleUnit(vars.userName.paddingRight),
+        paddingLeft: styleUnit(vars.userName.paddingLeft),
     });
 
-    const contents = style({
-        width: unit(vars.contents.width),
-        ...debug.name("contents"),
+    const contents = style("contents", {
+        width: styleUnit(vars.contents.width),
     });
 
-    return { userCardPhotoLink, userCardPhoto, userCardName, contents };
+    return {
+        userCardPhotoLink,
+        userCardPhoto,
+        userCardName,
+        contents,
+        userCard,
+    };
 });

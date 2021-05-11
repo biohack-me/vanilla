@@ -48,10 +48,20 @@ class MarkdownFormat extends HtmlFormat {
     }
 
     /**
+     * This override does not format spoiler so that it can be done early.
+     *
      * @inheritdoc
      */
-    public function renderHtml(string $value, bool $enhance = true): string {
-        $markdownParsed = $this->markdownParser->transform($value);
+    protected function legacySpoilers(string $html): string {
+        return $html;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function renderHtml(string $content, bool $enhance = true): string {
+        $content = parent::legacySpoilers($content);
+        $markdownParsed = $this->markdownParser->transform($content);
         return parent::renderHtml($markdownParsed, $enhance);
     }
 

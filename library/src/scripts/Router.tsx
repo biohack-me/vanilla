@@ -3,16 +3,19 @@
  * @license GPL-2.0-only
  */
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useState, useCallback } from "react";
 import { LinkContextProvider } from "@library/routing/links/LinkContextProvider";
 import { Router as ReactRouter, Switch, Route } from "react-router-dom";
 import { formatUrl } from "@library/utility/appUtils";
 import { createBrowserHistory, History } from "history";
 import NotFoundPage from "@library/routing/NotFoundPage";
+import { BackRoutingProvider } from "@library/routing/links/BackRoutingProvider";
+import { initPageViewTracking, usePageChangeListener } from "@library/pageViews/pageViewTracking";
+import { BannerContextProvider } from "./banner/BannerContext";
 
 interface IProps {
     disableDynamicRouting?: boolean;
-    sectionRoot?: string;
+    sectionRoots?: string[];
     onRouteChange?: (history: History) => void;
 }
 
@@ -21,12 +24,15 @@ export function Router(props: IProps) {
     const history = useMemo(() => createBrowserHistory({ basename: formatUrl("") }), []);
 
     useEffect(() => {
-        if (onRouteChange) {
-            const unregister = history.listen(() => onRouteChange(history));
-            // Return the cleanup function.
-            return unregister;
-        }
+        initPageViewTracking(history);
+    }, [history]);
+
+    const pageChangeHandler = useCallback(() => {
+        window.scrollTo(0, 0);
+        onRouteChange?.(history);
     }, [history, onRouteChange]);
+
+    usePageChangeListener(pageChangeHandler);
 
     let routes = (
         <Switch>
@@ -35,9 +41,16 @@ export function Router(props: IProps) {
         </Switch>
     );
 
+    routes = (
+        <BackRoutingProvider>
+            <BannerContextProvider>{routes}</BannerContextProvider>
+        </BackRoutingProvider>
+    );
     if (!props.disableDynamicRouting) {
         routes = (
-            <LinkContextProvider linkContext={formatUrl(props.sectionRoot || "/", true)}>{routes}</LinkContextProvider>
+            <LinkContextProvider linkContexts={(props.sectionRoots ?? ["/"])?.map((root) => formatUrl(root, true))}>
+                {routes}
+            </LinkContextProvider>
         );
     }
 

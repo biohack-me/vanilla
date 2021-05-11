@@ -1,11 +1,16 @@
-<?php if (!defined('APPLICATION')) exit();
+<?php use Vanilla\Theme\BoxThemeShim;
+
+if (!defined('APPLICATION')) exit();
 $Session = Gdn::session();
 if (Gdn::config('Garden.Profile.ShowAbout')) {
     require_once Gdn::controller()->fetchViewLocation('helper_functions', 'Profile', 'Dashboard');
-
+    echo '<div class="About P widget-dontUseCssOnMe">';
+        BoxThemeShim::startHeading();
+        echo '<h2 class="H">' . t('About') . '</h2>';
+        BoxThemeShim::endHeading();
+        BoxThemeShim::startBox('userInfoBox About');
+        $this->fireEvent('BeforeAboutList');
     ?>
-    <div class="About P">
-        <h2 class="H"><?php echo t('About'); ?></h2>
         <dl class="About">
             <?php
             if ($this->User->Banned) {
@@ -74,6 +79,10 @@ if (Gdn::config('Garden.Profile.ShowAbout')) {
             $this->fireEvent('OnBasicInfo');
             ?>
         </dl>
-    </div>
+        <?php  $this->fireEvent('AfterAboutList');  ?>
+        <?php
+            BoxThemeShim::endBox();
+            echo '</div>';
+        ?>
 <?php
 }

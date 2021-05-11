@@ -117,10 +117,7 @@ class MessagesApiController extends AbstractApiController {
             $schema = $this->schema([
                 'messageID:i' => 'The ID of the message.',
                 'conversationID:i' => 'The ID of the conversation.',
-                'body:s' => [
-                    'maxLength' => $this->config->get('MaxLength', 2000),
-                    'description' => 'The body of the message.',
-                ],
+                'body:s' => 'The body of the message.',
                 'insertUserID:i' => 'The user that created the message.',
                 'insertUser?' => $this->getUserFragmentSchema(),
                 'dateInserted:dt' => 'When the message was created.',
@@ -334,7 +331,7 @@ class MessagesApiController extends AbstractApiController {
         }
 
         $messageData = ApiUtils::convertInputKeys($body);
-        $messageID = $this->conversationMessageModel->save($messageData, $conversation);
+        $messageID = $this->conversationMessageModel->save($messageData, ['conversation' => $conversation]);
         $this->validateModel($this->conversationMessageModel, true);
         if (!$messageID) {
             throw new ServerException('Unable to insert message.', 500);
@@ -358,8 +355,10 @@ class MessagesApiController extends AbstractApiController {
             $postSchema = $this->schema(
                 Schema::parse([
                     'conversationID',
-                    'body',
-                    'format:s?' => 'The input format of the record.',
+                    'body:s' => [
+                        'maxLength' => $this->config->get('Conversations.Message.MaxLength', 2000),
+                    ],
+                    'format' => new \Vanilla\Models\FormatSchema(),
                 ])->add($this->fullSchema()),
                 'MessagePost'
             );

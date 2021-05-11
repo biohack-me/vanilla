@@ -21,18 +21,21 @@ import { t } from "@library/utility/appUtils";
 import classNames from "classnames";
 import React from "react";
 import { connect } from "react-redux";
+import gdn from "@library/gdn";
+import { DropDownEditProfileLink } from "@library/flyouts/items/DropDownEditProfileLink";
 
 /**
  * Implements User Drop down for header
  */
 function UserDropDownContents(props: IProps) {
     const { userInfo } = props;
+    const signOutUrl = gdn.meta.signOutUrl ?? `/entry/signout?target=${window.location.href}`;
     if (!userInfo) {
         return null;
     }
 
     const getCountByName = (countName: string): number => {
-        const found = props.counts.find(count => count.name === countName);
+        const found = props.counts.find((count) => count.name === countName);
         return found ? found.count : 0;
     };
 
@@ -43,7 +46,7 @@ function UserDropDownContents(props: IProps) {
         <div className={classNames(props.className, classesDropDown.verticalPadding)}>
             <DropDownUserCard className="userDropDown-userCard" />
             <DropDownItemSeparator />
-            <DropDownItemLink to="/profile/edit" name={t("Edit Profile")} />
+            <DropDownEditProfileLink />
             <DropDownSection title={t("Discussions")}>
                 <DropDownItemLinkWithCount
                     to={"/discussions/bookmarked"}
@@ -64,7 +67,7 @@ function UserDropDownContents(props: IProps) {
                     <DropDownItemLinkWithCount
                         to={"/dashboard/user/applicants"}
                         name={t("Applicants")}
-                        count={getCountByName("Applications")}
+                        count={getCountByName("Applicants")}
                     />
                     <DropDownItemLinkWithCount
                         to={"/dashboard/log/spam"}
@@ -82,7 +85,7 @@ function UserDropDownContents(props: IProps) {
             <Permission permission={["site.manage", "settings.view"]}>
                 <DropDownItemLink to={"/dashboard/settings"} name={t("Dashboard")} />
             </Permission>
-            <DropDownItemLink to={`/entry/signout?target=${window.location.href}`} name={t("Sign Out")} />
+            <DropDownItemLink to={signOutUrl} name={t("Sign Out")} />
         </div>
     );
 }
@@ -108,7 +111,4 @@ function mapDispatchToProps(dispatch: any) {
     };
 }
 
-export default connect(
-    mapStateToProps,
-    mapDispatchToProps,
-)(UserDropDownContents);
+export default connect(mapStateToProps, mapDispatchToProps)(UserDropDownContents);

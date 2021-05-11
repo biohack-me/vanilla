@@ -53,7 +53,7 @@ class SmokeTest extends BaseTest {
      * Set the testUser.
      *
      * @param array $testUser The user to set.
-     * @return StandardTest Returns `$this` for fluent calls.
+     * @return $this
      * @see APIv0::queryUserKey()
      */
     public function setTestUser($testUser) {
@@ -149,25 +149,29 @@ class SmokeTest extends BaseTest {
      * @large
      */
     public function testCreateRestrictedCategory() {
-        $r = $this->api()->post('/vanilla/settings/addcategory.json', [
-            'Name' => 'Moderators Only',
-            'UrlCode' => 'moderators-only',
-            'DisplayAs' => 'Discussions',
-            'CustomPermissions' => 1,
-            'Permission' => http_build_query([
-                'Category/PermissionCategoryID/0/32//Vanilla.Comments.Add',
-                'Category/PermissionCategoryID/0/32//Vanilla.Comments.Delete',
-                'Category/PermissionCategoryID/0/32//Vanilla.Comments.Edit',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Add',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Announce',
-                'Category/PermissionCategoryID/0/32//Vanilla.Comments.Add',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Close',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Delete',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Edit',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Sink',
-                'Category/PermissionCategoryID/0/32//Vanilla.Discussions.View'
-            ])
-        ]);
+        $r = $this->api()->post(
+            '/vanilla/settings/addcategory.json',
+            [
+                'Name' => 'Moderators Only',
+                'UrlCode' => 'moderators-only',
+                'DisplayAs' => 'Discussions',
+                'CustomPermissions' => 1,
+                'Permission' => [
+                    'Category/PermissionCategoryID/0/32//Vanilla.Comments.Add',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Comments.Delete',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Comments.Edit',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Add',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Announce',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Comments.Add',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Close',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Delete',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Edit',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.Sink',
+                    'Category/PermissionCategoryID/0/32//Vanilla.Discussions.View'
+                ]
+            ],
+            ['content-type' => 'application/json']
+        );
 
         $body = $r->getBody();
         $category = $body['Category'];
@@ -202,11 +206,12 @@ class SmokeTest extends BaseTest {
      * @param array $user The user to test against.
      * @depends testAddAdminUser
      * @depends testRegisterBasic
-     * @expectedException \Exception
-     * @expectedExceptionMessage Invalid photo URL.
      * @large
      */
     public function testSetInvalidPhoto($admin, $user) {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Invalid photo URL.');
+
         $this->api()->setUser($admin);
 
         $photo = 'javascript: alert("Xss");';
@@ -298,7 +303,7 @@ class SmokeTest extends BaseTest {
 
         $postedDiscussion = $r->getBody();
         $postedDiscussion = $postedDiscussion['Discussion'];
-        $this->assertArraySubset($discussion, $postedDiscussion);
+        $this->assertEquals($discussion, array_intersect_assoc($discussion, $postedDiscussion));
 
         return $postedDiscussion;
     }
@@ -334,18 +339,19 @@ class SmokeTest extends BaseTest {
 
         $postedComment = $r->getBody();
         $postedComment = $postedComment['Comment'];
-        $this->assertArraySubset($comment, $postedComment);
+        $this->assertEquals($comment, array_intersect_assoc($comment, $postedComment));
     }
 
     /**
      * Test posting a discussion in a restricted category.
      *
      * @depends testCreateRestrictedCategory
-     * @expectedException \Exception
-     * @expectedExceptionMessage You do not have permission to post in this category.
      * @large
      */
     public function testPostRestrictedDiscussion() {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('You do not have permission to post in this category.');
+
         $categoryID = $this->getRestrictedCategoryID();
 
         if (!is_numeric($categoryID)) {
@@ -476,10 +482,9 @@ class SmokeTest extends BaseTest {
         $draft =  $this->testSaveDraft();
 
         $draftUpdate = [
-            'CategoryID' =>  $draft['CategoryID'],
+            'CategoryID' =>  $category['Category']['CategoryID'],
             'DiscussionID' => $draft['DiscussionID'],
             'DraftID' => $draft['DraftID'],
-            'CategoryID' => $category['Category']['CategoryID'],
             'Name' => $draft['Name'],
             'Format' => 'Markdown',
             'Body' => $draft['Body'],
@@ -602,11 +607,12 @@ class SmokeTest extends BaseTest {
      * Test viewing a restricted category.
      *
      * @depends testCreateRestrictedCategory
-     * @expectedException \Exception
-     * @expectedExceptionMessage You don't have permission to do that.
      * @large
      */
     public function testViewRestrictedCategory() {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('You don\'t have permission to do that.');
+
         $categoryID = $this->getRestrictedCategoryID();
 
         if (!is_numeric($categoryID)) {

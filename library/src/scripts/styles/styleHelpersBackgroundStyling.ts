@@ -4,67 +4,38 @@
  * @license GPL-2.0-only
  */
 
-import {
-    BackgroundAttachmentProperty,
-    BackgroundImageProperty,
-    BackgroundPositionProperty,
-    BackgroundRepeatProperty,
-    BackgroundSizeProperty,
-    ObjectFitProperty,
-    PositionProperty,
-} from "csstype";
-import { percent, px, quote, url, viewHeight, viewWidth } from "csx";
-import { NestedCSSProperties, TLength } from "typestyle/lib/types";
+import { Property } from "csstype";
+import { important, percent, px, quote, url, viewHeight, viewWidth } from "csx";
+import { CSSObject } from "@emotion/css";
 import { assetUrl, themeAsset } from "@library/utility/appUtils";
-import { colorOut, ColorValues } from "@library/styles/styleHelpersColors";
 import { styleFactory } from "@library/styles/styleUtils";
 
-export interface IBackground {
-    color: ColorValues;
-    attachment?: BackgroundAttachmentProperty;
-    position?: BackgroundPositionProperty<TLength>;
-    repeat?: BackgroundRepeatProperty;
-    size?: BackgroundSizeProperty<TLength>;
-    image?: BackgroundImageProperty;
-    fallbackImage?: BackgroundImageProperty;
-}
-
-export const getBackgroundImage = (image?: BackgroundImageProperty, fallbackImage?: BackgroundImageProperty) => {
-    // Get either image or fallback
-    const workingImage = image ? image : fallbackImage;
-    if (!workingImage) {
-        return;
+export const getBackgroundImage = (image?: Property.BackgroundImage) => {
+    if (!image) {
+        return undefined;
     }
-
-    if (workingImage.charAt(0) === "~") {
+    image = image.toString();
+    if (image.charAt(0) === "~") {
         // Relative path to theme folder
-        return themeAsset(workingImage.substr(1, workingImage.length - 1));
+        image = themeAsset(image.substr(1, image.length - 1));
+        return `url(${image})`;
     }
 
-    if (workingImage.startsWith('"data:image/')) {
-        return workingImage;
+    if (image.startsWith("data:image/")) {
+        return `url(${image})`;
+    }
+
+    if (image.startsWith("linear-gradient(")) {
+        return image;
     }
 
     // Fallback to a general asset URL.
-    const assetImage = assetUrl(workingImage);
-    return assetImage;
+    return `url(${assetUrl(image)})`;
 };
 
-export const background = (props: IBackground) => {
-    const image = getBackgroundImage(props.image, props.fallbackImage);
+export const objectFitWithFallback = (): CSSObject => {
     return {
-        backgroundColor: props.color ? colorOut(props.color) : undefined,
-        backgroundAttachment: props.attachment || undefined,
-        backgroundPosition: props.position || `50% 50%`,
-        backgroundRepeat: props.repeat || "no-repeat",
-        backgroundSize: props.size || "cover",
-        backgroundImage: image ? url(image) : undefined,
-    };
-};
-
-export const objectFitWithFallback = () => {
-    return {
-        position: "absolute" as PositionProperty,
+        position: "absolute",
         top: 0,
         right: 0,
         bottom: 0,
@@ -72,14 +43,15 @@ export const objectFitWithFallback = () => {
         margin: "auto",
         height: "auto",
         width: percent(100),
-        $nest: {
+        ...{
             "@supports (object-fit: cover)": {
-                objectFit: "cover" as ObjectFitProperty,
+                position: important("relative"),
+                objectFit: "cover",
                 objectPosition: "center",
-                height: percent(100),
+                height: important(percent(100).toString()),
             },
         },
-    } as NestedCSSProperties;
+    };
 };
 export function fakeBackgroundFixed() {
     return {

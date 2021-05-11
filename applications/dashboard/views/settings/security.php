@@ -12,8 +12,7 @@ echo $form->errors();
         <li class="form-group">
             <?php
             $leavingLabel = 'Warn users if a link in a post will cause them to leave the forum';
-            $leavingDesc = 'Alert users if they click a link in a post that will lead them away from the forum. ';
-            $leavingDesc .= 'Users will not be warned when following links that match a Trusted Domain.';
+            $leavingDesc = '@'.t('Alert users if they click external link.');
             echo $form->toggle('Garden.Format.WarnLeaving', $leavingLabel, [], $leavingDesc);
             ?>
         </li>
@@ -34,6 +33,25 @@ echo $form->errors();
             </div>
             <div class="input-wrap">
             <?php echo $form->textBox('Garden.TrustedDomains', ['MultiLine' => true]); ?>
+            </div>
+        </li>
+        <li class="form-group">
+            <div class="label-wrap">
+                <?php echo $form->label('Content Security Domains', SettingsController::CONFIG_CSP_DOMAINS); ?>
+                <div class="info">
+                    <p>
+                        <?php
+                        echo t(
+                            'You can specify a whitelist of trusted domains. (CSP)',
+                            'You can specify a whitelist of trusted domains (ex. yourdomain.com) that are safe to load javascript from.'
+                        );
+                        ?>
+                    </p>
+                    <p><?php echo t('Specify one domain per line. Use * for wildcard matches.'); ?></p>
+                </div>
+            </div>
+            <div class="input-wrap">
+                <?php echo $form->textBox(SettingsController::CONFIG_CSP_DOMAINS, ['MultiLine' => true, "implode" => "\n"]); ?>
             </div>
         </li>
     </ul>

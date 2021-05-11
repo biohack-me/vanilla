@@ -5,34 +5,30 @@
  */
 
 import React from "react";
-import {
-    absolutePosition,
-    borders,
-    colorOut,
-    defaultTransition,
-    disabledInput,
-    flexHelper,
-    srOnly,
-    unit,
-    userSelect,
-    margins,
-} from "@library/styles/styleHelpers";
+import { defaultTransition, disabledInput, userSelect } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
+import { Variables } from "@library/styles/Variables";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { em, important, percent, px } from "csx";
-import { NestedCSSProperties } from "typestyle/lib/types";
+import { calc, em, important, percent, px } from "csx";
+import { CSSObject } from "@emotion/css";
 
 export const checkRadioVariables = useThemeCache(() => {
     const globalVars = globalVariables();
     const formElementVars = formElementsVariables();
     const themeVars = variableFactory("checkRadio");
 
-    const border = themeVars("border", {
-        width: formElementVars.border.width,
-        radius: 2,
-        color: globalVars.mixBgAndFg(0.5),
-    });
+    const border = themeVars(
+        "border",
+        Variables.border({
+            ...formElementVars.border,
+            radius: 2,
+        }),
+    );
 
     const main = themeVars("check", {
         fg: globalVars.mainColors.bg,
@@ -40,11 +36,17 @@ export const checkRadioVariables = useThemeCache(() => {
         checked: {
             fg: globalVars.elementaryColors.white,
             bg: globalVars.mainColors.primary,
+            border: globalVars.mainColors.primary,
+        },
+        checkedHover: {
+            fg: globalVars.mainColors.primary,
+            bg: globalVars.mainColors.primary.fade(0.15),
         },
         hover: {
             border: {
                 color: globalVars.mainColors.primary,
             },
+            fg: globalVars.mainColors.primary,
             bg: globalVars.mainColors.primary.fade(0.1),
             opacity: 0.8,
         },
@@ -74,7 +76,12 @@ export const checkRadioVariables = useThemeCache(() => {
     });
 
     const sizing = themeVars("sizing", {
-        width: 16,
+        width: 18,
+    });
+
+    const spacing = themeVars("spacing", {
+        horizontal: 6,
+        vertical: 9,
     });
 
     return {
@@ -84,6 +91,7 @@ export const checkRadioVariables = useThemeCache(() => {
         radioButton,
         labelNote,
         sizing,
+        spacing,
     };
 });
 
@@ -91,21 +99,29 @@ export const checkRadioClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const vars = checkRadioVariables();
     const style = styleFactory("checkRadio");
-    const flexes = flexHelper();
+
+    const isDashboard = style("isDashboard", {});
 
     //.radioButton-label,
     // .checkbox-label
     const label = style("label", {
-        lineHeight: unit(vars.sizing.width),
-        marginLeft: unit(8),
+        lineHeight: styleUnit(vars.sizing.width),
+        paddingLeft: styleUnit(8),
         cursor: "pointer",
         ...userSelect(),
+        width: calc(`100% - ${styleUnit(vars.sizing.width)}`),
+    });
+
+    const labelBold = style("labelBold", {
+        ...Mixins.font({
+            weight: globalVars.fonts.weights.semiBold,
+        }),
     });
 
     const labelNote = style("labelNote", {
         display: "inline-block",
-        fontSize: unit(vars.labelNote.fontSize),
-        marginLeft: unit(24),
+        fontSize: styleUnit(vars.labelNote.fontSize),
+        marginLeft: styleUnit(24),
         opacity: vars.labelNote.opacity,
         verticalAlign: "middle",
     });
@@ -115,29 +131,32 @@ export const checkRadioClasses = useThemeCache(() => {
     const iconContainer = style("iconContainer", {
         ...defaultTransition("border", "background", "opacity"),
         position: "relative",
-        display: "inline-block",
-        width: unit(vars.sizing.width),
-        height: unit(vars.sizing.width),
-        verticalAlign: em(-0.18),
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: styleUnit(vars.sizing.width),
+        height: styleUnit(vars.sizing.width),
+        flexBasis: styleUnit(vars.sizing.width),
+        verticalAlign: "middle",
         cursor: "pointer",
-        backgroundColor: colorOut(vars.main.bg),
-        ...borders(vars.border),
-    } as NestedCSSProperties);
+        backgroundColor: ColorsUtils.colorOut(vars.main.bg),
+        ...Mixins.border(vars.border),
+    });
 
     const radioIcon = style("radioIcon", {
-        ...absolutePosition.middleLeftOfParent(),
+        ...Mixins.absolute.middleLeftOfParent(),
         display: "none",
-        width: unit(vars.radioButton.icon.width),
-        height: unit(vars.radioButton.icon.height),
+        width: styleUnit(vars.radioButton.icon.width),
+        height: styleUnit(vars.radioButton.icon.height),
         margin: "auto",
     });
 
     const checkIcon = style("checkBoxIcon", {
-        ...absolutePosition.middleOfParent(),
+        ...Mixins.absolute.middleOfParent(),
         display: "none",
-        width: unit(vars.checkBox.check.width),
-        height: unit(vars.checkBox.check.height),
-        color: vars.main.fg.toString(),
+        width: styleUnit(vars.checkBox.check.width),
+        height: styleUnit(vars.checkBox.check.height),
+        color: "inherit",
         margin: "auto",
     });
 
@@ -145,62 +164,43 @@ export const checkRadioClasses = useThemeCache(() => {
         borderRadius: percent(50),
     });
 
-    // .radioButton-state,
-    // .checkbox-state
-    const state = style("state", {
-        ...absolutePosition.fullSizeOfParent(),
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: vars.main.checked.fg.toString(),
-    });
-
-    const diskIcon = style({
+    const diskIcon = style("diskIcon", {
         display: "none",
         width: vars.checkBox.disk.width,
         height: vars.checkBox.disk.height,
     });
 
+    const uncheckedStateStyles: CSSObject = {
+        borderColor: ColorsUtils.colorOut(vars.main.hover.border.color),
+        backgroundColor: ColorsUtils.colorOut(vars.main.hover.bg),
+    };
+
+    const checkedStateStyles: CSSObject = {
+        backgroundColor: ColorsUtils.colorOut(vars.main.checkedHover.bg),
+        color: ColorsUtils.colorOut(vars.main.checkedHover.fg),
+    };
+
     // .radioButton-input,
     // .checkbox-input
     const input = style("input", {
-        ...srOnly(),
-        $nest: {
-            [`&:not([disabled]):focus, &:not([disabled]):active, &:not([disabled]).focus-visible`]: {
-                $nest: {
-                    [`& + .${checkIcon}`]: {
-                        borderColor: vars.main.hover.border.color.toString(),
-                        opacity: vars.main.hover.opacity,
-                        backgroundColor: vars.main.hover.bg.toString(),
-                    },
-                },
-            },
+        ...Mixins.absolute.srOnly(),
+        ...{
+            [`&:hover:not(:disabled) + .${iconContainer}`]: uncheckedStateStyles,
+            [`&.focus-visible:not(:disabled) + .${iconContainer}`]: uncheckedStateStyles,
             [`&:checked + .${iconContainer}`]: {
-                backgroundColor: important(vars.main.checked.bg.toString()),
-                borderColor: vars.main.checked.fg.toString(),
-                $nest: {
-                    [`& .${checkIcon}`]: {
-                        display: "block",
-                    },
-                    [`& .${diskIcon}`]: {
+                borderColor: ColorsUtils.colorOut(vars.main.checked.border),
+                color: ColorsUtils.colorOut(vars.main.checked.fg),
+                backgroundColor: ColorsUtils.colorOut(vars.main.checked.bg),
+                ...{
+                    "& svg": {
                         display: "block",
                     },
                 },
             },
-            [`&.isDisabled, &[disabled]`]: {
-                $nest: {
-                    "&:not(:checked)": {
-                        $nest: {
-                            [`& + .${checkIcon}`]: {
-                                backgroundColor: vars.main.bg.toString(),
-                            },
-                        },
-                    },
-                    [`& ~ .${label}, & + .${checkIcon}`]: {
-                        ...disabledInput(),
-                    },
-                },
-            },
+            [`&:hover:checked:not(:disabled) + .${iconContainer}`]: checkedStateStyles,
+            [`&.focus-visible:checked:not(:disabled) + .${iconContainer}`]: checkedStateStyles,
+            [`&:disabled ~ .${label}`]: disabledInput(),
+            [`&:disabled + .${iconContainer}`]: disabledInput(),
         },
     });
 
@@ -210,55 +210,62 @@ export const checkRadioClasses = useThemeCache(() => {
         display: important("flex"),
         flexWrap: "wrap",
         alignItems: "center",
-        whiteSpace: "nowrap",
         outline: 0,
-        cursor: "pointer",
-        $nest: {
-            [`&:hover .${input}:not([disabled]) + .${iconContainer}`]: {
-                borderColor: colorOut(vars.main.hover.border.color),
-                backgroundColor: colorOut(vars.main.hover.bg),
+        ...Mixins.padding(vars.spacing),
+        ...{
+            [`&&`]: {
+                margin: 0,
             },
-            [`&.focus-accessible .${input}:not([disabled]) + .${iconContainer}`]: {
-                borderColor: colorOut(vars.main.hover.border.color),
-                backgroundColor: colorOut(vars.main.hover.bg),
-            },
-            [`&:focus .${input}:not([disabled]) + .${iconContainer}`]: {
-                borderColor: colorOut(vars.main.hover.border.color),
-                backgroundColor: colorOut(vars.main.hover.bg),
-            },
-            [`.${input}:not([disabled]):hover + .${iconContainer}`]: {
-                borderColor: colorOut(vars.main.hover.border.color),
-                backgroundColor: colorOut(vars.main.hover.bg),
-            },
-            [`.${input}:not([disabled]):focus + .${iconContainer}`]: {
-                borderColor: colorOut(vars.main.hover.border.color),
-                backgroundColor: colorOut(vars.main.hover.bg),
-            },
-            [`& + &`]: {
-                marginTop: px(globalVars.spacer.size / 2),
-            },
-            [`&.isHorizontal.isHorizontal.isHorizontal`]: margins({
+            [`&.isHorizontal.isHorizontal.isHorizontal`]: Mixins.margin({
                 all: 0,
                 right: px(globalVars.spacer.size / 2),
             }),
+            [`&.${isDashboard} + .info`]: {
+                ...Mixins.margin({
+                    top: styleUnit(2),
+                    bottom: styleUnit(6),
+                }),
+            },
         },
     });
 
-    const group = style("group", {
-        marginTop: unit(globalVars.spacer.size / 2),
+    const grid = style("grid", {
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "strech",
+        ...{
+            [`.${root}`]: {
+                flexBasis: "50%",
+                display: "block !important",
+                ...Mixins.margin({
+                    top: 0,
+                }),
+            },
+            [`.${root}:nth-child(n + 3)`]: {
+                ...Mixins.margin({
+                    top: styleUnit(globalVars.gutter.half),
+                }),
+            },
+            [`.${root}:nth-child(odd)`]: {
+                ...Mixins.padding({
+                    right: styleUnit(globalVars.gutter.half),
+                }),
+            },
+        },
     });
 
     return {
         root,
         label,
+        labelBold,
         labelNote,
         iconContainer,
         radioIcon,
         checkIcon,
         disk,
-        state,
         diskIcon,
         input,
-        group,
+        grid,
+        isDashboard,
     };
 });

@@ -4,27 +4,31 @@
  * @license GPL-2.0-only
  */
 
-import { percent, px, calc, quote } from "csx";
-import { titleBarVariables } from "@library/headers/titleBarStyles";
-import {
-    absolutePosition,
-    colorOut,
-    flexHelper,
-    margins,
-    negative,
-    paddings,
-    unit,
-    userSelect,
-} from "@library/styles/styleHelpers";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { percent, px, calc, quote, rgba } from "csx";
+import { titleBarVariables } from "@library/headers/TitleBar.variables";
+import { flexHelper, negative, userSelect } from "@library/styles/styleHelpers";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { styleUnit } from "@library/styles/styleUnit";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { globalVariables } from "@library/styles/globalStyleVars";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
+import { LogoAlignment } from "@library/headers/LogoAlignment";
+import { Mixins } from "@library/styles/Mixins";
+import { Variables } from "@library/styles/Variables";
+import { LocalVariableMapping } from "@library/styles/VariableMapping";
 
 export const titleBarNavigationVariables = useThemeCache(() => {
-    const makeThemeVars = variableFactory("titleBarNavigation");
+    const makeThemeVars = variableFactory(
+        "titleBarNavigation",
+        undefined,
+        new LocalVariableMapping({
+            "navLinks.font.size": "navLinks.fontSize",
+        }),
+    );
     const globalVars = globalVariables();
     const varsFormElements = formElementsVariables();
+    const titleBarVars = titleBarVariables();
 
     const border = makeThemeVars("border", {
         verticalWidth: 3,
@@ -39,10 +43,41 @@ export const titleBarNavigationVariables = useThemeCache(() => {
     });
 
     const linkActive = makeThemeVars("linkActive", {
-        offset: 2,
+        offset: 0,
         height: 3,
-        bg: globalVars.mainColors.primary,
+        bg: titleBarVars.colors.fg,
         bottomSpace: 1,
+        maxWidth: 40,
+    });
+
+    /**
+     * @varGroup titleBarNavigation.navLinks
+     * @description Variables for styling titlebar navigation links
+     */
+    const navLinks = makeThemeVars("navLinks", {
+        /**
+         * @varGroup titleBarNavigation.navLinks.font
+         * @expand font
+         */
+        font: Variables.font({
+            size: 14,
+            color: titleBarVars.colors.fg,
+            textDecoration: "auto",
+        }),
+        /**
+         * @varGroup titleBarNavigation.navLinks.padding
+         * @expand spacing
+         */
+        padding: {
+            left: 8,
+            right: 8,
+        },
+    });
+
+    const navPadding = makeThemeVars("navPadding", {
+        padding: {
+            bottom: 4,
+        },
     });
 
     return {
@@ -50,14 +85,17 @@ export const titleBarNavigationVariables = useThemeCache(() => {
         item,
         linkActive,
         padding,
+        navLinks,
+        navPadding,
     };
 });
 
-export default function titleBarNavClasses() {
+const titleBarNavClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const titleBarVars = titleBarVariables();
     const vars = titleBarNavigationVariables();
-    const mediaQueries = layoutVariables().mediaQueries();
+
+    const mediaQueries = titleBarVars.mediaQueries();
     const flex = flexHelper();
     const style = styleFactory("titleBarNav");
 
@@ -65,23 +103,37 @@ export default function titleBarNavClasses() {
         {
             ...flex.middleLeft(),
             position: "relative",
-            height: unit(titleBarVars.sizing.height),
+            height: styleUnit(titleBarVars.sizing.height),
         },
-        mediaQueries.oneColumnDown({
-            height: unit(titleBarVars.sizing.mobile.height),
+        mediaQueries.compact({
+            height: styleUnit(titleBarVars.sizing.mobile.height),
         }),
     );
 
-    const navigation = style("navigation", {});
+    const navigation = style(
+        "navigation",
+        titleBarVars.logo.doubleLogoStrategy === "hidden" ||
+            titleBarVars.logo.doubleLogoStrategy === "mobile-only" ||
+            titleBarVars.logo.justifyContent === LogoAlignment.CENTER
+            ? {
+                  marginLeft: styleUnit(-(vars.padding.horizontal * 2 + vars.navLinks.padding.left)),
+              }
+            : {},
+    );
+
+    const navigationCentered = style("navigationCentered", {
+        ...Mixins.absolute.middleOfParent(true),
+        display: "inline-flex",
+    });
 
     const items = style(
         "items",
         {
             ...flex.middleLeft(),
-            height: unit(titleBarVars.sizing.height),
-            ...paddings(vars.padding),
+            height: styleUnit(titleBarVars.sizing.height),
+            ...Mixins.padding(vars.padding),
         },
-        mediaQueries.oneColumnDown({
+        mediaQueries.compact({
             height: px(titleBarVars.sizing.mobile.height),
             justifyContent: "center",
             width: percent(100),
@@ -90,45 +142,50 @@ export default function titleBarNavClasses() {
 
     const link = style("link", {
         ...userSelect(),
-        color: colorOut(titleBarVars.colors.fg),
         whiteSpace: "nowrap",
         lineHeight: globalVars.lineHeights.condensed,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        minHeight: unit(vars.item.size),
-        textDecoration: "none",
-        $nest: {
+        minHeight: styleUnit(vars.item.size),
+        alignSelf: "center",
+        paddingLeft: styleUnit(vars.navLinks.padding.left),
+        paddingRight: styleUnit(vars.navLinks.padding.right),
+        ...Mixins.font(vars.navLinks.font),
+        ...{
             "&.focus-visible": {
-                backgroundColor: colorOut(titleBarVars.buttonContents.state.bg),
+                color: ColorsUtils.colorOut(titleBarVars.colors.state.fg),
+                backgroundColor: ColorsUtils.colorOut(titleBarVars.colors.state.bg),
             },
             "&:focus": {
-                backgroundColor: colorOut(titleBarVars.buttonContents.state.bg),
+                color: ColorsUtils.colorOut(titleBarVars.colors.state.fg),
+                backgroundColor: ColorsUtils.colorOut(titleBarVars.colors.state.bg),
             },
             "&:hover": {
-                backgroundColor: colorOut(titleBarVars.buttonContents.state.bg),
+                color: ColorsUtils.colorOut(titleBarVars.colors.state.fg),
+                backgroundColor: ColorsUtils.colorOut(titleBarVars.colors.state.bg),
             },
         },
     });
+
+    const offsetWidth = vars.linkActive.offset * 2;
 
     const linkActive = style("linkActive", {
-        $nest: {
+        ...{
             "&:after": {
-                ...absolutePosition.topLeft(
-                    `calc(50% - ${unit(vars.linkActive.height + vars.linkActive.bottomSpace)})`,
+                ...Mixins.absolute.topLeft(
+                    `calc(50% - ${styleUnit(vars.linkActive.height + vars.linkActive.bottomSpace)})`,
                 ),
+                maxWidth: styleUnit(vars.linkActive.maxWidth),
                 content: quote(""),
-                height: unit(vars.linkActive.height),
-                marginLeft: unit(negative(vars.linkActive.offset)),
-                width: calc(`100% + ${unit(vars.linkActive.offset * 2)}`),
-                backgroundColor: colorOut(vars.linkActive.bg),
-                transform: `translateY(${unit(titleBarVars.sizing.height / 2)})`,
+                height: styleUnit(vars.linkActive.height),
+                left: percent(50),
+                marginLeft: styleUnit(negative(vars.linkActive.offset)),
+                width: offsetWidth === 0 ? percent(100) : calc(`100% + ${styleUnit(offsetWidth)}`),
+                transform: `translate(-50%, ${styleUnit(titleBarVars.sizing.height / 2)})`,
+                backgroundColor: ColorsUtils.colorOut(vars.linkActive.bg),
             },
         },
-    });
-
-    const linkContent = style("linkContent", {
-        position: "relative",
     });
 
     const firstItem = style("lastItem", {
@@ -138,15 +195,24 @@ export default function titleBarNavClasses() {
     const lastItem = style("lastItem", {
         zIndex: 2,
     });
+    const navContiner = style("navContiner", {
+        paddingBottom: styleUnit(vars.navPadding.padding.bottom),
+    });
+
+    const navLinks = style("navLinks", {});
 
     return {
         root,
         navigation,
+        navigationCentered,
         items,
         link,
         linkActive,
-        linkContent,
         lastItem,
         firstItem,
+        navLinks,
+        navContiner,
     };
-}
+});
+
+export default titleBarNavClasses;

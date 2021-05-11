@@ -8,10 +8,29 @@
  * @since 2.0
  */
 
+use Webmozart\Assert\Assert;
+
 /**
- * Handles content moderation via /modersation endpoint.
+ * Handles content moderation via /moderation endpoint.
  */
 class ModerationController extends VanillaController {
+    use \Vanilla\Web\TwigRenderTrait;
+
+    // Maximum number of seconds a batch of deletes should last before a new batch needs to be scheduled.
+    private const MAX_TIME_BATCH = 10;
+
+    /** @var \Garden\EventManager */
+    private $eventManager;
+
+    /**
+     * ModerationController constructor.
+     *
+     * @param \Garden\EventManager $eventManager
+     */
+    public function __construct(\Garden\EventManager $eventManager) {
+        $this->eventManager = $eventManager;
+        parent::__construct();
+    }
 
     /**
      * Looks at the user's attributes and form postback to see if any comments
@@ -41,6 +60,8 @@ class ModerationController extends VanillaController {
      * Looks at the user's attributes and form postback to see if any comments
      * have been checked for administration, and if so, adds an inform message to
      * $sender to take action.
+     *
+     * @param Gdn_Controller $sender
      */
     public static function informCheckedComments($sender) {
         $session = Gdn::session();
@@ -209,8 +230,11 @@ class ModerationController extends VanillaController {
 
     /**
      * Remove all comments checked for administration from the user's attributes.
+     *
+     * @param int $discussionID
+     * @param string $transientKey
      */
-    public function clearCommentSelections($discussionID = '', $transientKey = '') {
+    public function clearCommentSelections($discussionID, $transientKey = '') {
         $session = Gdn::session();
         if ($session->validateTransientKey($transientKey)) {
             $checkedComments = Gdn::userModel()->getAttribute($session->User->UserID, 'CheckedComments', []);
@@ -236,8 +260,10 @@ class ModerationController extends VanillaController {
     /**
      * Form to confirm that the administrator wants to delete the selected
      * comments (and has permission to do so).
+     *
+     * @param int $discussionID
      */
-    public function confirmCommentDeletes($discussionID = '') {
+    public function confirmCommentDeletes(int $discussionID) {
         $session = Gdn::session();
         $this->Form = new Gdn_Form();
         $discussionModel = new DiscussionModel();
@@ -273,14 +299,21 @@ class ModerationController extends VanillaController {
             // Delete the selected comments
             $commentModel = new CommentModel();
             foreach ($commentIDs as $commentID) {
-                $commentModel->deleteID($commentID);
+                Assert::integerish($commentID);
+                $comment = $commentModel->getID($commentID, DATASET_TYPE_ARRAY);
+                if ((int)$comment['DiscussionID'] === (int)$discussionID) {
+                    // Make sure the comment is from the same discussion that was deleted.
+                    // The user interface ensures this, but just in case it becomes not true due to a UX error let's not
+                    // make this an error that the user may not be able to recover from.
+                    $commentModel->deleteID($commentID);
+                }
             }
 
             // Clear selections
             unset($checkedComments[$discussionID]);
             Gdn::userModel()->saveAttribute($session->UserID, 'CheckedComments', $checkedComments);
             ModerationController::informCheckedComments($this);
-            $this->setRedirectTo('discussions');
+            $this->setRedirectTo(discussionUrl($discussion));
         }
 
         $this->render();
@@ -291,6 +324,7 @@ class ModerationController extends VanillaController {
      * discussions (and has permission to do so).
      */
     public function confirmDiscussionDeletes() {
+        $startTime = time();
         $session = Gdn::session();
         $this->Form = new Gdn_Form();
         $discussionModel = new DiscussionModel();
@@ -299,9 +333,16 @@ class ModerationController extends VanillaController {
         $this->permission('Vanilla.Discussions.Delete', true, 'Category', 'any');
         $this->title(t('Confirm'));
 
-        $checkedDiscussions = Gdn::userModel()->getAttribute($session->User->UserID, 'CheckedDiscussions', []);
+        $checkedDiscussions = $this->Request->post('discussionIDs', null);
+
+        if ($checkedDiscussions === null) {
+            $checkedDiscussions = Gdn::userModel()->getAttribute($session->User->UserID, 'CheckedDiscussions', []);
+        }
+
         if (!is_array($checkedDiscussions)) {
             $checkedDiscussions = [];
+        } else {
+            array_walk($checkedDiscussions, [Assert::class, 'integerish']);
         }
 
         $discussionIDs = $checkedDiscussions;
@@ -310,7 +351,11 @@ class ModerationController extends VanillaController {
 
         // Check permissions on each discussion to make sure the user has permission to delete them
         $allowedDiscussions = [];
-        $discussionData = $discussionModel->SQL->select('DiscussionID, CategoryID')->from('Discussion')->whereIn('DiscussionID', $discussionIDs)->get();
+        $discussionData = $discussionModel->SQL
+            ->select('DiscussionID, CategoryID')
+            ->from('Discussion')
+            ->whereIn('DiscussionID', $discussionIDs)
+            ->get();
         foreach ($discussionData->result() as $discussion) {
             $countCheckedDiscussions = $discussionData->numRows();
             if (CategoryModel::checkPermission(val('CategoryID', $discussion), 'Vanilla.Discussions.Delete')) {
@@ -321,17 +366,48 @@ class ModerationController extends VanillaController {
         $countNotAllowed = $countCheckedDiscussions - count($allowedDiscussions);
         $this->setData('CountNotAllowed', $countNotAllowed);
 
-        if ($this->Form->authenticatedPostBack()) {
-            // Delete the selected discussions (that the user has permission to delete).
+        if ($this->Request->isAuthenticatedPostBack(true)) {
+            $checkedDiscussions = array_combine($allowedDiscussions, $allowedDiscussions);
+
             foreach ($allowedDiscussions as $discussionID) {
-                $deleted = $discussionModel->deleteID($discussionID);
-                if ($deleted) {
-                    $this->jsonTarget("#Discussion_$discussionID", '', 'SlideUp');
+                $discussionModel->deleteID($discussionID);
+                unset($checkedDiscussions[$discussionID]);
+                Gdn::userModel()->saveAttribute(
+                    $session->UserID,
+                    'CheckedDiscussions',
+                    array_values($checkedDiscussions)
+                );
+                $this->jsonTarget("#Discussion_$discussionID", ["remove" => true], 'SlideUp');
+
+                $elapsedTime = time() - $startTime;
+                if ($elapsedTime > self::MAX_TIME_BATCH) {
+                    break;
                 }
             }
+            if (!empty($checkedDiscussions)) {
+                $this->jsonTarget('', [
+                    'url' => '/moderation/confirmdiscussiondeletes',
+                    'reprocess' => true,
+                    'data' => [
+                        'DeliveryType' => DELIVERY_TYPE_VIEW,
+                        'DeliveryMethod' => DELIVERY_METHOD_JSON,
+                        'discussionIDs' => array_values($checkedDiscussions),
+                        'fork' => false
+                    ]
+                ], 'Ajax');
+                $this->title(t("Deleting..."));
+                $this->setFormSaved(false);
+                $this->jsonTarget(
+                    "#Popup .Content",
+                    $this->renderTwig('/applications/vanilla/views/moderation/progress.twig', $this->Data),
+                    "Html"
+                );
+                $this->View = "progress";
+            } else {
+                $this->jsonTarget("!element", "", "closePopup");
+                $this->setFormSaved(true);
+            }
 
-            // Clear selections
-            Gdn::userModel()->saveAttribute($session->UserID, 'CheckedDiscussions', null);
             ModerationController::informCheckedDiscussions($this, true);
         }
 
@@ -346,44 +422,59 @@ class ModerationController extends VanillaController {
         $this->Form = new Gdn_Form();
         $DiscussionModel = new DiscussionModel();
         $CategoryModel = new CategoryModel();
+        $startTime = time();
 
         $this->title(t('Confirm'));
 
         if ($DiscussionID) {
             $CheckedDiscussions = (array)$DiscussionID;
-            $ClearSelection = false;
             $discussion = $DiscussionModel->getID($DiscussionID, DATASET_TYPE_ARRAY);
             $this->setData('CategoryID', $discussion['CategoryID']);
             $this->setData('DiscussionType', $discussion['Type']);
         } else {
-            $CheckedDiscussions = Gdn::userModel()->getAttribute($Session->User->UserID, 'CheckedDiscussions', []);
+            $CheckedDiscussions = $this->Request->post('discussionIDs', null);
+
+            if ($CheckedDiscussions === null) {
+                $CheckedDiscussions = Gdn::userModel()->getAttribute($Session->User->UserID, 'CheckedDiscussions', []);
+            }
+
             if (!is_array($CheckedDiscussions)) {
                 $CheckedDiscussions = [];
             }
-
-            $ClearSelection = true;
         }
 
         $DiscussionIDs = $CheckedDiscussions;
         $CountCheckedDiscussions = count($DiscussionIDs);
         $this->setData('CountCheckedDiscussions', $CountCheckedDiscussions);
 
+        // fire event
+        $this->EventArguments['select'] = ['DiscussionID', 'Name', 'Type', 'DateLastComment', 'CategoryID', 'CountComments'];
+        $this->fireEvent('beforeDiscussionMoveSelect', $this->EventArguments);
+
         // Check for edit permissions on each discussion
         $AllowedDiscussions = [];
-        $DiscussionData = $DiscussionModel->SQL->select('DiscussionID, Name, DateLastComment, CategoryID, CountComments')->from('Discussion')->whereIn('DiscussionID', $DiscussionIDs)->get();
+        $DiscussionData = $DiscussionModel->SQL
+            ->select($this->EventArguments['select'])
+            ->from('Discussion')->whereIn('DiscussionID', $DiscussionIDs)->get();
 
         $DiscussionData = Gdn_DataSet::index($DiscussionData->resultArray(), ['DiscussionID']);
         foreach ($DiscussionData as $DiscussionID => $Discussion) {
             $Category = CategoryModel::categories($Discussion['CategoryID']);
-            if ($Category && $Category['PermsDiscussionsEdit']) {
+            if (!array_key_exists('DiscussionType', $this->Data) && !is_null($Discussion['Type'])) {
+                $this->setData('DiscussionType', $Discussion['Type']);
+                $this->setData('CategoryID', $Category['CategoryID']);
+            }
+            if ($Category && CategoryModel::checkPermission($Category, 'Vanilla.Discussions.Edit')) {
                 $AllowedDiscussions[] = $DiscussionID;
             }
         }
+
+        $checkedDiscussions = array_combine($AllowedDiscussions, $AllowedDiscussions);
         $this->setData('CountAllowed', count($AllowedDiscussions));
         $CountNotAllowed = $CountCheckedDiscussions - count($AllowedDiscussions);
         $this->setData('CountNotAllowed', $CountNotAllowed);
 
-        if ($this->Form->authenticatedPostBack()) {
+        if ($this->Request->isAuthenticatedPostBack(true)) {
             // Retrieve the category id
             $CategoryID = $this->Form->getFormValue('CategoryID');
             $Category = CategoryModel::categories($CategoryID);
@@ -393,15 +484,14 @@ class ModerationController extends VanillaController {
                 $RedirectLink = $this->Form->getFormValue('RedirectLink');
 
                 // User must have add permission on the target category
-                if (!$Category['PermsDiscussionsAdd']) {
+                if (!CategoryModel::checkPermission($Category, 'Vanilla.Discussions.Add')) {
                     throw forbiddenException('@' . t('You do not have permission to add discussions to this category.'));
                 }
-
-                $AffectedCategories = [];
 
                 // Iterate and move.
                 foreach ($AllowedDiscussions as $DiscussionID) {
                     $Discussion = val($DiscussionID, $DiscussionData);
+                    $this->EventArguments['discussion'] = &$Discussion;
 
                     // Create the shadow redirect.
                     if ($RedirectLink) {
@@ -413,10 +503,18 @@ class ModerationController extends VanillaController {
                             'DateInserted' => $Discussion['DateLastComment'],
                             'Type' => 'redirect',
                             'CategoryID' => $Discussion['CategoryID'],
-                            'Body' => formatString(t('This discussion has been <a href="{url,html}">moved</a>.'), ['url' => discussionUrl($Discussion)]),
+                            'Body' => formatString(
+                                t('This discussion has been <a href="{url,html}">moved</a>.'),
+                                ['url' => discussionUrl($Discussion)]
+                            ),
                             'Format' => 'Html',
                             'Closed' => true
                         ];
+
+                        $this->EventArguments['redirectDiscussion'] = &$RedirectDiscussion;
+
+                        // fire event
+                        $this->fireEvent('beforeRedirectDiscussionSave', $this->EventArguments);
 
                         // Pass a forced input formatter around this exception.
                         if (c('Garden.ForceInputFormatter')) {
@@ -437,54 +535,57 @@ class ModerationController extends VanillaController {
                         }
                     }
 
-                    $DiscussionModel->setField($DiscussionID, 'CategoryID', $CategoryID);
+                    $this->EventArguments['save'] = [
+                        "CategoryID" => $CategoryID,
+                        "DiscussionID" => $DiscussionID,
+                    ];
 
-                    if (!isset($AffectedCategories[$Discussion['CategoryID']])) {
-                        $AffectedCategories[$Discussion['CategoryID']] = [-1, -$Discussion['CountComments']];
-                    } else {
-                        $AffectedCategories[$Discussion['CategoryID']][0] -= 1;
-                        $AffectedCategories[$Discussion['CategoryID']][1] -= $Discussion['CountComments'];
-                    }
-                    if (!isset($AffectedCategories[$CategoryID])) {
-                        $AffectedCategories[$CategoryID] = [1, $Discussion['CountComments']];
-                    } else {
-                        $AffectedCategories[$CategoryID][0] += 1;
-                        $AffectedCategories[$CategoryID][1] += $Discussion['CountComments'];
-                    }
-                }
+                    // fire event
+                    $this->fireEvent('beforeDiscussionMoveSave', $this->EventArguments);
 
-                // Update recent posts and counts on all affected categories.
-                CategoryModel::clearCache();
-                foreach ($AffectedCategories as $categoryID => $counts) {
-                    $CategoryModel->refreshAggregateRecentPost($categoryID, true);
+                    $DiscussionModel->save($this->EventArguments['save']);
+                    unset($checkedDiscussions[$DiscussionID]);
 
-                    // Prepare to adjust post counts for this category and its ancestors.
-                    list($discussionOffset, $commentOffset) = $counts;
+                    Gdn::userModel()->saveAttribute(
+                        $Session->UserID,
+                        "CheckedDiscussions",
+                        array_values($checkedDiscussions)
+                    );
 
-                    // Offset the discussion count for this category and its parents.
-                    if ($discussionOffset < 0) {
-                        CategoryModel::decrementAggregateCount($categoryID, CategoryModel::AGGREGATE_DISCUSSION, $discussionOffset, false);
-                    } else {
-                        CategoryModel::incrementAggregateCount($categoryID, CategoryModel::AGGREGATE_DISCUSSION, $discussionOffset, false);
-                    }
-
-                    // Offset the comment count for this category and its parents.
-                    if ($commentOffset < 0) {
-                        CategoryModel::decrementAggregateCount($categoryID, CategoryModel::AGGREGATE_COMMENT, $commentOffset, false);
-                    } else {
-                        CategoryModel::incrementAggregateCount($categoryID, CategoryModel::AGGREGATE_COMMENT, $commentOffset, false);
+                    $elapsedTime = time() - $startTime;
+                    if ($elapsedTime > self::MAX_TIME_BATCH) {
+                        break;
                     }
                 }
-                CategoryModel::clearCache();
 
-                // Clear selections.
-                if ($ClearSelection) {
-                    Gdn::userModel()->saveAttribute($Session->UserID, 'CheckedDiscussions', false);
+                if (!empty($checkedDiscussions)) {
+                    $this->jsonTarget('', [
+                        'url' => '/moderation/confirmdiscussionmoves',
+                        'reprocess' => true,
+                        'data' => [
+                            'DeliveryType' => DELIVERY_TYPE_VIEW,
+                            'DeliveryMethod' => DELIVERY_METHOD_JSON,
+                            'CategoryID' => $CategoryID,
+                            'RedirectLink' => $this->Form->getFormValue('RedirectLink') ? 1 : 0,
+                            'discussionIDs' => array_values($checkedDiscussions),
+                            'fork' => false
+                        ]
+                    ], 'Ajax');
+                    $this->title(t("Moving..."));
+                    $this->setFormSaved(false);
+                    $this->jsonTarget(
+                        "#Popup .Content",
+                        $this->renderTwig('/applications/vanilla/views/moderation/progress.twig', $this->Data),
+                        "Html"
+                    );
+                    $this->View = "progress";
+                } else {
                     ModerationController::informCheckedDiscussions($this);
-                }
 
-                if ($this->Form->errorCount() == 0) {
-                    $this->jsonTarget('', '', 'Refresh');
+                    if ($this->Form->errorCount() == 0) {
+                        $this->setFormSaved(true);
+                        $this->jsonTarget('', '', 'Refresh');
+                    }
                 }
             }
         }

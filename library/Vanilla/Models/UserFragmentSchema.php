@@ -9,6 +9,7 @@ namespace Vanilla\Models;
 
 use Garden\Schema\Schema;
 use Vanilla\ApiUtils;
+use Vanilla\SchemaFactory;
 
 /**
  * Schema to validate shape of some media upload metadata.
@@ -22,10 +23,26 @@ class UserFragmentSchema extends Schema {
         parent::__construct($this->parseInternal([
             'userID:i', // The ID of the user.
             'name:s', // The username of the user.
-            'photoUrl:s', // The URL of the user\'s avatar picture.
+            'title:s?', // The title of the user.
+            'url:s?', // Full URL to the user profile page.
+            'photoUrl:s', // The URL of the user's avatar picture.
             'dateLastActive:dt|n', // Time the user was last active.
             'label:s?'
         ]));
+    }
+
+    /** @var UserFragmentSchema */
+    private static $cache = null;
+
+    /**
+     * @return UserFragmentSchema
+     */
+    public static function instance(): UserFragmentSchema {
+        if (self::$cache === null) {
+            self::$cache = SchemaFactory::get(self::class, 'UserFragment');
+        }
+
+        return self::$cache;
     }
 
     /**
@@ -35,12 +52,19 @@ class UserFragmentSchema extends Schema {
      * @return array
      */
     public static function normalizeUserFragment(array $dbRecord) {
-        if (array_key_exists('Photo', $dbRecord)) {
+        $photo = $dbRecord['Photo'] ?? '';
+        if ($photo) {
             $photo = userPhotoUrl($dbRecord);
             $dbRecord['PhotoUrl'] = $photo;
+        } else {
+            $url = \UserModel::getDefaultAvatarUrl($dbRecord);
+            $dbRecord['PhotoUrl'] = ($url) ? $url : \UserModel::getDefaultAvatarUrl();
         }
+        $dbRecord['url'] = url(userUrl($dbRecord), true);
+        $dbRecord['Name'] = empty($dbRecord['Name']) ? 'unknown' : $dbRecord['Name'];
 
         $schemaRecord = ApiUtils::convertOutputKeys($dbRecord);
+        $schemaRecord = self::instance()->validate($schemaRecord);
         return $schemaRecord;
     }
 }

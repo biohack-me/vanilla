@@ -13,7 +13,7 @@
  * are: (string) Name, (bool) PrimaryKey, (string) Type, (bool) AllowNull,
  * (string) Default, (int) Length, (array) Enum.
  *
- * @copyright 2009-2019 Vanilla Forums Inc.
+ * @copyright 2009-2020 Vanilla Forums Inc.
  * @license GPL-2.0-only
  * @package Core
  * @since 2.0
@@ -58,8 +58,16 @@ if (!function_exists('ValidateRequired')) {
         }
 
         if (is_string($value)) {
-            // Empty strings should pass if the default value of the field is an empty string.
-            if ($value === '' && val('Default', $field, null) === '') {
+            // Empty strings should pass if the default value of the field is an empty string or one of the Enum
+            // values is an empty string.
+
+            // Checking for an Enum with an empty string.
+            $hasEmptyEnum = false;
+            if (is_array($enum = val('Enum', $field, null))) {
+                $hasEmptyEnum = in_array('', $enum, true);
+            }
+
+            if ($value === '' && (val('Default', $field, null) === '' || $hasEmptyEnum)) {
                 return true;
             }
 
@@ -241,22 +249,27 @@ if (!function_exists('validateUsernameRegex')) {
     /**
      * Get the regular expression used to validate usernames.
      *
+     * @param mixed $partial Either the regex is partial or not.
      * @return string Returns a regular expression without enclosing delimiters.
      */
-    function validateUsernameRegex() {
-        static $validateUsernameRegex;
+    function validateUsernameRegex(&$partial = true) {
+        // Get the full regular expression from the configuration file.
+        $validateUsernameRegex = c('Garden.User.ValidationRegexPattern');
 
-        if (is_null($validateUsernameRegex)) {
-            // Set our default ValidationRegex based on Unicode support.
-            // Unicode includes Numbers, Letters, Marks, & Connector punctuation.
-            $defaultPattern = (unicodeRegexSupport()) ? '\p{N}\p{L}\p{M}\p{Pc}' : '\w';
-
-            $validateUsernameRegex = sprintf(
-                "[%s]%s",
-                c("Garden.User.ValidationRegex", $defaultPattern),
-                c("Garden.User.ValidationLength", "{3,20}")
-            );
+        if ($validateUsernameRegex) {
+            $partial = false;
+            return $validateUsernameRegex;
         }
+
+        // Set our default ValidationRegex based on Unicode support.
+        // Unicode includes Numbers, Letters, Marks, & Connector punctuation.
+        $defaultPattern = (unicodeRegexSupport()) ? '\p{N}\p{L}\p{M}\p{Pc}' : '\w';
+
+        $validateUsernameRegex = sprintf(
+            "[%s]%s",
+            c("Garden.User.ValidationRegex", $defaultPattern),
+            c("Garden.User.ValidationLength", "{3,20}")
+        );
 
         return $validateUsernameRegex;
     }
@@ -270,11 +283,20 @@ if (!function_exists('validateUsername')) {
      * @return bool Returns true if the value validates or false otherwise.
      */
     function validateUsername($value) {
-        $validateUsernameRegex = validateUsernameRegex();
+        $isPartialRegex = true;
+
+        // $isPartialRegex will be set to false if Garden.User.ValidationRegexPattern is set in the config.
+        $validateUsernameRegex = validateUsernameRegex($isPartialRegex);
+
+        if ($isPartialRegex) {
+            // Unescape the delimiters and escape them again to prevent double escaping.
+            $validateUsernameRegex = str_replace('`', '\\`', str_replace('\\`', '`', $validateUsernameRegex));
+            $validateUsernameRegex = "`^({$validateUsernameRegex})?$`siu";
+        }
 
         return validateRegex(
             $value,
-            "/^({$validateUsernameRegex})?$/siu"
+            $validateUsernameRegex
         );
     }
 }
@@ -398,6 +420,18 @@ if (!function_exists('validateInteger')) {
         $integer = intval($value);
         $string = strval($integer);
         return $string == $value;
+    }
+}
+
+if (!function_exists('validatePositiveNumber')) {
+    /**
+     * Validate if number is positive
+     *
+     * @param int|string $number
+     * @return bool
+     */
+    function validatePositiveNumber($number): bool {
+        return (is_numeric($number) && (int)$number > 0);
     }
 }
 
@@ -603,7 +637,12 @@ if (!function_exists('validateMinTextLength')) {
      */
     function validateMinTextLength($value, $field, $post) {
         if (isset($post['Format'])) {
+            $original = $value;
             $value = Gdn::formatService()->renderPlainText($value, $post['Format']);
+            // We need to simulate non-empty string if initial value was not empty
+            if (!empty($original) && empty($value)) {
+                $value = '.';
+            }
         }
 
         $value = html_entity_decode(trim(strip_tags($value)));

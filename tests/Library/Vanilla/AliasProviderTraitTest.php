@@ -24,7 +24,7 @@ class AliasProviderTraitTest extends IsolatedTestCase {
      * - Verify that the we are starting with a fresh set of classes. Eg. The classes we're testing have not been
      * autoloaded yet. $runTestInSeparateProcess should handle this.
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
 
         // Our alias autoloader throws deprecated notices. Disable the error reporting for these tests.
         // Since this test runs in a separate process it shouldn't affect the rest of the tests.
@@ -38,6 +38,7 @@ class AliasProviderTraitTest extends IsolatedTestCase {
      * Verify that loading the old class loads the new class through the autoloader.
      */
     public function testSimpleAliasAutoload() {
+        /** @psalm-suppress UndefinedClass */
         new \VanillaTests\OldClass();
         $this->assertCompleteAutoload(NewClass::class);
     }
@@ -55,6 +56,7 @@ class AliasProviderTraitTest extends IsolatedTestCase {
      * Tests for various permutations of old classname + new classnames with inheritance.
      */
     public function testOldExtendsNew() {
+        /** @psalm-suppress UndefinedClass */
         $this->assertClassExtendsClass(\VanillaTests\ExtendsOldClass::class, NewClass::class);
         $this->assertCompleteAutoload(NewClass::class);
         $this->assertCompleteAutoload(ExtendsNewClass::class);
@@ -64,6 +66,7 @@ class AliasProviderTraitTest extends IsolatedTestCase {
      * Tests for various permutations of old classname + new classnames with inheritance.
      */
     public function testNewExtendsOld() {
+        /** @psalm-suppress UndefinedClass */
         $this->assertClassExtendsClass(ExtendsNewClass::class, \VanillaTests\OldClass::class);
         $this->assertCompleteAutoload(NewClass::class);
         $this->assertCompleteAutoload(ExtendsNewClass::class);
@@ -73,6 +76,7 @@ class AliasProviderTraitTest extends IsolatedTestCase {
      * Tests for various permutations of old classname + new classnames with inheritance.
      */
     public function testOldExtendsOld() {
+        /** @psalm-suppress UndefinedClass */
         $this->assertClassExtendsClass(\VanillaTests\ExtendsOldClass::class, \VanillaTests\OldClass::class);
         $this->assertCompleteAutoload(NewClass::class);
         $this->assertCompleteAutoload(ExtendsNewClass::class);

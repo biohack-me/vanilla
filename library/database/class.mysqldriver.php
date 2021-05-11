@@ -23,9 +23,9 @@
 class Gdn_MySQLDriver extends Gdn_SQLDriver {
 
     /**
+     * Escape an identifier like a table or column name.
      *
-     *
-     * @param $string
+     * @param string $string
      * @return string
      * @deprecated
      */
@@ -38,7 +38,8 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * Takes a string of SQL and adds backticks if necessary.
      *
      * @param string|array $string The string (or array of strings) of SQL to be escaped.
-     * @param boolean $firstWordOnly Should the function only escape the first word?\
+     * @param boolean $firstWordOnly Should the function only escape the first word?
+     * @return string|array
      */
     public function escapeSql($string, $firstWordOnly = false) {
         if (is_array($string)) {
@@ -50,29 +51,23 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
 
             return $escapedArray;
         }
-        // echo '<div>STRING: '.$String.'</div>';
-
         // This function may get "item1 item2" as a string, and so
         // we may need "`item1` `item2`" and not "`item1 item2`"
         if (ctype_alnum($string) === false) {
             if (strpos($string, '.') !== false) {
                 $mungedAliases = implode('.', array_keys($this->_AliasMap)).'.';
                 $tableName = substr($string, 0, strpos($string, '.') + 1);
-                //echo '<div>STRING: '.$String.'</div>';
-                //echo '<div>TABLENAME: '.$TableName.'</div>';
-                //echo '<div>ALIASES: '.$MungedAliases.'</div>';
-                // If the "TableName" isn't found in the alias list and it is a valid table name, apply the database prefix to it
-                $string = (strpos($mungedAliases, $tableName) !== false || strpos($tableName, "'") !== false) ? $string : $this->Database->DatabasePrefix.$string;
-                //echo '<div>RESULT: '.$String.'</div>';
 
+                // If the "TableName" isn't found in the alias list and it is a valid table name, apply the database prefix to it
+                $string = (strpos($mungedAliases, $tableName) !== false || strpos($tableName, "'") !== false) ?
+                    $string :
+                    $this->Database->DatabasePrefix.$string;
             }
 
             // This function may get "field >= 1", and need it to return "`field` >= 1"
             $leftBound = ($firstWordOnly === true) ? '' : '|\s|\(';
 
             $string = preg_replace('/(^'.$leftBound.')([\w-]+?)(\s|\)|$)/iS', '$1`$2`$3', $string);
-            //echo '<div>STRING: '.$String.'</div>';
-
         } else {
             return "`{$string}`";
         }
@@ -88,7 +83,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
     }
 
     /**
-     *
+     * Escape a database identifier like a table or column name.
      *
      * @param string $refExpr
      * @return string
@@ -101,6 +96,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * Returns a platform-specific query to fetch column data from $table.
      *
      * @param string $table The name of the table to fetch column data from.
+     * @return string
      */
     public function fetchColumnSql($table) {
         if ($table[0] != '`' && !stringBeginsWith($table, $this->Database->DatabasePrefix)) {
@@ -112,21 +108,24 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
 
     /**
      * Returns a platform-specific query to fetch table names.
-     * @param mixed $limitToPrefix Whether or not to limit the search to tables with the database prefix or a specific table name. The following types can be given for this parameter:
-     *  - <b>TRUE</b>: The search will be limited to the database prefix.
-     *  - <b>FALSE</b>: All tables will be fetched. Default.
+     *
+     * @param bool|string $limitToPrefix Whether or not to limit the search to tables with the database prefix or a
+     * specific table name. The following types can be given for this parameter:
+     *  - <b>true</b>: The search will be limited to the database prefix.
+     *  - <b>false</b>: All tables will be fetched. Default.
      *  - <b>string</b>: The search will be limited to a like clause. The ':_' will be replaced with the database prefix.
+     * @return string
      */
     public function fetchTableSql($limitToPrefix = false) {
         $sql = "show tables";
 
         if (is_bool($limitToPrefix) && $limitToPrefix && $this->Database->DatabasePrefix != '') {
             $sql .= " like ".$this->Database->connection()->quote($this->Database->DatabasePrefix.'%');
-        } elseif (is_string($limitToPrefix) && $limitToPrefix)
-            $sql .= " like ".$this->Database->connection()->quote(str_replace(':_', $this->Database->DatabasePrefix, $limitToPrefix));
+        } elseif (is_string($limitToPrefix) && $limitToPrefix) {
+            $sql .= " like " . $this->Database->connection()->quote(str_replace(':_', $this->Database->DatabasePrefix, $limitToPrefix));
+        }
 
         return $sql;
-        echo "<pre>$sql</pre>";
     }
 
     /**
@@ -135,6 +134,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * Name, PrimaryKey, Type, AllowNull, Default, Length, Enum.
      *
      * @param string $table The name of the table to get schema data for.
+     * @return array
      */
     public function fetchTableSchema($table) {
         // Format the table name.
@@ -198,6 +198,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * engine.
      *
      * @param string $table The name of the table name to format.
+     * @return string
      */
     public function formatTableName($table) {
 
@@ -213,11 +214,12 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
     }
 
     /**
-     * Returns a delete statement for the specified table and the supplied
-     * conditions.
+     * Returns a delete statement for the specified table and the supplied conditions.
      *
      * @param string $tableName The name of the table to delete from.
      * @param array $wheres An array of where conditions.
+     * @param int $limit Limit the number of records to delete.
+     * @return string Returns an DML statement.
      */
     public function getDelete($tableName, $wheres = [], $limit = 0) {
         $conditions = '';
@@ -263,6 +265,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * or an array of FieldName values that should have values inserted from
      * $select.
      * @param string $select A select query that will fill the FieldNames specified in $data.
+     * @return string
      */
     public function getInsert($table, $data, $select = '') {
         if (!is_array($data)) {
@@ -309,6 +312,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * @param string $query The SQL string to which the limit statement should be appended.
      * @param int $limit The number of records to limit the query to.
      * @param int $offset The number of records to offset the query from.
+     * @return string
      */
     public function getLimit($query, $limit, $offset) {
         $offset = $offset == 0 ? '' : $offset.', ';
@@ -372,7 +376,8 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
     /**
      * Returns a truncate statement for this database engine.
      *
-     * @param string The name of the table to updated data in.
+     * @param string $table The name of the table to updated data in.
+     * @return string
      */
     public function getTruncate($table) {
         return 'truncate '.$this->formatTableName($table);
@@ -386,6 +391,7 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * final "else" option of the case statement. eg.
      * array('null' => 1, '' => 0) results in "when null then 1 else 0".
      * @param string $alias The alias to give a column name.
+     * @return $this
      */
     public function selectCase($field, $options, $alias) {
         $caseOptions = '';
@@ -404,7 +410,6 @@ class Gdn_MySQLDriver extends Gdn_SQLDriver {
      * Sets the character encoding for this database engine.
      *
      * @param string $encoding
-     * @todo $encoding needs a description.
      */
     public function setEncoding($encoding) {
         if ($encoding != '' && $encoding !== false) {

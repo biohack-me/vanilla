@@ -7,7 +7,7 @@
 import React from "react";
 import { t } from "@library/utility/appUtils";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import classNames from "classnames";
 import { ClearIcon } from "@library/icons/common";
 
@@ -22,7 +22,7 @@ interface IProps {
 export function ClearButton(props: IProps) {
     return (
         <Button
-            baseClass={ButtonTypes.ICON}
+            buttonType={ButtonTypes.ICON}
             className={classNames("suggestedTextInput-clear", "searchBar-clear", props.className)}
             onClick={props.onClick}
             title={t("Clear")}

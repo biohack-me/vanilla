@@ -8,10 +8,19 @@
  * @since 2.0
  */
 
+use Vanilla\Contracts\Models\FragmentFetcherInterface;
+
 /**
  * Handles role data.
  */
-class RoleModel extends Gdn_Model {
+class RoleModel extends Gdn_Model implements FragmentFetcherInterface {
+
+    const GUEST_ID = 2;
+    const UNCONFIRMED_ID = 3;
+    const APPLICANT_ID = 4;
+    const MEMBER_ID = 8;
+    const ADMIN_ID = 16;
+    const MOD_ID = 32;
 
     /** Slug for Guest role type. */
     const TYPE_GUEST = 'guest';
@@ -31,7 +40,7 @@ class RoleModel extends Gdn_Model {
     /** Slug for Administrator role type. */
     const TYPE_ADMINISTRATOR = 'administrator';
 
-    /** @var array|null All roles. */
+    /** @var array All roles. */
     public static $Roles = null;
 
     /** @var array A list of permissions that define an increasing ranking of permissions. */
@@ -62,11 +71,12 @@ class RoleModel extends Gdn_Model {
     /**
      * Define a role.
      *
-     * @param $values
+     * @param array $values
+     * @return int|false
      */
     public function define($values) {
         if (array_key_exists('RoleID', $values)) {
-            $roleID = $values['RoleID'];
+            $roleID = (int)$values['RoleID'];
             unset($values['RoleID']);
 
             $this->SQL->replace('Role', $values, ['RoleID' => $roleID], true);
@@ -81,19 +91,21 @@ class RoleModel extends Gdn_Model {
                 $values['RoleID'] = $roleID;
 
                 // Insert the role.
-                $this->SQL->insert('Role', $values);
+                $roleID = $this->SQL->insert('Role', $values);
             } else {
+                $roleID = (int)$roleID;
                 // Update the role.
                 $this->SQL->update('Role', $values, ['RoleID' => $roleID])->put();
             }
         }
         $this->clearCache();
+        return $roleID ? (int)$roleID : false;
     }
 
     /**
      * Use with array_filter to remove PersonalInfo roles.
      *
-     * @var mixed $roles Role name (string) or $role data (array or object).
+     * @param mixed $role Role name (string) or $role data (array or object).
      * @return bool Whether role is NOT personal info (FALSE = remove it, it's personal).
      */
     public static function filterPersonalInfo($role) {
@@ -204,6 +216,23 @@ class RoleModel extends Gdn_Model {
         $roles = array_column($roles, 'Name', 'RoleID');
 
         return $roles;
+    }
+
+    /**
+     * Determine whether or not a user can assign a role to other users.
+     *
+     * @param int $userID
+     * @param int $roleID
+     * @return bool
+     * @todo Implement this method properly with tests.
+     */
+    public function canUserAssign(int $userID, int $roleID): bool {
+        if ($userID == Gdn::session()->UserID) {
+            $assignable = $this->getAssignable();
+            return isset($assignable[$roleID]);
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -328,7 +357,7 @@ class RoleModel extends Gdn_Model {
     /**
      * Returns a resultset of role data related to the specified RoleID.
      *
-     * @param int The RoleID to filter to.
+     * @param int $roleID The RoleID to filter to.
      */
     public function getByRoleID($roleID) {
         return $this->getWhere(['RoleID' => $roleID])->firstRow();
@@ -360,9 +389,9 @@ class RoleModel extends Gdn_Model {
     }
 
     /**
-     * Returns a resultset of role data NOT related to the specified RoleID.
+     * Returns a dataset of role data NOT related to the specified RoleID.
      *
-     * @param int The RoleID to filter out.
+     * @param int $roleID The RoleID to filter out.
      */
     public function getByNotRoleID($roleID) {
         return $this->getWhere(['RoleID <>' => $roleID]);
@@ -392,8 +421,8 @@ class RoleModel extends Gdn_Model {
      * $usersOnlyWithThisRole is TRUE, it will return the number of users who
      * are assigned to this RoleID and NO OTHER.
      *
-     * @param int The RoleID to filter to.
-     * @param bool Indicating if the count should be any users with this RoleID, or users who are ONLY assigned to this RoleID.
+     * @param int $roleID The RoleID to filter to.
+     * @param bool $usersOnlyWithThisRole Indicating if the count should be any users with this RoleID, or users who are ONLY assigned to this RoleID.
      */
     public function getUserCount($roleID, $usersOnlyWithThisRole = false) {
         if ($usersOnlyWithThisRole) {
@@ -451,7 +480,7 @@ class RoleModel extends Gdn_Model {
     /**
      * Retrieves all roles with the specified permission(s).
      *
-     * @param mixed A permission (or array of permissions) to match.
+     * @param string[]|string $permission A permission (or array of permissions) to match.
      */
     public function getByPermission($permission) {
         if (!is_array($permission)) {
@@ -475,7 +504,8 @@ class RoleModel extends Gdn_Model {
     /**
      * Get a role by name.
      *
-     * @param array|string $names
+     * @param string[]|string $names
+     * @param string[] $missing
      */
     public static function getByName($names, &$missing = null) {
         if (is_string($names)) {
@@ -491,7 +521,8 @@ class RoleModel extends Gdn_Model {
         $roles = RoleModel::roles();
         $result = [];
         foreach ($roles as $roleID => $role) {
-            $name = strtolower($role['Name']);
+            // Role name might have a trailing space by mistake.
+            $name = trim(strtolower($role['Name']));
 
             if (isset($names[$name])) {
                 $result[$roleID] = $role;
@@ -505,11 +536,11 @@ class RoleModel extends Gdn_Model {
     }
 
     /**
+     * Get all known roles, or one particular role by its ID.
      *
-     *
-     * @param null $roleID
-     * @param bool $force
-     * @return array|mixed|null|type
+     * @param int|null $roleID A role ID. If null, return all known roles.
+     * @param bool $force If the ID does not correspond to a known role, return an empty fragment (row ID, blank name).
+     * @return array
      */
     public static function roles($roleID = null, $force = false) {
         if (self::$Roles == null) {
@@ -526,11 +557,11 @@ class RoleModel extends Gdn_Model {
 
         if ($roleID === null) {
             return $roles;
-        } elseif (array_key_exists($roleID, $roles))
+        } elseif (array_key_exists($roleID, $roles)) {
             return $roles[$roleID];
-        elseif ($force)
+        } elseif ($force) {
             return ['RoleID' => $roleID, 'Name' => ''];
-        else {
+        } else {
             return null;
         }
     }
@@ -565,6 +596,10 @@ class RoleModel extends Gdn_Model {
         if ($this->validate($formPostValues, $insert)) {
             $fields = $this->Validation->schemaValidationFields();
             $fields = $this->coerceData($fields);
+            // If the role name has trailing spaces, it can cause problems.
+            if (isset($fields['Name'])) {
+                $fields['Name'] = trim($fields['Name']);
+            }
 
             if ($insert === false) {
                 $this->update($fields, ['RoleID' => $roleID]);
@@ -614,7 +649,6 @@ class RoleModel extends Gdn_Model {
 
             if (Gdn::cache()->activeEnabled()) {
                 // Don't update the user table if we are just using cached permissions.
-                $this->clearCache();
                 Gdn::userModel()->clearPermissions();
             } else {
                 // Remove the cached permissions for all users with this role.
@@ -631,9 +665,27 @@ class RoleModel extends Gdn_Model {
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function insert($fields) {
+        $result = parent::insert($fields);
+        $this->clearCache();
+        return $result;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function update($fields, $where = false, $limit = false) {
+        $result = parent::update($fields, $where, $limit);
+        $this->clearCache();
+        return $result;
+    }
+
+    /**
+     * Set the roles for one or more users.
      *
-     *
-     * @param $users
+     * @param array $users
      * @param string $userIDColumn
      * @param string $rolesColumn
      */
@@ -735,7 +787,13 @@ class RoleModel extends Gdn_Model {
      * @return bool Returns **true** on success or **false** on failure.
      */
     public function deleteAndReplace($roleID, $newRoleID) {
-        // First update users that will be orphaned
+        $roleID = (int) $roleID;
+
+        // Grab the affected users
+        $userModel = Gdn::userModel();
+        $affectedUsers = $userModel->getByRole($roleID)->resultArray();
+
+        // Update users that will be orphaned
         if (is_numeric($newRoleID) && $newRoleID > 0) {
             $this->SQL
                 ->options('Ignore', true)
@@ -752,9 +810,16 @@ class RoleModel extends Gdn_Model {
         $permissionModel = Gdn::permissionModel();
         $permissionModel->delete($roleID);
 
+        // Clear the user cache for the affected users.
+        foreach ($affectedUsers as $user) {
+            $userModel->clearCache($user['UserID']);
+        }
+
+
         // Remove the role
         $this->SQL->delete('UserRole', ['RoleID' => $roleID]);
         $result = $this->SQL->delete('Role', ['RoleID' => $roleID]);
+        $this->clearCache();
         return $result;
     }
 
@@ -762,7 +827,7 @@ class RoleModel extends Gdn_Model {
      * Get a list of a user's roles that are permitted to be seen.
      * Optionally return all the role data or just one field name.
      *
-     * @param $userID
+     * @param int $userID
      * @param string $field optionally the field name from the role table to return.
      * @return array|null|void
      */
@@ -830,6 +895,18 @@ class RoleModel extends Gdn_Model {
         }
 
         $result = $result && parent::validate($values, $insert);
+        return $result;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function fetchFragments(array $ids, array $options = []): array {
+        $allRoles = self::roles();
+        $result = array_intersect_key($allRoles, array_fill_keys($ids, true));
+        foreach ($result as &$row) {
+            $row = ['roleID' => (int)$row['RoleID'], 'name' => $row['Name']];
+        }
         return $result;
     }
 }

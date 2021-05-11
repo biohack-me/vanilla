@@ -13,7 +13,7 @@ use Vanilla\Utility\CamelCaseScheme;
 /**
  * Contains the information for a single addon.
  */
-class Addon implements Contracts\AddonInterface {
+class Addon {
 
     const TYPE_ADDON = 'addon';
     const TYPE_LOCALE = 'locale';
@@ -115,7 +115,6 @@ class Addon implements Contracts\AddonInterface {
 
         // Fix issues with the plugin that can be fixed.
         $this->check(true);
-
     }
 
     /**
@@ -161,7 +160,7 @@ class Addon implements Contracts\AddonInterface {
                         $info['keyRaw'] = $info['name'];
                     }
                 } else {
-                    if ($addonFolder !== $info['key']) {
+                    if (isset($info['key']) && $addonFolder !== $info['key']) {
                         $info['keyRaw'] = $addonFolder;
                     }
                 }
@@ -200,11 +199,11 @@ class Addon implements Contracts\AddonInterface {
     }
 
     /**
-     * Make a full path from an addon-relative path.
+     * Generate a path for this addon relative to a given directory.
      *
-     * @param string $subpath The subpath to base the path on, starting with a "/".
-     * @param string $relative One of the **Addon::PATH_*** constants.
-     * @return string Returns a full path.
+     * @param string $subpath The sub-path to generate from.
+     * @param string $relative One of the `self::PATH_*` constants.
+     * @return string Returns a generate path.
      */
     public function path($subpath = '', $relative = self::PATH_FULL) {
         $subpath = $subpath ? '/'.ltrim($subpath, '\\/') : '';
@@ -228,7 +227,7 @@ class Addon implements Contracts\AddonInterface {
      * Perform a glob from this addon's subdirectory.
      *
      * @param string $pattern The pattern to glob.
-     * @param string $dirs Just directories.
+     * @param bool $dirs Just directories.
      * @return array Returns an array of root-relative paths.
      * @see glob()
      */
@@ -291,6 +290,7 @@ class Addon implements Contracts\AddonInterface {
         $oldType = null;
 
         // See which info array is defined.
+        /** @psalm-suppress UndefinedVariable */
         if (!empty($PluginInfo) && is_array($PluginInfo)) {
             $array = $PluginInfo;
             $type = static::TYPE_ADDON;
@@ -428,7 +428,7 @@ class Addon implements Contracts\AddonInterface {
      * @param array $info The new info array to set.
      * @return Addon Returns `$this` for fluent calls.
      */
-    private function setInfo($info) {
+    private function setInfo(array $info) {
         $this->info = $info;
         return $this;
     }
@@ -476,7 +476,6 @@ class Addon implements Contracts\AddonInterface {
                     if (strcasecmp(substr($className, -6), 'plugin') === 0
                         || strcasecmp(substr($className, -5), 'hooks') === 0
                     ) {
-
                         if (empty($this->special['plugin'])) {
                             $this->special['plugin'] = $namespace.$className;
                         } else {
@@ -691,13 +690,9 @@ class Addon implements Contracts\AddonInterface {
     }
 
     /**
-     * Get a single value from the info array.
-     *
-     * @param string $key The key in the info array.
-     * @param mixed $default The default value to return if there is no item.
-     * @return mixed Returns the info value or {@link $default}.
+     * @inheritdoc
      */
-    public function getInfoValue($key, $default = null) {
+    public function getInfoValue(string $key, $default = null) {
         return isset($this->info[$key]) ? $this->info[$key] : $default;
     }
 
@@ -756,7 +751,6 @@ class Addon implements Contracts\AddonInterface {
         if ($rawKey !== $subdir
             && in_array($this->getType(), [static::TYPE_LOCALE, static::TYPE_THEME])
         ) {
-
             $issues['key-subdir-mismatch'] = "The addon key must match its subdirectory name ($rawKey vs. $subdir).";
         }
 
@@ -922,6 +916,7 @@ class Addon implements Contracts\AddonInterface {
      *
      * @param string $version The version to check.
      * @param string $requirement The version requirement.
+     * @return bool Returns **true** if the version checks out or **false** otherwise.
      */
     public static function checkVersion($version, $requirement) {
         // Split the version up on operator boundaries.
@@ -1111,7 +1106,11 @@ class Addon implements Contracts\AddonInterface {
      * @return string Returns the name of the addon or its key if it has no name.
      */
     public function getName() {
-        return $this->getInfoValue('name', $this->getRawKey());
+        $displayName = $this->getInfoValue('displayName');
+        $name = $this->getInfoValue('name');
+        $rawKey = $this->getRawKey();
+
+        return $displayName ?? $name ?? $rawKey;
     }
 
     /**
@@ -1152,11 +1151,9 @@ class Addon implements Contracts\AddonInterface {
     }
 
     /**
-     * Get the info.
-     *
-     * @return array Returns the info.
+     * @inheritdoc
      */
-    public function getInfo() {
+    public function getInfo(): array {
         return $this->info;
     }
 
@@ -1259,7 +1256,7 @@ class Addon implements Contracts\AddonInterface {
         $classInfo = self::parseFullyQualifiedClass($fullClassName);
         $key = strtolower($classInfo['className']);
         if (array_key_exists($key, $this->classes)) {
-            foreach($this->classes[$key] as $classData) {
+            foreach ($this->classes[$key] as $classData) {
                 if (strtolower($classInfo['namespace']) === strtolower($classData['namespace'])) {
                     $path = $this->path($classData['path'], $relative);
                     return $path;

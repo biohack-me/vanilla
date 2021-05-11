@@ -12,7 +12,9 @@ import { resolve } from "path";
 export const VANILLA_ROOT = resolve(__dirname, "../../");
 export const VANILLA_PLUGINS = resolve(VANILLA_ROOT, "plugins");
 export const VANILLA_APPS = resolve(VANILLA_ROOT, "applications");
-export const VANILLA_THEMES = resolve(VANILLA_ROOT, "themes");
+export const VANILLA_THEMES_LEGACY = resolve(VANILLA_ROOT, "themes");
+export const VANILLA_THEMES = resolve(VANILLA_ROOT, "addons/themes");
+export const VANILLA_ADDONS = resolve(VANILLA_ROOT, "addons/addons");
 
 export const PACKAGES_DIRECTORY = resolve(VANILLA_ROOT, "packages");
 export const DIST_DIRECTORY = resolve(VANILLA_ROOT, "dist");
@@ -25,6 +27,7 @@ export const TS_LINT_FILE = resolve(VANILLA_ROOT, "tslint.json");
 
 // Special entries
 export const BOOTSTRAP_SOURCE_FILE = resolve(VANILLA_ROOT, "library/src/scripts/bootstrap.ts");
+export const EMOTION_DEV_SPEEDUP_FILE = resolve(VANILLA_ROOT, "library/src/scripts/emotionDevSpeedup.ts");
 export const POLYFILL_SOURCE_FILE = "@vanilla/polyfill";
 export const PUBLIC_PATH_SOURCE_FILE = resolve(VANILLA_ROOT, "build/entries/public-path.ts");
 

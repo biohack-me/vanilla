@@ -4,15 +4,18 @@
  */
 
 import React, { useContext } from "react";
-import { useFormGroup } from "@dashboard/forms/DashboardFormGroup";
+import { useFormGroup } from "@dashboard/forms/DashboardFormGroupContext";
 import classNames from "classnames";
 import { useThrowError } from "@vanilla/react-utils";
 import { DashboardLabelType } from "@dashboard/forms/DashboardFormLabel";
+import { IFieldError } from "@library/@types/api/core";
 
 interface IRadioGroupContext {
     isInline?: boolean;
+    isGrid?: boolean;
     onChange?: (value: string) => void;
     value?: string;
+    errors?: IFieldError[];
 }
 
 const RadioGroupContext = React.createContext<IRadioGroupContext | null>(null);
@@ -44,8 +47,8 @@ export function DashboardRadioGroup(props: IProps) {
     return (
         <RadioGroupContext.Provider value={props}>
             <div
-                className={classNames(rootClass, { inline: props.isInline })}
-                role={props.type}
+                className={classNames(rootClass, { inline: props.isInline }, { grid: props.isGrid })}
+                role={type}
                 aria-labelledby={labelID}
             >
                 {props.children}

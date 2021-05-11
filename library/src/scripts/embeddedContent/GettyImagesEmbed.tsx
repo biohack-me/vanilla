@@ -5,7 +5,7 @@
 
 import { ensureScript } from "@vanilla/dom-utils";
 import { escapeHTML } from "@vanilla/dom-utils";
-import { EmbedContent } from "@library/embeddedContent/EmbedContent";
+import { EmbedContent } from "@library/embeddedContent/components/EmbedContent";
 import { IBaseEmbedProps } from "@library/embeddedContent/embedService";
 import React, { useLayoutEffect } from "react";
 import { useThrowError } from "@vanilla/react-utils";
@@ -31,7 +31,7 @@ export function GettyImagesEmbed(props: IProps): JSX.Element {
     });
 
     return (
-        <EmbedContent type={props.embedType} inEditor={props.inEditor}>
+        <EmbedContent type={props.embedType}>
             <a
                 className="embedExternal-content gie-single js-gettyEmbed"
                 href={`https://www.gettyimages.com/detail/${props.photoID}`}

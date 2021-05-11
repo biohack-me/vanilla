@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Vanilla\Addon;
 use Vanilla\AddonManager;
 use Vanilla\OpenAPIBuilder;
-use VanillaTests\Fixtures\MockAddonProvider;
+use VanillaTests\Fixtures\MockAddonManager;
 use VanillaTests\Fixtures\Request;
 
 /**
@@ -51,17 +51,55 @@ class OpenAPIBuilderTest extends TestCase {
         );
 
         $request = new Request();
-        $builder = new OpenAPIBuilder($am, $request);
+        $builder = new OpenAPIBuilder($am, $request, PATH_ROOT.'/tests/cache/'.__FUNCTION__.'.php');
 
         $data = $builder->generateFullOpenAPI();
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         $path = PATH_ROOT.'/tests/cache/open-api-builder/openapi.json';
-        file_put_contents($path, $json);
+        if (file_put_contents($path, $json) === false) {
+            $this->fail("Unable to write OpenAPI to {$path}");
+        }
 
         $dir = getcwd();
         chdir(PATH_ROOT);
-        exec("npx swagger-cli@2.2.1 validate $path", $output, $result);
+        exec("npx swagger-cli@2.3.4 validate $path 2>&1", $output, $result);
         chdir($dir);
-        $this->assertSame(0, $result);
+
+        $this->assertSame(0, $result, implode(PHP_EOL, $output));
+    }
+
+    /**
+     * Test specific OpenAPI schema merging bugs.
+     *
+     * @param array $schema1
+     * @param array $schema2
+     * @param array $expected
+     * @dataProvider provideSchemaMergeScenarios
+     */
+    public function testSchemaMergeBugs(array $schema1, array $schema2, array $expected) {
+        $actual = OpenAPIBuilder::mergeSchemas($schema1, $schema2);
+        $this->assertSame($expected, $actual);
+    }
+
+    /**
+     * Data provider.
+     *
+     * @return array
+     */
+    public function provideSchemaMergeScenarios(): array {
+        $r = [
+            'enum' => [
+                ['enum' => ['a', 'c']], ['enum' => ['a', 'b']], ['enum' => ['a', 'b', 'c']]
+            ],
+            'parameters' => [
+                ['parameters' => [['name' => 'a', 'e' => [1]]]],
+                ['parameters' => [['name' => 'b'], ['name' => 'a', 'e' => [2]]]],
+                ['parameters' => [['name' => 'a', 'e' => [1, 2]], ['name' => 'b']]],
+            ],
+            'required' => [
+                ['required' => ['a', 'c']], ['required' => ['a', 'b']], ['required' => ['a', 'c', 'b']]
+            ],
+        ];
+        return $r;
     }
 }

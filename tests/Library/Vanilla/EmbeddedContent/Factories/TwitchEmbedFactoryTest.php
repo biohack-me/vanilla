@@ -26,7 +26,7 @@ class TwitchEmbedFactoryTest extends MinimalContainerTestCase {
     /**
      * Set the factory and client.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         $this->httpClient = new MockHttpClient();
         $this->factory = new TwitchEmbedFactory($this->httpClient);
@@ -113,5 +113,48 @@ class TwitchEmbedFactoryTest extends MinimalContainerTestCase {
         // Just verify that this doesn't throw an exception.
         $dataEmbed = new TwitchEmbed($embedData);
         $this->assertInstanceOf(TwitchEmbed::class, $dataEmbed);
+    }
+
+    /**
+     * Verify generating Twitch video embed type and ID from a URL.
+     *
+     * @param string $url
+     * @param string|null $expectedID
+     * @dataProvider provideIDTestUrls
+     */
+    public function testIDFromUrl(string $url, ?string $expectedID): void {
+        $embed = $this->factory->createEmbedForUrl($url);
+        $data = $embed->jsonSerialize();
+        $this->assertSame($data["twitchID"], $expectedID);
+    }
+
+    /**
+     * Provide data for testing extracting an embed type and ID from a URL.
+     *
+     * @return array
+     */
+    public function provideIDTestUrls(): array {
+        return [
+            "Clip, short-form" => [
+                "https://clips.twitch.tv/KnottyOddFishShazBotstix",
+                "clip:KnottyOddFishShazBotstix",
+            ],
+            "Clip, long-form" => [
+                "https://www.twitch.tv/jerma985/clip/KnottyOddFishShazBotstix",
+                "clip:KnottyOddFishShazBotstix",
+            ],
+            "Channel" => [
+                "https://www.twitch.tv/jerma985",
+                "channel:jerma985",
+            ],
+            "Video" => [
+                "https://www.twitch.tv/videos/346728148",
+                "video:346728148",
+            ],
+            "Collection" => [
+                "https://www.twitch.tv/collections/myIbIFkZphQSbQ",
+                "collection:myIbIFkZphQSbQ",
+            ],
+        ];
     }
 }

@@ -14,6 +14,7 @@
  * http, to other locations.
  */
 class Gdn_Router extends Gdn_Pluggable {
+    const DEFAULT_CONTROLLER_KEY = 'DefaultController';
 
     /** @var array */
     public $Routes;
@@ -44,8 +45,9 @@ class Gdn_Router extends Gdn_Pluggable {
 
     /**
      * Get an route that exactly matches a string.
+     *
      * @param string|int $route The route to search for.
-     * @param int $indexed If the route is a number then it will be looked up as an index.
+     * @param bool $indexed If the route is a number then it will be looked up as an index.
      *
      * @return array|bool A route or false if there is no matching route.
      */
@@ -64,13 +66,25 @@ class Gdn_Router extends Gdn_Pluggable {
             return false;
         }
 
-        //return $this->Routes[$Route];
-
         return array_merge($this->Routes[$route], [
             'TypeLocale' => t($this->RouteTypes[$this->Routes[$route]['Type']]),
             'FinalDestination' => $this->Routes[$route]['Destination']
         ]);
+    }
 
+    /**
+     * Get default route for home page
+     *
+     * @return array
+     */
+    public function getDefaultRoute(): array {
+        /** @var \Vanilla\Site\SiteSectionModel $siteSectionModel */
+        $siteSectionModel = Gdn::getContainer()->get(\Vanilla\Site\SiteSectionModel::class);
+        $route = $siteSectionModel->getCurrentSiteSection()->getDefaultRoute();
+        return array_merge($route, [
+            'TypeLocale' => t($this->RouteTypes[$this->Routes[self::DEFAULT_CONTROLLER_KEY]['Type']]),
+            'FinalDestination' => $this->Routes[self::DEFAULT_CONTROLLER_KEY]['Destination']
+        ]);
     }
 
     /**
@@ -246,7 +260,10 @@ class Gdn_Router extends Gdn_Pluggable {
      */
     private function _parseRoute($destination) {
         // If Destination is a serialized array
-        if (is_string($destination) && ($decoded = @unserialize($destination)) !== false) {
+        if (is_string($destination) &&
+            substr($destination, 0, 2) === 'a:' && // only serialized arrays
+            ($decoded = @unserialize($destination, ['allowed_classes' => false])) !== false // no classes
+        ) {
             $destination = $decoded;
         }
 
@@ -269,13 +286,23 @@ class Gdn_Router extends Gdn_Pluggable {
     }
 
     /**
-     *
+     * Public method for _parseRoute
      *
      * @param $destination
-     * @param $routeType
+     * @return array|mixed
+     */
+    public function parseRoute($destination) {
+        return $this->_parseRoute($destination);
+    }
+
+    /**
+     * Format route
+     *
+     * @param mixed $destination
+     * @param string $routeType
      * @return array
      */
-    private function _formatRoute($destination, $routeType) {
+    private function _formatRoute($destination, $routeType): array {
         return [
             'Destination' => $destination,
             'Type' => $routeType

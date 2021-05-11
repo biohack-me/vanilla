@@ -11,114 +11,7 @@
  * @since 2.2
  */
 
-/**
- * This file is part of the array_column library
- *
- * For the full copyright and license information, please view the LICENSE
- * file that was distributed with this source code.
- *
- * @copyright Copyright (c) 2013 Ben Ramsey <http://benramsey.com>
- * @license http://opensource.org/licenses/MIT MIT
- */
-
-if (!function_exists('array_column')) {
-    /**
-     * Returns the values from a single column of the input array, identified by the $columnKey.
-     *
-     * Optionally, you may provide an $indexKey to index the values in the returned
-     * array by the values from the $indexKey column in the input array.
-     *
-     * @param array $input A multi-dimensional array (record set) from which to pull a column of values.
-     * @param mixed $columnKey The column of values to return. This value may be the integer key of the column you wish
-     * to retrieve, or it may be the string key name for an associative array.
-     * @param mixed $indexKey The column to use as the index/keys for the returned array. This value may be the integer
-     * key of the column, or it may be the string key name.
-     * @return array
-     */
-    function array_column($input = null, $columnKey = null, $indexKey = null) {
-        // Using func_get_args() in order to check for proper number of
-        // parameters and trigger errors exactly as the built-in array_column()
-        // does in PHP 5.5.
-        $argc = func_num_args();
-        $params = func_get_args();
-
-        if ($argc < 2) {
-            trigger_error("array_column() expects at least 2 parameters, {$argc} given", E_USER_WARNING);
-            return null;
-        }
-
-        if (!is_array($params[0])) {
-            trigger_error(
-                'array_column() expects parameter 1 to be array, '.gettype($params[0]).' given',
-                E_USER_WARNING
-            );
-            return null;
-        }
-
-        if (!is_int($params[1])
-            && !is_float($params[1])
-            && !is_string($params[1])
-            && $params[1] !== null
-            && !(is_object($params[1]) && method_exists($params[1], '__toString'))
-        ) {
-            trigger_error('array_column(): The column key should be either a string or an integer', E_USER_WARNING);
-            return false;
-        }
-
-        if (isset($params[2])
-            && !is_int($params[2])
-            && !is_float($params[2])
-            && !is_string($params[2])
-            && !(is_object($params[2]) && method_exists($params[2], '__toString'))
-        ) {
-            trigger_error('array_column(): The index key should be either a string or an integer', E_USER_WARNING);
-            return false;
-        }
-
-        $paramsInput = $params[0];
-        $paramsColumnKey = ($params[1] !== null) ? (string)$params[1] : null;
-
-        $paramsIndexKey = null;
-        if (isset($params[2])) {
-            if (is_float($params[2]) || is_int($params[2])) {
-                $paramsIndexKey = (int)$params[2];
-            } else {
-                $paramsIndexKey = (string)$params[2];
-            }
-        }
-
-        $resultArray = [];
-
-        foreach ($paramsInput as $row) {
-            $key = $value = null;
-            $keySet = $valueSet = false;
-
-            if ($paramsIndexKey !== null && array_key_exists($paramsIndexKey, $row)) {
-                $keySet = true;
-                $key = (string)$row[$paramsIndexKey];
-            }
-
-            if ($paramsColumnKey === null) {
-                $valueSet = true;
-                $value = $row;
-            } elseif (is_array($row) && array_key_exists($paramsColumnKey, $row)) {
-                $valueSet = true;
-                $value = $row[$paramsColumnKey];
-            }
-
-            if ($valueSet) {
-                if ($keySet) {
-                    $resultArray[$key] = $value;
-                } else {
-                    $resultArray[] = $value;
-                }
-            }
-
-        }
-
-        return $resultArray;
-    }
-}
+use Garden\Web\Cookie;
 
 if (!function_exists('apc_fetch') && function_exists('apcu_fetch')) {
     /**
@@ -179,32 +72,6 @@ if (!function_exists('gzopen') && function_exists('gzopen64')) {
     }
 }
 
-if (!function_exists('hash_equals')) {
-    /**
-     * Determine whether or not two strings are equal in a time that is independent of partial matches.
-     *
-     * This snippet prevents HMAC Timing attacks (http://codahale.com/a-lesson-in-timing-attacks/).
-     * Thanks to Eric Karulf (ekarulf @ github) for this fix.
-     *
-     * @param string $known_string The string of known length to compare against.
-     * @param string $user_string The user-supplied string.
-     * @return bool Returns **true** when the two strings are equal, **false** otherwise.
-     * @see http://php.net/manual/en/function.hash-equals.php
-     */
-    function hash_equals($known_string, $user_string) {
-        if (strlen($known_string) !== strlen($user_string)) {
-            return false;
-        }
-
-        $result = 0;
-        for ($i = strlen($known_string) - 1; $i >= 0; $i--) {
-            $result |= ord($known_string[$i]) ^ ord($user_string[$i]);
-        }
-
-        return 0 === $result;
-    }
-}
-
 if (!function_exists('http_build_url')) {
     define('HTTP_URL_REPLACE', 1);  // Replace every part of the first URL when there's one of the second URL
     define('HTTP_URL_JOIN_PATH', 2); // Join relative paths
@@ -224,7 +91,7 @@ if (!function_exists('http_build_url')) {
      * @param mixed $url part(s) of a URL in form of a string or associative array like parse_url() returns.
      * @param mixed $parts Same as the first argument.
      * @param int $flags A bit mask of binary or'ed HTTP_URL constants (Optional)HTTP_URL_REPLACE is the default.
-     * @param array &$new_url If set, it will be filled with the parts of the composed url like parse_url() would return.
+     * @param array|false $new_url If set, it will be filled with the parts of the composed url like parse_url() would return.
      * @return  string  Returns the constructed URL.
      * @see http://www.php.net/manual/en/function.http-build-url.php#96335
      * @see https://github.com/fuel/core/blob/974281dde67345ca8d7cfa27bcf4aa55c984d48e/base.php#L248
@@ -317,11 +184,11 @@ if (!function_exists('http_build_url')) {
 
     function current_url() {
         $pageURL = 'http';
-        if (val('HTTPS', $_SERVER) === "on") {
+        if (($_SERVER['HTTPS'] ?? '') === "on") {
             $pageURL .= "s";
         }
         $pageURL .= "://";
-        if ($_SERVER["SERVER_PORT"] != "80") {
+        if (($_SERVER["SERVER_PORT"] ?? "80") != "80") {
             $pageURL .= $_SERVER["SERVER_NAME"].":".$_SERVER["SERVER_PORT"].$_SERVER["REQUEST_URI"];
         } else {
             $pageURL .= $_SERVER["SERVER_NAME"].$_SERVER["REQUEST_URI"];
@@ -339,28 +206,6 @@ if (!function_exists('is_id')) {
      */
     function is_id($val) {
         return is_numeric($val);
-    }
-}
-
-if (!function_exists('parse_ini_string')) {
-    /**
-     * The parse_ini_string function is not supported until PHP 5.3.0, and we currently support PHP 5.2.0.
-     *
-     * @param string $ini The INI string to parse.
-     * @return array Returns the array representation of the INI string.
-     */
-    function parse_ini_string($ini) {
-        $lines = explode("\n", $ini);
-        $result = [];
-        foreach ($lines as $line) {
-            $parts = explode('=', $line, 2);
-            if (count($parts) == 1) {
-                $result[trim($parts[0])] = '';
-            } elseif (count($parts) >= 2) {
-                $result[trim($parts[0])] = trim($parts[1]);
-            }
-        }
-        return $result;
     }
 }
 
@@ -577,7 +422,7 @@ if (!function_exists('safeHeader')) {
 
 if (!function_exists('safeCookie')) {
     /**
-     * Context-aware call to setcookie().
+     * Context-aware call to \Garden\Web\Cookie setCookie().
      *
      * This method is context-aware and will avoid setting cookies if the request
      * context is not HTTP.
@@ -589,19 +434,20 @@ if (!function_exists('safeCookie')) {
      * @param string $domain
      * @param boolean|null $secure
      * @param boolean $httponly
+     * @param string|null $sameSite This could be one of (\Garden\Web\Cookie::SAME_SITE_NONE, SAME_SITE_LAX, SAME_SITE_STRICT).
+     * @throws \Garden\Container\ContainerException If there was an error while retrieving an item from the container.
+     * @throws \Garden\Container\NotFoundException If the item was not found in the container.
      */
-    function safeCookie($name, $value = null, $expire = 0, $path = null, $domain = null, $secure = null, $httponly = false) {
+    function safeCookie($name, $value = null, $expire = 0, $path = null, $domain = null, $secure = null, $httponly = false, $sameSite = null) {
         static $context = null;
         if (is_null($context)) {
             $context = requestContext();
         }
 
         if ($context == 'http') {
-            if ($secure === null && c('Garden.ForceSSL') && Gdn::request()->scheme() === 'https') {
-                $secure = true;
-            }
-
-            setcookie($name, $value, $expire, $path, $domain, $secure, $httponly);
+            /** @var Cookie $cookie */
+            $cookie = Gdn::getContainer()->get(Cookie::class);
+            $cookie->setCookie('/'.$name, $value, $expire, $path, $domain, $secure, $httponly, $sameSite);
         }
     }
 }

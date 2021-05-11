@@ -3,39 +3,28 @@
  * @license GPL-2.0-only
  */
 
-import React from "react";
-import { useFormGroup } from "@dashboard/forms/DashboardFormGroup";
-import classNames from "classnames";
+import { useFormGroup } from "@dashboard/forms/DashboardFormGroupContext";
 import { DashboardLabelType } from "@dashboard/forms/DashboardFormLabel";
-import SelectOne from "@library/forms/select/SelectOne";
-import { IComboBoxOption } from "@library/features/search/SearchBar";
+import ErrorMessages from "@library/forms/ErrorMessages";
+import SelectOne, { ISelectOneProps } from "@library/forms/select/SelectOne";
+import classNames from "classnames";
+import React from "react";
 
-interface IProps {
-    options: IComboBoxOption[];
-    onChange: (newValue: IComboBoxOption | null) => void;
-    value?: IComboBoxOption;
-    className?: string;
-    disabled?: boolean;
-}
+interface IProps extends Omit<ISelectOneProps, "inputID" | "labelID" | "label"> {}
 
 export const DashboardSelect: React.FC<IProps> = (props: IProps) => {
     const { inputID, labelType, labelID } = useFormGroup();
-    const classes = classNames("form-control", props.className);
-
     const rootClass = labelType === DashboardLabelType.WIDE ? "input-wrap-right" : "input-wrap";
-
     return (
-        <div className={rootClass}>
+        <div className={classNames(rootClass)}>
             <SelectOne
+                {...props}
                 label={null}
                 labelID={labelID}
                 inputID={inputID}
-                options={props.options}
-                value={props.value}
-                onChange={props.onChange}
-                inputClassName={classes}
-                disabled={props.disabled}
+                inputClassName={classNames("form-control", props.inputClassName)}
             />
+            {props.errors && <ErrorMessages errors={props.errors} />}
         </div>
     );
 };

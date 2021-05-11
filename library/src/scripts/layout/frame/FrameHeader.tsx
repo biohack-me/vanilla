@@ -9,7 +9,7 @@ import Heading, { ICommonHeadingProps } from "@library/layout/Heading";
 import { frameHeaderClasses } from "@library/layout/frame/frameHeaderStyles";
 import { t } from "@library/utility/appUtils";
 import Button from "@library/forms/Button";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import CloseButton from "@library/navigation/CloseButton";
 import classNames from "classnames";
 import backLinkClasses from "@library/routing/links/backLinkStyles";
@@ -18,9 +18,11 @@ import { LeftChevronIcon } from "@library/icons/common";
 export interface IFrameHeaderProps extends ICommonHeadingProps {
     closeFrame?: (e) => void; // Necessary when in modal, but not if in flyouts
     onBackClick?: () => void;
+    titleClass?: string;
     srOnlyTitle?: boolean;
     titleID?: string;
     children?: React.ReactNode;
+    borderless?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ export default class FrameHeader extends React.PureComponent<IFrameHeaderProps> 
                 <Button
                     title={backTitle}
                     aria-label={backTitle}
-                    baseClass={ButtonTypes.ICON_COMPACT}
+                    buttonType={ButtonTypes.ICON_COMPACT}
                     onClick={this.props.onBackClick}
                     className={classNames("frameHeader-backButton", classes.backButton)}
                 >
@@ -61,12 +63,19 @@ export default class FrameHeader extends React.PureComponent<IFrameHeaderProps> 
         }
 
         return (
-            <header className={classNames("frameHeader", this.props.className, classes.root)}>
+            <header
+                className={classNames(
+                    "frameHeader",
+                    this.props.className,
+                    classes.root,
+                    this.props.borderless && classes.rootBorderLess,
+                )}
+            >
                 <Heading
                     id={this.props.titleID}
                     title={this.props.title}
                     depth={this.props.depth}
-                    className={classNames("frameHeader-heading", classes.heading, {
+                    className={classNames("frameHeader-heading", classes.heading, this.props.titleClass, {
                         "sr-only": this.props.srOnlyTitle,
                     })}
                 >

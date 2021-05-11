@@ -50,14 +50,16 @@ body {
         margin-top: $global-medium_fontSize;
     }
 
-    h1,
-    h2,
-    h3,
-    h4,
-    h5,
-    h6 {
-        line-height: $global-condensed_lineHeight;
-        color: $global-color_fg;
+    @if ($staticVariables) {
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            line-height: $global-condensed_lineHeight;
+            color: $global-color_fg;
+        }
     }
 
     > *:not(.emoji) {
@@ -65,9 +67,28 @@ body {
             margin-bottom: $global-block_margin;
         }
 
-        &:first-child:not(br) {
+        &:first-child:not(br):not(.embedExternal) {
             margin-top: #{(1 - $global-base_lineHeight) * .5em} !important;
         }
+    }
+
+    .embedResponsive {
+        margin-bottom: 0 !important;
+    }
+
+    .float-left, .float-right {
+        // Remove margin of the containing div and instead add margin to the floating element.
+        margin: 0 !important;
+        border: 0 !important;
+        box-shadow: none !important;
+
+        .embedExternal-content {
+            margin-bottom: $global-block_margin;
+        }
+    }
+
+    .embedExternal {
+        margin-bottom: $global-block_margin;
     }
 
     &,
@@ -155,7 +176,7 @@ body {
 // Styles that only take affect when the rich editor is enabled.
 body.hasRichEditor {
     .richEditor ~ .TextBoxWrapper,
-    .CommentForm .PreviewButton,
+    .PreviewButton,
     #Form_Preview {
         // The text box wrapper can have $.show() called on it which adds an inline `display: block`.
         display: none !important;
@@ -178,15 +199,23 @@ body.hasRichEditor {
 .Popup.hasRichEditor {
 
     .Border {
-        width: 100%;
         box-sizing: border-box;
     }
 
     .richEditor ~ .TextBoxWrapper,
-    .CommentForm .PreviewButton,
+    .PreviewButton,
     #Form_Preview {
         // The text box wrapper can have $.show() called on it which adds an inline `display: block`.
         display: none !important;
+    }
+}
+
+@include mediaQuery-richEditor_mobile {
+    .Popup.hasRichEditor {
+
+        .Border {
+            width: 100%;
+        }
     }
 }
 
@@ -291,7 +320,7 @@ body.hasRichEditor {
 
         .Popup.hasRichEditor {
             .Border {
-                width: 100%;
+                max-width: 100%;
                 box-sizing: border-box;
             }
 

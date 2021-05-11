@@ -77,42 +77,17 @@ class Gdn_Session {
      * Check the given permission, but also return true if the user has a higher permission.
      *
      * @param bool|string $permission The permission to check.  Bool to force true/false.
-     * @return boolean True on valid authorization, false on failure to authorize
+     * @return boolean True on valid authorization, false on failure to authorize.
+     * @deprecated Use `Permissions::hasRanked()` instead.
      */
     public function checkRankedPermission($permission) {
-        $permissionsRanked = [
-            'Garden.Settings.Manage',
-            'Garden.Community.Manage',
-            'Garden.Moderation.Manage',
-            'Garden.Curation.Manage',
-            'Garden.SignIn.Allow',
-        ];
-
         if ($permission === true) {
             return true;
         } elseif ($permission === false) {
             return false;
-        } elseif (in_array($permission, $permissionsRanked)) {
-            // Ordered rank of some permissions, highest to lowest
-            $currentPermissionRank = array_search($permission, $permissionsRanked);
-
-            /**
-             * If the current permission is in our ranked list, iterate through the list, starting from the highest
-             * ranked permission down to our target permission, and determine if any are applicable to the current
-             * user.  This is done so that a user with a permission like Garden.Settings.Manage can still validate
-             * permissions against a Garden.Moderation.Manage permission check, without explicitly having it
-             * assigned to their role.
-             */
-            for ($i = 0; $i <= $currentPermissionRank; $i++) {
-                if ($this->permissions->has($permissionsRanked[$i])) {
-                    return true;
-                }
-            }
-            return false;
+        } else {
+            return $this->permissions->hasRanked($permission);
         }
-
-        // Check to see if the user has at least the given permission.
-        return $this->permissions->has($permission);
     }
 
     /**
@@ -125,22 +100,36 @@ class Gdn_Session {
      * If false, the user only needs one of the specified permissions.
      * @param string $junctionTable The name of the junction table for a junction permission.
      * @param int|string $junctionID The JunctionID associated with $Permission (ie. A discussion category identifier).
+     * @param string $mode One of the permission modes.
+     *
      * @return boolean Returns **true** if the user has permission or **false** otherwise.
      */
-    public function checkPermission($permission, $fullMatch = true, $junctionTable = '', $junctionID = '') {
-        if ($junctionID === 'any' || $junctionID === '' || empty($junctionTable) ||
+    public function checkPermission(
+        $permission,
+        $fullMatch = true,
+        $junctionTable = '',
+        $junctionID = '',
+        string $mode = Permissions::CHECK_MODE_GLOBAL_OR_RESOURCE
+    ) {
+        if ($junctionID === 'any' || $junctionID === '' ||
             self::c("Garden.Permissions.Disabled.{$junctionTable}")) {
+            $junctionID = null;
+            $junctionTable = null;
+        }
+
+        if ($junctionTable === '') {
+            $junctionTable = null;
             $junctionID = null;
         }
 
         if (is_array($permission)) {
             if ($fullMatch) {
-                return $this->permissions->hasAll($permission, $junctionID);
+                return $this->permissions->hasAll($permission, $junctionID, $mode, $junctionTable);
             } else {
-                return $this->permissions->hasAny($permission, $junctionID);
+                return $this->permissions->hasAny($permission, $junctionID, $mode, $junctionTable);
             }
         } else {
-            return $this->permissions->has($permission, $junctionID);
+            return $this->permissions->has($permission, $junctionID, $mode, $junctionTable);
         }
     }
 
@@ -155,7 +144,7 @@ class Gdn_Session {
         }
 
         if ($this->UserID) {
-            Logger::event('session_end', Logger::INFO, 'Session ended for {username}.');
+            Logger::event('session_end', Logger::INFO, 'Session ended for {username}.', [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]);
         }
 
         $authenticator->authenticateWith()->deauthenticate();
@@ -369,11 +358,10 @@ class Gdn_Session {
     }
 
     /**
-     * Gets the currently authenticated user's attribute for the specified
-     * $attributeName.
+     * Gets the currently authenticated user's attribute for the specified $attributeName.
      *
-     * @param unknown_type $attributeName The name of the attribute to get.
-     * @param string $defaultValue The default value to return if the attribute does not exist.
+     * @param string $attributeName The name of the attribute to get.
+     * @param string|false $defaultValue The default value to return if the attribute does not exist.
      * @return mixed
      */
     public function getAttribute($attributeName, $defaultValue = false) {
@@ -384,7 +372,7 @@ class Gdn_Session {
     }
 
     /**
-     *
+     * Get all of the session attributes.
      *
      * @return array
      */
@@ -396,7 +384,7 @@ class Gdn_Session {
      * This is the singleton method that return the static
      * Configuration::Instance.
      *
-     * @return Session
+     * @return self
      */
     public static function getInstance() {
         if (!isset(self::$_Instance)) {
@@ -420,7 +408,7 @@ class Gdn_Session {
     /**
      * Authenticates the user with the provided Authenticator class.
      *
-     * @param int $userID The UserID to start the session with.
+     * @param int|false $userID The UserID to start the session with.
      * @param bool $setIdentity Whether or not to set the identity (cookie) or make this a one request session.
      * @param bool $persist If setting an identity, should we persist it beyond browser restart?
      */
@@ -429,11 +417,11 @@ class Gdn_Session {
             return;
         }
 
-        $this->permissions = new Permissions();
+        $this->permissions = Gdn::permissionModel()->createPermissionInstance();
 
         // Retrieve the authenticated UserID from the Authenticator module.
         $userModel = Gdn::authenticator()->getUserModel();
-        $this->UserID = $userID !== false ? $userID : Gdn::authenticator()->getIdentity();
+        $this->UserID = $userID !== false ? (int) $userID : Gdn::authenticator()->getIdentity();
         $this->User = false;
         $this->loadTransientKey();
 
@@ -456,9 +444,16 @@ class Gdn_Session {
                 }
 
                 if ($this->permissions->has('Garden.SignIn.Allow')) {
+                    // Fire a specific event for setting the session so that event handlers can override permissions.
+                    Gdn::getContainer()->get(\Garden\EventManager::class)->fire('gdn_session_set', $this);
                     if ($setIdentity) {
                         Gdn::authenticator()->setIdentity($this->UserID, $persist);
-                        Logger::event('session_start', Logger::INFO, 'Session started for {username}.');
+                        Logger::event(
+                            'session_start',
+                            Logger::INFO,
+                            'Session started for {username}.',
+                            [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
+                        );
                         Gdn::pluginManager()->callEventHandlers($this, 'Gdn_Session', 'Start');
                     }
 
@@ -681,6 +676,7 @@ class Gdn_Session {
 
         if ($foreignKey === true) {
             $forceValid = true;
+            $return = true;
         }
 
         if (!$forceValid && $validateUser && $this->UserID <= 0) {
@@ -693,8 +689,10 @@ class Gdn_Session {
              * We are not doing `!empty()` first because that would skip hash_equals and would then enable a possible timing attack.
              */
             // Make sure we're testing a string.
-            $stringToTest = $this->_TransientKey ?: '';
-            $isCorrectHash = (hash_equals($stringToTest, $foreignKey) && !empty($this->_TransientKey));
+            $knownString = $this->_TransientKey ?: '';
+            $userString = $foreignKey ?: '';
+
+            $isCorrectHash = (hash_equals($knownString, $userString) && !empty($this->_TransientKey));
 
             // Checking the postback here is a kludge, but is absolutely necessary until we can test the ValidatePostBack more.
             $return = ($forceValid && Gdn::request()->isPostBack()) || $isCorrectHash;
@@ -709,13 +707,15 @@ class Gdn_Session {
                     [
                         "User TK" => $foreignKey,
                         "Site TK" => $this->_TransientKey,
+                        Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
                     ]
                 );
             } else {
                 Logger::event(
                     'csrf_failure',
                     Logger::ERROR,
-                    'Invalid transient key.'
+                    'Invalid transient key.',
+                    [Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                 );
             }
         }

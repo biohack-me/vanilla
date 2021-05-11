@@ -1,4 +1,4 @@
-<?php 
+<?php
 use Vanilla\FeatureFlagHelper;
 if (!defined('APPLICATION')) exit();
 $Session = Gdn::session();
@@ -11,10 +11,11 @@ if ($this->CssClass)
 
 $DashboardCount = 0;
 $ModerationCount = 0;
+$spamCount = 0;
 // Spam & Moderation Queue
 if ($Session->checkPermission(['Garden.Settings.Manage', 'Garden.Moderation.Manage', 'Moderation.Spam.Manage', 'Moderation.ModerationQueue.Manage'], false)) {
     $LogModel = new LogModel();
-    //$SpamCount = $LogModel->getOperationCount('spam');
+    $spamCount = $LogModel->getOperationCount('spam');
     $ModerationCount = $LogModel->getOperationCount('moderate,pending');
     $DashboardCount += $ModerationCount;
 }
@@ -27,7 +28,7 @@ if ($Session->checkPermission('Garden.Users.Approve')) {
     $ApplicantCount = null;
 }
 
-$useNewFlyouts = FeatureFlagHelper::featureEnabled('NewFlyouts');
+$useNewFlyouts = Gdn::themeFeatures()->useNewFlyouts();
 
 $this->EventArguments['DashboardCount'] = &$DashboardCount;
 $this->fireEvent('BeforeFlyoutMenu');
@@ -52,7 +53,7 @@ if ($Session->isValid()):
     echo '<div class="Flyout FlyoutMenu Flyout-withFrame"></div></span>';
 
     // Inbox
-    if (Gdn::addonManager()->lookupAddon('conversations')) {
+    if (Gdn::addonManager()->isEnabled('conversations', \Vanilla\Addon::TYPE_ADDON)) {
         $CountInbox = val('CountUnreadConversations', Gdn::session()->User);
         $CInbox = is_numeric($CountInbox) && $CountInbox > 0 ? ' <span class="Alert">'.$CountInbox.'</span>' : '';
         echo '<span class="ToggleFlyout" rel="/messages/popin">';
@@ -76,7 +77,7 @@ if ($Session->isValid()):
 
     if ($useNewFlyouts) {
         $imgUrl = userPhotoUrl($User);
-        $triggerIcon = "<img class='ProfilePhoto ProfilePhotoSmall' src='$imgUrl'/>";
+        $triggerIcon = "<img class='ProfilePhoto ProfilePhotoSmall' src='$imgUrl' loading='lazy'/>";
     } else {
         $triggerIcon = sprite('SpOptions', 'Sprite Sprite16', $triggerTitle);
     }
@@ -92,6 +93,7 @@ if ($Session->isValid()):
     $applicantModifiers = $ApplicantCount > 0 ? ['badge' => $ApplicantCount] : [];
     $applicantModifiers['listItemCssClasses'] = ['link-applicants'];
     $modModifiers = $ModerationCount > 0 ? ['badge' => $ModerationCount] : [];
+    $spamModifiers = $spamCount > 0 ? ['badge' => $spamCount] : [];
     $modModifiers['listItemCssClasses'] = ['link-moderation'];
     $spamModifiers['listItemCssClasses'] = ['link-spam'];
     $dashboardModifiers['listItemCssClasses'] = ['link-dashboard'];

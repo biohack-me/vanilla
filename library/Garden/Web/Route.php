@@ -8,6 +8,7 @@
 namespace Garden\Web;
 
 use Garden\MetaTrait;
+use Vanilla\FeatureFlagHelper;
 
 /**
  * The base class for routes.
@@ -49,10 +50,30 @@ abstract class Route {
         'args' => Route::MAP_ARGS | Route::MAP_QUERY,
         'body' => Route::MAP_BODY,
         'data' => Route::MAP_ARGS | Route::MAP_QUERY | Route::MAP_BODY,
-        'path' => Route::MAP_PATH
+        'path' => Route::MAP_PATH,
     ];
 
     private $defaults = [];
+
+    private $themeFeatureEnabled = true;
+
+    /**
+     * Whether or not the route is enabled.
+     *
+     * @return bool
+     */
+    public function isEnabled(): bool {
+        return $this->themeFeatureEnabled;
+    }
+
+    /**
+     * Apply a theme feature flag to a route. If the feature flag isn't enabled, the route will not activate.
+     *
+     * @param bool $themeFeatureEnabled
+     */
+    public function setThemeFeatureEnabled(bool $themeFeatureEnabled) {
+        $this->themeFeatureEnabled = $themeFeatureEnabled;
+    }
 
     /**
      * Get the conditions.
@@ -198,7 +219,7 @@ abstract class Route {
             $constraint = $this->constraints[strtolower($parameter->getName())];
 
             // Look for specific rules for the type.
-            $type = $parameter->hasType() ? $parameter->getType()->__toString() : 'notype';
+            $type = $parameter->hasType() && $parameter->getType() instanceof \ReflectionNamedType ? $parameter->getType()->getName() : 'notype';
             if (!empty($constraint["$type"])) {
                 $constraint = $constraint["$type"] + $constraint;
             }
@@ -310,13 +331,15 @@ abstract class Route {
         }
 
         // Test against the built in types.
-        switch ($type->__toString()) {
-            case 'bool':
-                return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== null;
-            case 'int':
-                return filter_var($value, FILTER_VALIDATE_INT) !== false;
-            case 'float':
-                return filter_var($value, FILTER_VALIDATE_FLOAT) !== false;
+        if ($type instanceof \ReflectionNamedType) {
+            switch ($type->getName()) {
+                case 'bool':
+                    return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== null;
+                case 'int':
+                    return filter_var($value, FILTER_VALIDATE_INT) !== false;
+                case 'float':
+                    return filter_var($value, FILTER_VALIDATE_FLOAT) !== false;
+            }
         }
         return true;
     }

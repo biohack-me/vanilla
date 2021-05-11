@@ -11,6 +11,8 @@ import { rangeContainsBlot } from "@rich-editor/quill/utility";
 import CodeBlockBlot from "@rich-editor/quill/blots/blocks/CodeBlockBlot";
 import CodeBlot from "@rich-editor/quill/blots/inline/CodeBlot";
 import ExternalEmbedBlot, { IEmbedValue } from "@rich-editor/quill/blots/embeds/ExternalEmbedBlot";
+import { supportsFrames } from "@library/embeddedContent/IFrameEmbed";
+import { forceInt } from "@vanilla/utils";
 
 export const EDITOR_SCROLL_CONTAINER_CLASS = "js-richEditorScrollContainer";
 
@@ -28,7 +30,7 @@ export default class ClipboardModule extends ClipboardBase {
         const matches = inputText.match(urlRegex);
         if (matches && matches.length > 0) {
             const ops: any[] = [];
-            matches.forEach(match => {
+            matches.forEach((match) => {
                 const split = (inputText as string).split(match);
                 const beforeLink = split.shift();
                 // We don't want to insert empty ops.
@@ -55,47 +57,38 @@ export default class ClipboardModule extends ClipboardBase {
 
         // Skip screen reader only content.
         this.addMatcher(".sr-only", () => new Delta());
+
+        // If frames are supported add their matcher.
+        if (supportsFrames()) {
+            this.addMatcher("iframe", this.iframeMatcher);
+        }
     }
 
     /**
-     * @override
-     * Override the paste handler to
-     * - Prevent jumping on paste.
-     * - Ensure current selection is deleted before a paste.
+     * A matcher for img tags. Converts `<img />` into an external embed (type image).
      */
-    public onPaste(e: Event) {
-        if (e.defaultPrevented || !(this.quill as any).isEnabled()) {
-            return;
+    public iframeMatcher = (node: HTMLIFrameElement, delta: DeltaStatic) => {
+        const src = node.getAttribute("src");
+        let height = forceInt(node.getAttribute("height"), 900);
+        let width = forceInt(node.getAttribute("width"), 1600);
+        if (src) {
+            const iframeData: IEmbedValue = {
+                loaderData: {
+                    type: "link",
+                },
+                data: {
+                    embedType: "iframe",
+                    url: src,
+                    height,
+                    width,
+                },
+            };
+            return new Delta().insert({
+                [ExternalEmbedBlot.blotName]: iframeData,
+            });
         }
-        const range = this.quill.getSelection();
-        const container = this.quill.root.closest(`.${EDITOR_SCROLL_CONTAINER_CLASS}`);
-
-        // Get our scroll positions
-        const scrollTop = document.documentElement!.scrollTop || document.body.scrollTop;
-        const containerTop = container ? container.scrollTop : 0;
-        this.container.focus();
-        this.quill.selection.update(Quill.sources.SILENT);
-
-        // Delete text if any is currently selected.
-        if (range.length) {
-            this.quill.deleteText(range.index, range.length, Quill.sources.SILENT);
-        }
-
-        // Settimeout so that the paste goes into `this.container`.
-        setImmediate(() => {
-            // Insert the pasted content.
-            const delta = new Delta().retain(range.index).concat(this.convert());
-            this.quill.updateContents(delta, Quill.sources.USER);
-
-            // Fix our selection & scroll position.
-            this.quill.setSelection(delta.length(), 0, Quill.sources.SILENT);
-            document.documentElement!.scrollTop = document.body.scrollTop = scrollTop;
-            if (container) {
-                container.scrollTop = containerTop;
-            }
-            this.quill.focus();
-        });
-    }
+        return delta;
+    };
 
     /**
      * A matcher for img tags. Converts `<img />` into an external embed (type image).
@@ -112,7 +105,6 @@ export default class ClipboardModule extends ClipboardBase {
                     embedType: "image",
                     url: src,
                     name: alt,
-                    attributes: {},
                 },
             };
             return new Delta().insert({

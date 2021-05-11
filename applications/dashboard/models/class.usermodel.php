@@ -9,15 +9,46 @@
  */
 
 use Garden\EventManager;
+use Garden\Events\ResourceEvent;
+use Garden\Events\EventFromRowInterface;
+use Garden\Schema\Schema;
+use Vanilla\CurrentTimeStamp;
+use Vanilla\Dashboard\Events\UserEvent;
 use Vanilla\Contracts\ConfigurationInterface;
+use Vanilla\Contracts\Models\CrawlableInterface;
+use Vanilla\Contracts\Models\FragmentFetcherInterface;
+use Vanilla\Contracts\Models\UserProviderInterface;
+use Vanilla\Dashboard\Models\UserVisitUpdater;
+use Vanilla\Dashboard\UserPointsModel;
+use Vanilla\Events\LegacyDirtyRecordTrait;
+use Vanilla\Exception\Database\NoResultsException;
+use Vanilla\Formatting\DateTimeFormatter;
+use Vanilla\Models\CrawlableRecordSchema;
+use Vanilla\Models\DirtyRecordModel;
+use Vanilla\Models\UserFragmentSchema;
+use Vanilla\Permissions;
+use Vanilla\SchemaFactory;
+use Vanilla\Utility\ArrayUtils;
+use Vanilla\Utility\ModelUtils;
 
 /**
  * Handles user data.
  */
-class UserModel extends Gdn_Model {
+class UserModel extends Gdn_Model implements UserProviderInterface, EventFromRowInterface, CrawlableInterface, FragmentFetcherInterface {
+
+    use LegacyDirtyRecordTrait;
 
     /** @var int */
     const GUEST_USER_ID = 0;
+
+    /** @var int This happens to be the same as the guest ID because it's just been that way for so long. */
+    const UNKNOWN_USER_ID = 0;
+
+    /** @var string */
+    const GENERATED_FRAGMENT_KEY_UNKNOWN = "unknown";
+
+    /** @var string */
+    const GENERATED_FRAGMENT_KEY_GUEST = "guest";
 
     /** Deprecated. */
     const DEFAULT_CONFIRM_EMAIL = 'You need to confirm your email address before you can continue. Please confirm your email address by clicking on the following link: {/entry/emailconfirm,exurl,domain}/{User.UserID,rawurlencode}/{EmailKey,rawurlencode}';
@@ -55,8 +86,39 @@ class UserModel extends Gdn_Model {
     /** Timeout for SSO */
     const SSO_TIMEOUT = 1200;
 
+    private const USERAUTHENTICATION_CACHE_EXPIRY = 60;
+
+    /** @var string cache type flag for user data */
+    const CACHE_TYPE_USER = 'user';
+
+    /** @var string cache type flag for roles data */
+    const CACHE_TYPE_ROLES = 'roles';
+
+    /** @var string cache type flag for permissions data */
+    const CACHE_TYPE_PERMISSIONS = 'permissions';
+
+    /** @var string Used in `saveRoles()` */
+    public const OPT_LOG_ROLE_CHANGES = 'recordEvent';
+
+    /** @var string Used in `saveRoles()` */
+    public const OPT_ROLE_SYNC = 'roleSync';
+    public const OPT_FORCE_SYNC = 'forceSync';
+    public const OPT_TRUSTED_PROVIDER = 'trustedProvider';
+    public const OPT_NO_CONFIRM_EMAIL = 'NoConfirmEmail';
+    public const OPT_FIX_UNIQUE = 'FixUnique';
+    public const OPT_SAVE_ROLES = 'SaveRoles';
+    public const OPT_VALIDATE_NAME = 'ValidateName';
+    public const OPT_SYNC_EXISTING = 'SyncExisting';
+    public const OPT_CHECK_CAPTCHA = 'CheckCaptcha';
+    public const OPT_NO_ACTIVITY = 'NoActivity';
+
+    public const RECORD_TYPE = "user";
+
     /** @var EventManager */
     private $eventManager;
+
+    /** @var Gdn_Session */
+    private $session;
 
     /** @var */
     public $SessionColumns;
@@ -78,6 +140,11 @@ class UserModel extends Gdn_Model {
     private $emailUnique;
 
     /**
+     * @var array
+     */
+    private $connectRoleSync = [];
+
+    /**
      * Class constructor. Defines the related database table name.
      *
      * @param EventManager $eventManager The event manager dependency.
@@ -92,15 +159,37 @@ class UserModel extends Gdn_Model {
             $this->eventManager = $eventManager;
         }
 
+        /** @var Gdn_Session */
+        $this->session = Gdn::getContainer()->get(Gdn_Session::class);
+
         $this->addFilterField([
             'Admin', 'Deleted', 'CountVisits', 'CountInvitations', 'CountNotifications', 'Preferences', 'Permissions',
             'LastIPAddress', 'AllIPAddresses', 'DateFirstVisit', 'DateLastActive', 'CountDiscussions', 'CountComments',
             'Score'
         ]);
 
-
         $this->nameUnique = (bool)c('Garden.Registration.NameUnique', true);
         $this->emailUnique = (bool)c('Garden.Registration.EmailUnique', true);
+        $this->setConnectRoleSync(c('Garden.SSO.'.UserModel::OPT_ROLE_SYNC, []));
+    }
+
+    /**
+     * Get the last active userIDs within a particular timespan.
+     *
+     * @param string $sinceDateTime The date time to check from.
+     *
+     * @return int[]
+     */
+    public function getLastActiveUserIDs(string $sinceDateTime): array {
+        $sql = clone $this->SQL;
+        $sql->reset();
+        $sql->from('User u')
+            ->select('u.UserID')
+            ->where('DateLastActive >=', $sinceDateTime);
+        $result = $sql->query($sql->getSelect())->resultArray();
+        $ids = array_column($result, 'UserID');
+
+        return $ids;
     }
 
     /**
@@ -162,24 +251,23 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     * Deprecated.
+     * Get the default value for syncing roles during connect.
      *
-     * @param string $message Deprecated.
-     * @param array $data Deprecated.
-     * @return string Deprecated.
+     * @return array
      */
-    private function addEmailHeaderFooter($message, $data) {
-        $header = t('EmailHeader', '');
-        if ($header) {
-            $message = formatString($header, $data)."\n".$message;
-        }
+    public function getConnectRoleSync(): array {
+        return $this->connectRoleSync;
+    }
 
-        $footer = t('EmailFooter', '');
-        if ($footer) {
-            $message .= "\n".formatString($footer, $data);
-        }
-
-        return $message;
+    /**
+     * Set the default value for syncing roles during connect.
+     *
+     * @param array $defaultRoleSync
+     * @return self
+     */
+    public function setConnectRoleSync(array $defaultRoleSync): self {
+        $this->connectRoleSync = $defaultRoleSync;
+        return $this;
     }
 
     /**
@@ -232,7 +320,7 @@ class UserModel extends Gdn_Model {
         $user = $this->getID($userID);
         $banned = val('Banned', $user, 0);
 
-        $this->setField($userID, 'Banned', BanModel::setBanned($banned, true, BanModel::BAN_MANUAL));
+        $this->save(["UserID" => $userID, "Banned" => BanModel::setBanned($banned, true, BanModel::BAN_MANUAL)]);
 
         $logID = false;
         if (val('DeleteContent', $options)) {
@@ -268,7 +356,7 @@ class UserModel extends Gdn_Model {
                 'ActivityType' => 'Ban',
                 'NotifyUserID' => ActivityModel::NOTIFY_MODS,
                 'ActivityUserID' => $userID,
-                'RegardingUserID' => Gdn::session()->UserID,
+                'RegardingUserID' => $this->session->UserID,
                 'HeadlineFormat' => t('HeadlineFormat.Ban', '{RegardingUserID,You} banned {ActivityUserID,you}.'),
                 'Story' => $story,
                 'Data' => ['LogID' => $logID]];
@@ -441,7 +529,7 @@ class UserModel extends Gdn_Model {
                 $attributes = [];
             }
 
-            $attributes['Log'][] = ['UserID' => Gdn::session()->UserID, 'Date' => Gdn_Format::toDateTime()];
+            $attributes['Log'][] = ['UserID' => $this->session->UserID, 'Date' => DateTimeFormatter::getCurrentDateTime()];
             $row = ['MergeID' => $mergeID, 'Attributes' => $attributes];
         } else {
             $row = [
@@ -579,7 +667,7 @@ class UserModel extends Gdn_Model {
 
         // Unban the user.
         $newBanned = BanModel::setBanned($banned, false, BanModel::BAN_AUTOMATIC | BanModel::BAN_MANUAL);
-        $this->setField($userID, 'Banned', $newBanned);
+        $this->save(["UserID" => $userID, "Banned" => $newBanned]);
 
         // Restore the user's content.
         if (val('RestoreContent', $options)) {
@@ -610,7 +698,7 @@ class UserModel extends Gdn_Model {
                 'ActivityType' => 'Ban',
                 'NotifyUserID' => ActivityModel::NOTIFY_MODS,
                 'ActivityUserID' => $userID,
-                'RegardingUserID' => Gdn::session()->UserID,
+                'RegardingUserID' => $this->session->UserID,
                 'HeadlineFormat' => t('HeadlineFormat.Unban', '{RegardingUserID,You} unbanned {ActivityUserID,you}.'),
                 'Story' => $story,
                 'Data' => [
@@ -669,7 +757,7 @@ class UserModel extends Gdn_Model {
         $this->EventArguments['ConfirmUserID'] = $userID;
         $this->EventArguments['ConfirmUserRoles'] = &$roles;
         $this->fireEvent('BeforeConfirmEmail');
-        $this->saveRoles($userID, $roles, false);
+        $this->saveRoles($userID, $roles, [self::OPT_LOG_ROLE_CHANGES => false]);
 
         // Remove the email confirmation attributes.
         $this->saveAttribute($userID, ['EmailKey' => null]);
@@ -682,26 +770,37 @@ class UserModel extends Gdn_Model {
      *
      * @param string $string
      * @param bool $throwError
-     * @return int|void
+     * @return int|false
      */
     public function sso($string, $throwError = false) {
         if (!$string) {
-            return null;
+            return false;
         }
 
         $parts = explode(' ', $string);
 
         $string = $parts[0];
+        $signature = $parts[1] ?? '';
+        $timestamp = $parts[2] ?? '';
+        $hashMethod = $parts[3] ?? 'hmacsha1';
+
         trace($string, "SSO String");
         $data = json_decode(base64_decode($string), true);
         trace($data, 'RAW SSO Data');
 
-        if (!isset($parts[1])) {
+        if (empty($signature)) {
             $this->Validation->addValidationResult('sso', 'Missing SSO signature.');
         }
-        if (!isset($parts[2])) {
+        if (empty($timestamp)) {
             $this->Validation->addValidationResult('sso', 'Missing SSO timestamp.');
         }
+        if (!filter_var($timestamp, FILTER_VALIDATE_INT) || abs($timestamp - time()) > self::SSO_TIMEOUT) {
+            $this->Validation->addValidationResult('sso', 'The timestamp is invalid.');
+        }
+        if (!in_array($hashMethod, ['hmacsha1'], true)) {
+            $this->Validation->addValidationResult('sso', "Invalid SSO hash method: $hashMethod.");
+        }
+
         if (count($this->Validation->results()) > 0) {
             $msg = $this->Validation->resultsText();
             if ($throwError) {
@@ -710,9 +809,6 @@ class UserModel extends Gdn_Model {
             return false;
         }
 
-        $signature = $parts[1];
-        $timestamp = $parts[2];
-        $hashMethod = val(3, $parts, 'hmacsha1');
         $clientID = val('client_id', $data);
         if (!$clientID) {
             $this->Validation->addValidationResult('sso', 'Missing SSO client_id');
@@ -720,11 +816,6 @@ class UserModel extends Gdn_Model {
         }
 
         $provider = Gdn_AuthenticationProviderModel::getProviderByKey($clientID);
-
-        if (!filter_var($timestamp, FILTER_VALIDATE_INT) || abs($timestamp - time()) > self::SSO_TIMEOUT) {
-            $this->Validation->addValidationResult('sso', 'The timestamp is invalid.');
-            return false;
-        }
 
         if (!$provider) {
             $this->Validation->addValidationResult('sso', "Unknown SSO Provider: $clientID");
@@ -743,15 +834,14 @@ class UserModel extends Gdn_Model {
                 $calcSignature = hash_hmac('sha1', "$string $timestamp", $secret);
                 break;
             default:
-                $this->Validation->addValidationResult('sso', "Invalid SSO hash method $hashMethod.");
                 return false;
         }
-        if ($calcSignature != $signature) {
+        if ($calcSignature !== $signature) {
             $this->Validation->addValidationResult('sso', "Invalid SSO signature: $signature");
             return false;
         }
 
-        $uniqueID = $data['uniqueid'];
+        $uniqueID = $data['id'] ?? $data['uniqueid'];
         $user = arrayTranslate($data, [
             'name' => 'Name',
             'email' => 'Email',
@@ -770,7 +860,7 @@ class UserModel extends Gdn_Model {
 
         trace($user, 'SSO User');
 
-        $userID = Gdn::userModel()->connect($uniqueID, $clientID, $user);
+        $userID = $this->connect($uniqueID, $clientID, $user);
         return $userID;
     }
 
@@ -779,27 +869,27 @@ class UserModel extends Gdn_Model {
      *
      * @param array|int $currentUser
      * @param array $newUser Data to overwrite user with.
-     * @param bool $force
+     * @param array $options Options to control the sync.
      * @since 2.1
-     * @deprecated since 2.2.
      */
-    public function synchUser($currentUser, $newUser, $force = false) {
-        deprecated('UserModel::synchUser', 'UserModel::syncUser');
-        $this->syncUser($currentUser, $newUser, $force);
-    }
+    public function syncUser($currentUser, $newUser, $options = []) {
+        if (func_num_args() > 3 || is_bool($options)) {
+            // Backwards compatible to syncUser($currentUser, $newUser, $force = false, $isTrustedProvider = false).
+            $args = func_get_args();
+            $options = [
+                self::OPT_FORCE_SYNC => $args[2],
+                self::OPT_TRUSTED_PROVIDER => $args[3] ?? false
+            ];
+        }
+        $options += [
+            self::OPT_FORCE_SYNC => false,
+            self::OPT_TRUSTED_PROVIDER => false,
+            self::OPT_ROLE_SYNC => $this->getConnectRoleSync(),
+            self::OPT_LOG_ROLE_CHANGES => false,
+        ];
 
-    /**
-     * Sync user data.
-     *
-     * @param array|int $currentUser
-     * @param array $newUser Data to overwrite user with.
-     * @param bool $force
-     * @param bool $isTrustedProvider
-     * @since 2.1
-     */
-    public function syncUser($currentUser, $newUser, $force = false, $isTrustedProvider = false) {
         // Don't synchronize the user if we are configured not to.
-        if (!$force && !c('Garden.Registration.ConnectSynchronize', true)) {
+        if (!$options[self::OPT_FORCE_SYNC] && !c('Garden.Registration.ConnectSynchronize', true)) {
             return;
         }
 
@@ -836,13 +926,14 @@ class UserModel extends Gdn_Model {
 
         // Save the user information.
         $newUser['UserID'] = $currentUser['UserID'];
-        trace($newUser);
+        trace($newUser, 'newUser');
 
         $result = $this->save($newUser, [
-            'NoConfirmEmail' => true,
-            'FixUnique' => true,
-            'SaveRoles' => isset($newUser['RoleID']),
-            'ValidateName' => !$isTrustedProvider,
+            self::OPT_NO_CONFIRM_EMAIL => true,
+            self::OPT_FIX_UNIQUE => true,
+            self::OPT_SAVE_ROLES => isset($newUser['RoleID']),
+            self::OPT_ROLE_SYNC => $options[self::OPT_ROLE_SYNC],
+            self::OPT_VALIDATE_NAME => !$options[self::OPT_TRUSTED_PROVIDER],
         ]);
         if (!$result) {
             trace($this->Validation->resultsText());
@@ -856,10 +947,26 @@ class UserModel extends Gdn_Model {
      * @param string $providerKey The key of the system providing the authentication.
      * @param array $userData Data to go in the user table.
      * @param array $options Additional connect options.
-     * @return int The new/existing user ID.
+     * @param bool $added Set to true when a user is registered.
+     * @return int|false The new/existing user ID or **false** if there was an error connecting.
      */
-    public function connect($uniqueID, $providerKey, $userData, $options = []) {
+    public function connect($uniqueID, $providerKey, $userData, $options = [], &$added = false) {
         trace('UserModel->Connect()');
+
+        $options += [
+            self::OPT_CHECK_CAPTCHA => false,
+            self::OPT_NO_CONFIRM_EMAIL => isset($userData['Email']) || !UserModel::requireConfirmEmail(),
+            self::OPT_NO_ACTIVITY => true,
+            self::OPT_SYNC_EXISTING => true,
+            self::OPT_ROLE_SYNC => $this->getConnectRoleSync(),
+            self::OPT_LOG_ROLE_CHANGES => false,
+        ];
+
+        if (empty($uniqueID)) {
+            $this->Validation->addValidationResult('UniqueID', 'ValidateRequired');
+            return false;
+        }
+
         $provider = Gdn_AuthenticationProviderModel::getProviderByKey($providerKey);
 
         $isTrustedProvider = $provider['Trusted'] ?? false;
@@ -885,19 +992,29 @@ class UserModel extends Gdn_Model {
 
         if ($userID) {
             // Save the user.
-            $this->syncUser($userID, $userData, false, $isTrustedProvider);
-            return $userID;
+            if ($options[self::OPT_SYNC_EXISTING] && !empty($userData)) {
+                $this->syncUser($userID, $userData, [
+                    self::OPT_TRUSTED_PROVIDER => $isTrustedProvider,
+                    self::OPT_ROLE_SYNC => $options[self::OPT_ROLE_SYNC],
+                    self::OPT_LOG_ROLE_CHANGES => $options[self::OPT_LOG_ROLE_CHANGES],
+                ]);
+            }
+            return (int)$userID;
         } else {
-            // The user hasn't already been connected. We want to see if we can't find the user based on some critera.
+            // The user hasn't already been connected. We want to see if we can't find the user based on some criteria.
 
             // Check to auto-connect based on email address.
             if (c('Garden.SSO.AutoConnect', c('Garden.Registration.AutoConnect')) && isset($userData['Email'])) {
-                $user = $this->getByEmail($userData['Email']);
+                $user = $this->getByEmail($userData['Email'], false, ['dataType' => DATASET_TYPE_ARRAY]);
                 trace($user, "Autoconnect User");
                 if ($user) {
                     $user = (array)$user;
                     // Save the user.
-                    $this->syncUser($user, $userData, false, $isTrustedProvider);
+                    $this->syncUser($user, $userData, [
+                        self::OPT_TRUSTED_PROVIDER => $isTrustedProvider,
+                        self::OPT_ROLE_SYNC => $options[self::OPT_ROLE_SYNC],
+                        self::OPT_LOG_ROLE_CHANGES => $options[self::OPT_LOG_ROLE_CHANGES],
+                    ]);
                     $userID = $user['UserID'];
                 }
             }
@@ -912,14 +1029,12 @@ class UserModel extends Gdn_Model {
                     $userData['RoleID'] = $this->lookupRoleIDs($userData['Roles']);
                 }
 
-                $options['CheckCaptcha'] = $options['CheckCaptcha'] ?? false;
-                $options['NoConfirmEmail'] = isset($userData['Email']) || !UserModel::requireConfirmEmail();
-                $options['NoActivity'] = $options['NoActivity'] ?? true;
-                $options['SaveRoles'] = $saveRolesRegister;
-                $options['ValidateName'] = !$isTrustedProvider;
+                $options[self::OPT_SAVE_ROLES] = $saveRolesRegister;
+                $options[self::OPT_VALIDATE_NAME] = !$isTrustedProvider;
 
                 trace($userData, 'Registering User');
                 $userID = $this->register($userData, $options);
+                $added = true;
             }
 
             if ($userID) {
@@ -934,7 +1049,7 @@ class UserModel extends Gdn_Model {
             }
         }
 
-        return $userID;
+        return $userID ? (int)$userID : false;
     }
 
     /**
@@ -945,17 +1060,16 @@ class UserModel extends Gdn_Model {
      * @return array Returns a filtered version of {@link $data}.
      */
     public function filterForm($data, $register = false) {
-        if (!$register && !Gdn::session()->checkPermission('Garden.Users.Edit') && !c("Garden.Profile.EditUsernames")) {
+        if (!$register && $this->session->checkPermission('Garden.Users.Edit') && !c("Garden.Profile.EditUsernames")) {
             $this->removeFilterField('Name');
         }
 
-        if (!Gdn::session()->checkPermission('Garden.Moderation.Manage')) {
+        if (!$this->session->checkPermission('Garden.Moderation.Manage')) {
             $this->addFilterField(['Banned', 'Verified', 'Confirmed', 'RankID']);
         }
 
         $data = parent::filterForm($data);
         return $data;
-
     }
 
     /**
@@ -1001,7 +1115,7 @@ class UserModel extends Gdn_Model {
         unset($fields['Roles']);
 
         // Massage the roles for email confirmation.
-        if (self::requireConfirmEmail() && !val('NoConfirmEmail', $options)) {
+        if (self::requireConfirmEmail() && !val(self::OPT_NO_CONFIRM_EMAIL, $options)) {
             $confirmRoleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_UNCONFIRMED);
 
             if (!empty($confirmRoleIDs)) {
@@ -1030,8 +1144,22 @@ class UserModel extends Gdn_Model {
         }
 
         $userID = $this->SQL->insert($this->Name, $fields);
+
+        if ($userID) {
+            //force clear cache for that UserID
+            $this->clearCache($userID, [self::CACHE_TYPE_USER]);
+
+            $user = $this->getID($userID);
+            $userEvent = $this->eventFromRow(
+                (array)$user,
+                UserEvent::ACTION_INSERT,
+                $this->currentFragment()
+            );
+            $this->getEventManager()->dispatch($userEvent);
+        }
+
         if (is_array($roles)) {
-            $this->saveRoles($userID, $roles, false);
+            $this->saveRoles($userID, $roles, [self::OPT_LOG_ROLE_CHANGES => false]);
         }
 
         // Approval registration requires an email confirmation.
@@ -1093,7 +1221,7 @@ class UserModel extends Gdn_Model {
                 if (is_numeric($iD)) {
                     $user = $users[$iD] ?? false;
                     foreach ($join as $column) {
-                        $value = $user[$column];
+                        $value = $user[$column] ?? null;
                         if ($column == 'Photo') {
                             if ($value && !isUrl($value)) {
                                 $value = Gdn_Upload::url(changeBasename($value, 'n%s'));
@@ -1108,33 +1236,78 @@ class UserModel extends Gdn_Model {
                         setValue($px.$column, $row, null);
                     }
                 }
-
-
             }
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function fetchFragments(array $ids, array $options = []): array {
+        $users = $this->getIDs($ids);
+        $users = array_map([UserFragmentSchema::class, 'normalizeUserFragment'], $users);
+        $users = array_column($users, null, "userID");
+        return $users;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getAllowedGeneratedRecordKeys(): array {
+        return [self::GENERATED_FRAGMENT_KEY_GUEST, self::GENERATED_FRAGMENT_KEY_UNKNOWN];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getGeneratedFragment(string $key): array {
+        $unknownFragment = [
+            'userID' => self::UNKNOWN_USER_ID,
+            'name' => 'unknown',
+            'email' => 'unknown@example.com',
+            'photoUrl' => self::getDefaultAvatarUrl(),
+            'dateLastActive' => time(),
+        ];
+        switch ($key) {
+            case self::GENERATED_FRAGMENT_KEY_GUEST:
+                return [
+                    'userID' => self::GUEST_USER_ID,
+                    'name' => 'guest',
+                    'email' => 'guest@example.com',
+                    'photoUrl' => self::getDefaultAvatarUrl(),
+                    'dateLastActive' => null,
+                ];
+            case self::GENERATED_FRAGMENT_KEY_UNKNOWN:
+                return $unknownFragment;
+            default:
+                trigger_error(
+                    'Called '.__CLASS__.'::'.__METHOD__.'($key) with an non-matching key. Supported values are: '
+                    . "\n" . implode(", ", $this->getAllowedGeneratedRecordKeys())
+                );
+                return $unknownFragment;
         }
     }
 
     /**
      * Add multi-dimensional user data to an array.
      *
-     * @param array $rows Results we need to associate user data with.
+     * @param array|iterable $rows Results we need to associate user data with.
      * @param array $columns Database columns containing UserIDs to get data for.
-     * @param array $options Additional options. Passed to filter event.
      */
-    public function expandUsers(array &$rows, array $columns, array $options = []) {
+    public function expandUsers(&$rows, array $columns) {
         // How are we supposed to lookup users by column if we don't have any columns?
         if (count($rows) === 0 || count($columns) === 0) {
             return;
         }
 
         reset($rows);
-        $single = is_string(key($rows));
+        $single = !($rows instanceof Traversable) && is_string(key($rows));
 
         $userIDs = [];
 
-        $extractUserIDs = function(array $row) use ($columns, &$userIDs) {
+        $extractUserIDs = function ($row) use ($columns, &$userIDs) {
             foreach ($columns as $key) {
-                if (array_key_exists($key, $row)) {
+                if ($row[$key] ?? false) {
                     $id = $row[$key];
                     $userIDs[$id] = true;
                 }
@@ -1151,10 +1324,10 @@ class UserModel extends Gdn_Model {
         }
         $users = !empty($userIDs) ? $this->getIDs(array_keys($userIDs)) : [];
 
-        $populate = function(array &$row) use ($users, $columns) {
+        $populate = function (&$row) use ($users, $columns) {
             foreach ($columns as $key) {
                 $destination = stringEndsWith($key, 'ID', true, true);
-                $id = val($key, $row);
+                $id = $row[$key] ?? null;
                 $user = null;
                 if (is_numeric($id)) {
                     // Massage the data, before injecting it into the results.
@@ -1172,17 +1345,11 @@ class UserModel extends Gdn_Model {
                         setValue('Photo', $user, $photo);
                         // Add an alias to Photo. Currently only used in API calls.
                         setValue('PhotoUrl', $user, $photo);
-                    } else {
-                        $user = [
-                            'userID' => 0,
-                            'name' => 'unknown',
-                            'email' => 'unknown@example.com'
-                        ];
-                        $user['photoUrl'] = self::getDefaultAvatarUrl($user);
                     }
                 }
-
-                setValue($destination, $row, $user);
+                $user = !empty($user) ? $user : $this->getGeneratedFragment(self::GENERATED_FRAGMENT_KEY_UNKNOWN);
+                $user =  UserFragmentSchema::normalizeUserFragment($user);
+                $row[$destination] = $user;
             }
         };
 
@@ -1193,15 +1360,6 @@ class UserModel extends Gdn_Model {
             foreach ($rows as &$row) {
                 $populate($row);
             }
-        }
-
-        // Don't bother addons with whether or not this is a single row. Pack and unpack it here, as necessary.
-        if ($single) {
-            $rows = [$rows];
-        }
-        $rows = $this->eventManager->fireFilter('userModel_expandUsers', $rows, $options);
-        if ($single) {
-            $rows = reset($rows);
         }
     }
 
@@ -1237,7 +1395,10 @@ class UserModel extends Gdn_Model {
      */
     public function userQuery($safeData = false) {
         if ($safeData) {
-            $this->SQL->select('u.UserID, u.Name, u.Photo, u.CountVisits, u.DateFirstVisit, u.DateLastActive, u.DateInserted, u.DateUpdated, u.Score, u.Deleted, u.CountDiscussions, u.CountComments');
+            $this->SQL->select(
+                'u.UserID, u.Name, u.Photo, u.CountVisits, u.DateFirstVisit, u.DateLastActive, u.DateInserted, '.
+                'u.DateUpdated, u.Score, u.Deleted, u.CountDiscussions, u.CountComments'
+            );
         } else {
             $this->SQL->select('u.*');
         }
@@ -1247,10 +1408,10 @@ class UserModel extends Gdn_Model {
     /**
      * Load and compile user permissions
      *
-     * @deprecated Use UserModel::getPermissions instead.
-     * @param integer $userID
+     * @param int $userID
      * @param boolean $serialize
      * @return array
+     * @deprecated Use UserModel::getPermissions instead.
      */
     public function definePermissions($userID, $serialize = false) {
         if ($serialize) {
@@ -1269,7 +1430,7 @@ class UserModel extends Gdn_Model {
      * @return array Compiled permissions
      */
     public static function compilePermissions($rawPermissions) {
-        $permissions = new Vanilla\Permissions();
+        $permissions = Gdn::permissionModel()->createPermissionInstance();
         $permissions->compileAndLoad($rawPermissions);
         return $permissions->getPermissions();
     }
@@ -1280,15 +1441,19 @@ class UserModel extends Gdn_Model {
      * Prior to 2.0.18 it incorrectly behaved like GetID.
      * This method can be deleted entirely once it's been deprecated long enough.
      *
+     * @param string|array $orderFields
+     * @param string $orderDirection
+     * @param int|false $limit
+     * @param int|false $pageNumber
      * @return object DataSet
      */
-    public function get($orderFields = '', $orderDirection = 'asc', $limit = false, $offset = false) {
+    public function get($orderFields = '', $orderDirection = 'asc', $limit = false, $pageNumber = false) {
         if (is_numeric($orderFields)) {
             // They're using the old version that was a misnamed getID()
             deprecated('UserModel->get()', 'UserModel->getID()');
             $result = $this->getID($orderFields);
         } else {
-            $result = parent::get($orderFields, $orderDirection, $limit, $offset);
+            $result = parent::get($orderFields, $orderDirection, $limit, $pageNumber);
         }
         return $result;
     }
@@ -1331,11 +1496,15 @@ class UserModel extends Gdn_Model {
      * Get user by email address.
      *
      * @param string $email The email address of the user.
+     * @param bool $safeData
+     * @param array $options
+     *
      * @return array|bool|stdClass Returns the user or **false** if they don't exist.
      */
-    public function getByEmail($email) {
-        $this->userQuery();
-        $user = $this->SQL->where('u.Email', $email)->get()->firstRow();
+    public function getByEmail($email, bool $safeData = false, array $options = []) {
+        $this->userQuery($safeData);
+        $dataType = $options['dataType'] ?? false;
+        $user = $this->SQL->where('u.Email', $email)->get()->firstRow($dataType);
         $this->setCalculatedFields($user);
         return $user;
     }
@@ -1343,7 +1512,7 @@ class UserModel extends Gdn_Model {
     /**
      * Get users by role.
      *
-     * @param int|string $role The ID or name of the role.
+     * @param int|string|array $role The ID or name of the role.
      * @return Gdn_DataSet Returns the users with the given role.
      */
     public function getByRole($role) {
@@ -1428,6 +1597,29 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Look up a user who has already been authenticated by a UniqueID or Email.
+     *
+     * @param array $ssoUser
+     * @param string $provider
+     * @return array|null
+     * @throws \Garden\Container\ContainerException If a container fails.
+     * @throws \Garden\Container\NotFoundException If a container is not found.
+     */
+    public function lookupSSOUser(array $ssoUser, string $provider) {
+        $userAuthentication = $this->getAuthentication($ssoUser['UniqueID'], $provider);
+        if ($userAuthentication && $userAuthentication['UserID']) {
+            $user = $this->getID($userAuthentication['UserID'], DATASET_TYPE_ARRAY);
+        } else {
+            $emailUnique = (bool)Gdn::config('Garden.Registration.EmailUnique', true);
+            $autoConnect = (bool)Gdn::config('Garden.Registration.AutoConnect', false);
+            if ($ssoUser['Email'] && $autoConnect && $emailUnique) {
+                $user = $this->getByEmail($ssoUser['Email'], false, ['dataType' => DATASET_TYPE_ARRAY]);
+            }
+        }
+        return $user ?? null;
+    }
+
+    /**
      * Get the a user authentication row.
      *
      * @param string $uniqueID The unique ID of the user in the foreign authentication scheme.
@@ -1456,7 +1648,55 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Get user authentication rows by user ID and provider.
      *
+     * @param int[] $userIDs
+     * @param string $provider
+     * @return array
+     */
+    private function getAuthentications(array $userIDs, string $provider): array {
+        $result = [];
+
+        // Check the cache...
+        $cacheKeys = [];
+        foreach ($userIDs as $currentID) {
+            $cacheKeys[] = $this->authenticationCacheKey($provider, $currentID);
+        }
+        $cachedRows = Gdn::cache()->get($cacheKeys);
+
+        if (is_array($cachedRows)) {
+            $result = $result + array_values($cachedRows);
+            $userIDs = array_diff($userIDs, array_column($result, "UserID"));
+        }
+
+        // ...and query the DB for what's left.
+        if (!empty($userIDs)) {
+            $rows = $this->SQL->getWhere(
+                "UserAuthentication",
+                ["UserID" => $userIDs, "ProviderKey" => $provider]
+            )->resultArray();
+
+            foreach ($rows as $userAuthentication) {
+                $userID = $userAuthentication["UserID"] ?? null;
+                if ($userID === null) {
+                    continue;
+                }
+                $cacheKey = $this->authenticationCacheKey($provider, $userID);
+                Gdn::cache()->store(
+                    $cacheKey,
+                    $userAuthentication,
+                    [Gdn_Cache::FEATURE_EXPIRY => self::USERAUTHENTICATION_CACHE_EXPIRY]
+                );
+            }
+
+            $result = $result + $rows;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get a user count based on like comparisons.
      *
      * @param array|bool $like
      * @return int
@@ -1481,7 +1721,9 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Get the count of users.
      *
+     * This method respects the deleted flag.
      *
      * @param array|false $where
      * @return int
@@ -1503,32 +1745,49 @@ class UserModel extends Gdn_Model {
         return $data === false ? 0 : $data->UserCount;
     }
 
+
+    /**
+     * @inheritdoc
+     */
+    public function getFragmentByID(int $id, bool $useUnknownFallback = false): array {
+        $record = $this->getID($id, DATASET_TYPE_ARRAY);
+        if ($record === false) {
+            if ($useUnknownFallback) {
+                $record = $this->getGeneratedFragment(self::GENERATED_FRAGMENT_KEY_UNKNOWN);
+            } else {
+                throw new NoResultsException("No user found for ID: " . $id);
+            }
+        }
+
+        return UserFragmentSchema::normalizeUserFragment($record);
+    }
+
     /**
      * Get a user by ID.
      *
-     * @param int $iD The ID of the user.
+     * @param int $id The ID of the user.
      * @param string|false $datasetType Whether to return an array or object.
      * @param array $options Additional options to affect fetching. Currently unused.
      * @return array|object|false Returns the user or **false** if the user wasn't found.
      */
-    public function getID($iD, $datasetType = false, $options = []) {
-        if (!$iD) {
+    public function getID($id, $datasetType = false, $options = []) {
+        if (!$id) {
             return false;
         }
         $datasetType = $datasetType ?: DATASET_TYPE_OBJECT;
 
         // Check page cache, then memcached
-        $user = $this->getUserFromCache($iD, 'userid');
+        $user = $this->getUserFromCache($id, 'userid');
         // If not, query DB
         if ($user === Gdn_Cache::CACHEOP_FAILURE) {
-            $user = parent::getID($iD, DATASET_TYPE_ARRAY);
+            $user = parent::getID($id, DATASET_TYPE_ARRAY);
 
             // We want to cache a non-existent user no-matter what.
             if (!$user) {
                 $user = null;
             }
 
-            $this->userCache($user, $iD);
+            $this->userCache($user, $id);
         } elseif (!$user) {
             return false;
         }
@@ -1556,21 +1815,20 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Get multiple users by ID.
      *
-     *
-     * @param array $iDs
+     * @param array $ids
      * @param bool $skipCacheQuery
      * @return array
-     * @throws Exception
      */
-    public function getIDs($iDs, $skipCacheQuery = false) {
-        $databaseIDs = $iDs;
+    public function getIDs($ids, $skipCacheQuery = false) {
+        $databaseIDs = $ids;
         $data = [];
 
         if (!$skipCacheQuery) {
             $keys = [];
             // Make keys for cache query
-            foreach ($iDs as $userID) {
+            foreach ($ids as $userID) {
                 if (!$userID) {
                     continue;
                 }
@@ -1625,7 +1883,7 @@ class UserModel extends Gdn_Model {
             }
         }
 
-        $this->EventArguments['RequestedIDs'] = $iDs;
+        $this->EventArguments['RequestedIDs'] = $ids;
         $this->EventArguments['LoadedUsers'] = &$data;
         $this->fireEvent('AfterGetIDs');
 
@@ -1657,15 +1915,14 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Get users by like expression.
      *
-     *
-     * @param bool $like
+     * @param string|false $like
      * @param string $orderFields
      * @param string $orderDirection
      * @param bool $limit
      * @param bool $offset
      * @return Gdn_DataSet
-     * @throws Exception
      */
     public function getLike($like = false, $orderFields = '', $orderDirection = 'asc', $limit = false, $offset = false) {
         $this->userQuery();
@@ -1700,7 +1957,7 @@ class UserModel extends Gdn_Model {
      * If $userID is a scalar, the return value will be a single dimensional array of $UserMetaKey => $Value
      * pairs.
      *
-     * @param int $userID UserID or array of UserIDs.
+     * @param int|int[] $userID UserID or array of UserIDs.
      * @param string $key Relative user meta key.
      * @param string $prefix
      * @param string $default
@@ -1749,12 +2006,71 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Join in user roleIDs for a list of users.
+     * Ideal for a large amount list of users. If you have a single user being queried,
+     * you can use getRoles() and pull from cache.
+     *
+     * @param array $users
+     */
+    public function joinRoles(array &$users) {
+        if (count($users) === 0) {
+            return;
+        }
+
+        $userIDs = array_column($users, 'UserID');
+        $sql = clone $this->SQL;
+        $sql->reset();
+        $query = $sql->select('u.UserID')
+            ->select('ur.RoleID', 'GROUP_CONCAT', 'RoleIDs')
+            ->from('User u')
+            ->leftJoin('UserRole ur', 'u.UserID = ur.UserID')
+            ->where('u.UserID', $userIDs)
+            ->groupBy('u.UserID')
+            ->getSelect();
+        $userRoles = $sql->query($query)->resultArray();
+        $userRolesByUserID = array_column($userRoles, 'RoleIDs', 'UserID');
+
+        foreach ($users as &$user) {
+            $foundRoleIDs = $userRolesByUserID[$user['UserID']];
+            $roleIDs = explode(',', $foundRoleIDs);
+            $user['Roles'] = [];
+            foreach ($roleIDs as $roleID) {
+                $foundRole = RoleModel::roles($roleID);
+                if ($foundRole !== null) {
+                    $user['Roles'][] = $foundRole;
+                }
+            }
+        }
+    }
+
+    /**
      * Get the roles for a user.
      *
      * @param int $userID The user to get the roles for.
+     * @param bool $includeInvalid Include invalid (e.g. non-existent) roles.
      * @return Gdn_DataSet Returns the roles as a dataset (with array values).
      */
-    public function getRoles($userID) {
+    public function getRoles($userID, bool $includeInvalid = true) {
+        $rolesDataArray = $this->getRoleIDs($userID);
+
+        $result = [];
+        foreach ($rolesDataArray as $roleID) {
+            $role = RoleModel::roles($roleID, $includeInvalid);
+            if ($role !== null) {
+                $result[] = $role;
+            }
+        }
+
+        return new Gdn_DataSet($result, DATASET_TYPE_ARRAY);
+    }
+
+    /**
+     * Get the roles for a user.
+     *
+     * @param int $userID The user to get the roles for.
+     * @return array|bool $rolesDataArray User roles.
+     */
+    public function getRoleIDs($userID) {
         $userRolesKey = formatString(self::USERROLES_KEY, ['UserID' => $userID]);
         $rolesDataArray = Gdn::cache()->get($userRolesKey);
 
@@ -1764,17 +2080,11 @@ class UserModel extends Gdn_Model {
             // Add result to cache
             $this->userCacheRoles($userID, $rolesDataArray);
         }
-
-        $result = [];
-        foreach ($rolesDataArray as $roleID) {
-            $result[] = RoleModel::roles($roleID, true);
-        }
-
-        return new Gdn_DataSet($result, DATASET_TYPE_ARRAY);
+        return $rolesDataArray;
     }
 
     /**
-     *
+     * Get Session.
      *
      * @param int $userID
      * @param bool $refresh
@@ -1833,7 +2143,6 @@ class UserModel extends Gdn_Model {
      * @param bool $limit
      * @param bool $offset
      * @return array|null
-     * @throws Exception
      */
     public function getSummary($orderFields = '', $orderDirection = 'asc', $limit = false, $offset = false) {
         $this->userQuery(true);
@@ -1867,7 +2176,7 @@ class UserModel extends Gdn_Model {
                 ->from('User u')
                 ->where('u.Name', 'System')
                 ->get()->firstRow(DATASET_TYPE_ARRAY);
-            if($systemUser) {
+            if ($systemUser) {
                 $systemUserID = $systemUser['UserID'];
             } else {
                 $systemUser = [
@@ -1876,7 +2185,7 @@ class UserModel extends Gdn_Model {
                     'Password' => randomString('20'),
                     'HashMethod' => 'Random',
                     'Email' => 'system@stub.vanillacommunity.example',
-                    'DateInserted' => Gdn_Format::toDateTime(),
+                    'DateInserted' => DateTimeFormatter::getCurrentDateTime(),
                     'Admin' => '2'
                 ];
 
@@ -1900,8 +2209,8 @@ class UserModel extends Gdn_Model {
      * @since 2.1.0
      */
     public static function givePoints($userID, $points, $source = 'Other', $timestamp = false) {
-        if (!$timestamp === false) {
-            $timestamp = time();
+        if (!$timestamp) {
+            $timestamp = CurrentTimeStamp::get();
         }
 
         if (is_array($source)) {
@@ -1917,21 +2226,26 @@ class UserModel extends Gdn_Model {
             $categoryIDs = [$categoryID];
         }
 
-        foreach ($categoryIDs as $iD) {
+        foreach ($categoryIDs as $categoryID) {
             // Increment source points for the user.
-            self::givePointsInternal($userID, $points, 'a', $source, $iD);
+            self::givePointsInternal($userID, $points, UserPointsModel::SLOT_TYPE_ALL, $source, $categoryID);
 
             // Increment total points for the user.
-            self::givePointsInternal($userID, $points, 'w', 'Total', $iD, $timestamp);
-            self::givePointsInternal($userID, $points, 'm', 'Total', $iD, $timestamp);
-            self::givePointsInternal($userID, $points, 'a', 'Total', $iD, $timestamp);
+            self::givePointsInternal($userID, $points, UserPointsModel::SLOT_TYPE_WEEK, 'Total', $categoryID, $timestamp);
+            self::givePointsInternal($userID, $points, UserPointsModel::SLOT_TYPE_MONTH, 'Total', $categoryID, $timestamp);
+            self::givePointsInternal($userID, $points, UserPointsModel::SLOT_TYPE_YEAR, 'Total', $categoryID, $timestamp);
+            self::givePointsInternal($userID, $points, UserPointsModel::SLOT_TYPE_ALL, 'Total', $categoryID, $timestamp);
 
             // Increment global daily points.
-            self::givePointsInternal(0, $points, 'd', 'Total', $iD, $timestamp);
+            self::givePointsInternal(self::GUEST_USER_ID, $points, UserPointsModel::SLOT_TYPE_DAY, 'Total', $categoryID, $timestamp);
         }
 
         // Grab the user's total points.
-        $totalPoints = Gdn::sql()->getWhere('UserPoints', ['UserID' => $userID, 'SlotType' => 'a', 'Source' => 'Total', 'CategoryID' => 0])->value('Points');
+        $totalPoints = Gdn::sql()
+            ->getWhere(
+                'UserPoints',
+                ['UserID' => $userID, 'SlotType' => 'a', 'Source' => 'Total', 'CategoryID' => 0]
+            )->value('Points');
 
         Gdn::userModel()->setField($userID, 'Points', $totalPoints);
 
@@ -2014,7 +2328,7 @@ class UserModel extends Gdn_Model {
         switch ($method) {
             case 'basic':
             case 'captcha': // deprecated
-                $userID = $this->insertForBasic($formPostValues, val('CheckCaptcha', $options, true), $options);
+                $userID = $this->insertForBasic($formPostValues, val(self::OPT_CHECK_CAPTCHA, $options, true), $options);
                 break;
             case 'approval':
                 $userID = $this->insertForApproval($formPostValues, $options);
@@ -2027,11 +2341,11 @@ class UserModel extends Gdn_Model {
                 $this->Validation->addValidationResult('Registration', 'Registration is closed.');
                 break;
             default:
-                $userID = $this->insertForBasic($formPostValues, val('CheckCaptcha', $options, false), $options);
+                $userID = $this->insertForBasic($formPostValues, val(self::OPT_CHECK_CAPTCHA, $options, false), $options);
                 break;
         }
 
-        if ($userID) {
+        if ($userID && is_numeric($userID)) {
             $this->EventArguments['UserID'] = $userID;
             $this->fireEvent('AfterRegister');
         }
@@ -2118,11 +2432,12 @@ class UserModel extends Gdn_Model {
      * - ValidateEmail - Make sure the provided email addresses is formatted properly. Default true.
      * - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * - NoConfirmEmail - Disable email confirmation. Default false.
-     *
+     * - roleSync - Passed through to `saveRoles()`.
+     * @return int|false
      */
     public function save($formPostValues, $settings = []) {
         // See if the user's related roles should be saved or not.
-        $saveRoles = val('SaveRoles', $settings);
+        $saveRoles = val(self::OPT_SAVE_ROLES, $settings);
 
         // Define the primary key in this model's table.
         $this->defineSchema();
@@ -2134,9 +2449,6 @@ class UserModel extends Gdn_Model {
         } else {
             $this->Validation->unapplyRule('RoleID', 'OneOrMoreArrayItemRequired');
         }
-
-        $this->Validation->addRule('UsernameBlacklist', 'function:validateAgainstUsernameBlacklist');
-        $this->Validation->applyRule('Name', 'UsernameBlacklist');
 
         // Make sure that checkbox values are saved as the appropriate value.
         if (array_key_exists('ShowEmail', $formPostValues)) {
@@ -2195,7 +2507,7 @@ class UserModel extends Gdn_Model {
 
         $recordRoleChange = true;
 
-        if ($userID && val('FixUnique', $settings)) {
+        if ($userID && val(self::OPT_FIX_UNIQUE, $settings)) {
             $uniqueValid = $this->validateUniqueFields(val('Name', $formPostValues), val('Email', $formPostValues), $userID, true);
             if (!$uniqueValid['Name']) {
                 unset($formPostValues['Name']);
@@ -2211,9 +2523,16 @@ class UserModel extends Gdn_Model {
         // Add & apply any extra validation rules:
         if (array_key_exists('Email', $formPostValues) && val('ValidateEmail', $settings, true)) {
             $this->Validation->applyRule('Email', 'Email');
+        } else {
+            $this->Validation->unapplyRule('Email', 'Email');
         }
-        if (val('ValidateName', $settings, true)) {
+        if (array_key_exists('Name', $formPostValues) && val(self::OPT_VALIDATE_NAME, $settings, true)) {
             $this->Validation->applyRule('Name', 'Username');
+            $this->Validation->addRule('UsernameBlacklist', 'function:validateAgainstUsernameBlacklist');
+            $this->Validation->applyRule('Name', 'UsernameBlacklist');
+        } else {
+            $this->Validation->unapplyRule('Name', 'Username');
+            $this->Validation->unapplyRule('Name', 'UsernameBlacklist');
         }
 
         if ($this->validate($formPostValues, $insert) && $uniqueValid) {
@@ -2237,21 +2556,20 @@ class UserModel extends Gdn_Model {
             }
 
             // Check for email confirmation.
-            if (self::requireConfirmEmail() && !val('NoConfirmEmail', $settings)) {
+            if (self::requireConfirmEmail() && !val(self::OPT_NO_CONFIRM_EMAIL, $settings)) {
                 $emailIsSet = isset($fields['Email']);
                 $emailIsNotConfirmed = array_key_exists('Confirmed', $fields) && $fields['Confirmed'] == 0;
-                $validSession = Gdn::session()->isValid();
+                $validSession = $this->session->isValid();
 
                 $currentUserEmailIsBeingChanged =
                     $validSession
-                    && $userID == Gdn::session()->UserID
-                    && $fields['Email'] != Gdn::session()->User->Email
-                    && !Gdn::session()->checkPermission('Garden.Users.Edit')
-                ;
+                    && $userID == $this->session->UserID
+                    && $fields['Email'] != $this->session->User->Email
+                    && !$this->session->checkPermission('Garden.Users.Edit');
 
                 // Email address has changed
                 if ($emailIsSet && ($emailIsNotConfirmed || $currentUserEmailIsBeingChanged)) {
-                    $attributes = val('Attributes', Gdn::session()->User);
+                    $attributes = val('Attributes', $this->session->User);
                     if (is_string($attributes)) {
                         $attributes = dbdecode($attributes);
                     }
@@ -2266,10 +2584,10 @@ class UserModel extends Gdn_Model {
                     }
                 }
             }
-
-            $this->EventArguments['SaveRoles'] = &$saveRoles;
+            $this->EventArguments[self::OPT_SAVE_ROLES] = &$saveRoles;
             $this->EventArguments['RoleIDs'] = &$roleIDs;
             $this->EventArguments['Fields'] = &$fields;
+            $this->EventArguments['isApi'] = $settings["isApi"] ?? false;
             $this->fireEvent('BeforeSave');
             $user = array_merge($user, $fields);
 
@@ -2350,22 +2668,27 @@ class UserModel extends Gdn_Model {
                             }
 
                             $activityModel = new ActivityModel();
-                            if ($userID == Gdn::session()->UserID) {
-                                $headlineFormat = t('HeadlineFormat.PictureChange', '{RegardingUserID,You} changed {ActivityUserID,your} profile picture.');
+                            if ($userID == $this->session->UserID) {
+                                $headlineFormat = t(
+                                    'HeadlineFormat.PictureChange',
+                                    '{RegardingUserID,You} changed {ActivityUserID,your} profile picture.'
+                                );
                             } else {
-                                $headlineFormat = t('HeadlineFormat.PictureChange.ForUser', '{RegardingUserID,You} changed the profile picture for {ActivityUserID,user}.');
+                                $headlineFormat = t(
+                                    'HeadlineFormat.PictureChange.ForUser',
+                                    '{RegardingUserID,You} changed the profile picture for {ActivityUserID,user}.'
+                                );
                             }
 
                             $activityModel->save([
                                 'ActivityUserID' => $userID,
-                                'RegardingUserID' => Gdn::session()->UserID,
+                                'RegardingUserID' => $this->session->UserID,
                                 'ActivityType' => 'PictureChange',
                                 'HeadlineFormat' => $headlineFormat,
                                 'Story' => img($photoUrl, ['alt' => t('Thumbnail')])
                             ]);
                         }
                     }
-
                 } else {
                     $recordRoleChange = false;
                     if (!$this->validateUniqueFields($username, $email)) {
@@ -2401,7 +2724,7 @@ class UserModel extends Gdn_Model {
                         // Report the creation for mods.
                         $activityModel->save([
                             'ActivityType' => 'Registration',
-                            'ActivityUserID' => Gdn::session()->UserID,
+                            'ActivityUserID' => $this->session->UserID,
                             'RegardingUserID' => $userID,
                             'NotifyUserID' => ActivityModel::NOTIFY_MODS,
                             'HeadlineFormat' => t('HeadlineFormat.AddUser', '{ActivityUserID,user} added an account for {RegardingUserID,user}.')]);
@@ -2415,7 +2738,14 @@ class UserModel extends Gdn_Model {
                         $roleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
                     }
 
-                    $this->saveRoles($userID, $roleIDs, $recordRoleChange);
+                    $this->saveRoles(
+                        $userID,
+                        $roleIDs,
+                        [
+                            self::OPT_ROLE_SYNC => $settings[self::OPT_ROLE_SYNC] ?? [],
+                            self::OPT_LOG_ROLE_CHANGES => $recordRoleChange,
+                        ]
+                    );
                 }
 
                 // Send the confirmation email.
@@ -2423,10 +2753,12 @@ class UserModel extends Gdn_Model {
                     if (!is_array($user)) {
                         $user = $this->getID($userID, DATASET_TYPE_ARRAY);
                     }
+                    // do not rate-limit when editing email.
+                    $this->clearRateLimitCache($userID);
                     $this->sendEmailConfirmationEmail($user, true);
                 }
 
-                $this->clearCache($userID, ['user']);
+                $this->clearCache($userID, [self::CACHE_TYPE_USER]);
                 $this->EventArguments['UserID'] = $userID;
                 $this->fireEvent('AfterSave');
             } else {
@@ -2435,14 +2767,191 @@ class UserModel extends Gdn_Model {
         } else {
             $userID = false;
         }
-
+        if ($userID) {
+            $user = $this->getID($userID);
+            $userEvent = $this->eventFromRow(
+                (array)$user,
+                $insert ? UserEvent::ACTION_INSERT : UserEvent::ACTION_UPDATE,
+                $this->currentFragment()
+            );
+            $this->getEventManager()->dispatch($userEvent);
+        }
         return $userID;
+    }
+
+    /**
+     * Clear rate & source limit cache.
+     *
+     * @param int $userID
+     */
+    private function clearRateLimitCache(int $userID) {
+        $userRateKey = formatString(self::LOGIN_RATE_KEY, ['Source' => $userID]);
+        $sourceRateKey = formatString(self::LOGIN_RATE_KEY, ['Source' => Gdn::request()->ipAddress()]);
+        Gdn::cache()->remove($userRateKey);
+        Gdn::cache()->remove($sourceRateKey);
+    }
+
+    /**
+     * Generate a user event object, based on a database row.
+     *
+     * @param array $row
+     * @param string $action
+     * @param array|null $sender
+     * @return UserEvent
+     */
+    public function eventFromRow(array $row, string $action, ?array $sender = null): ResourceEvent {
+        $user = $this->normalizeRow($row, false);
+        $user = $this->readSchema()->validate($user);
+
+        if ($sender) {
+            $senderSchema = new UserFragmentSchema();
+            $sender = $senderSchema->validate($sender);
+        }
+
+        $result = new UserEvent(
+            $action,
+            ["user" => $user],
+            $sender
+        );
+        return $result;
+    }
+
+    /**
+     * Given a database row, massage the data into a more externally-useful format.
+     *
+     * @param array $row
+     * @param array $expand
+     * @return array
+     */
+    public function normalizeRow(array $row, $expand = []): array {
+        if (array_key_exists('UserID', $row) && !array_key_exists('Roles', $row) && !array_key_exists('roles', $row)) {
+            $userID = $row['UserID'];
+            $roles = $this->getRoles($userID, false)->resultArray();
+            $row['roles'] = $roles;
+        }
+        if (array_key_exists('Photo', $row)) {
+            $photo = userPhotoUrl($row);
+            $row['Photo'] = $photo;
+            $row['photoUrl'] = $photo;
+        }
+        if (array_key_exists('Verified', $row)) {
+            $row['bypassSpam'] = $row['Verified'];
+            unset($row['Verified']);
+        }
+        if (array_key_exists('Confirmed', $row)) {
+            $row['emailConfirmed'] = $row['Confirmed'];
+            unset($row['Confirmed']);
+        }
+        if (array_key_exists('Admin', $row)) {
+            // The site creator is 1, System is 2.
+            $row['isAdmin'] = in_array($row['Admin'], [1, 2]);
+            unset($row['Admin']);
+        }
+
+        $row['CountDiscussions'] = $row['CountDiscussions'] ?? false;
+        if (!$row['CountDiscussions']) {
+            $row['CountDiscussions'] = 0;
+        }
+
+        $row['CountComments'] = $row['CountComments'] ?? false;
+        if (!$row['CountComments']) {
+            $row['CountComments'] = 0;
+        }
+
+        $name = $row['Name'] ?? '';
+        $row['Name'] = $name ? $row['Name'] : t('(Unspecified Name)');
+
+        $row['CountPosts'] = $row['CountComments'] + $row['CountDiscussions'];
+        $result = ArrayUtils::camelCase($row);
+
+        if (ModelUtils::isExpandOption(ModelUtils::EXPAND_CRAWL, $expand)) {
+            $result['excerpt'] = '';
+            $result['scope'] = CrawlableRecordSchema::SCOPE_RESTRICTED;
+            $result['sortName'] = mb_convert_case(Normalizer::normalize($result['name']), MB_CASE_LOWER);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get a schema instance comprised of standard user fields.
+     *
+     * @return Schema
+     */
+    public function schema(): Schema {
+        $result = Schema::parse([
+            'userID:i' => 'ID of the user.',
+            'name:s' => 'Name of the user.',
+            'sortName:s?',
+            'password:s' => 'Password of the user.',
+            'hashMethod:s' => 'Hash method for the password.',
+            'email:s?' => [
+                'description' => 'Email address of the user.',
+                'minLength' => 0,
+            ],
+            'photo:s|n' => [
+                'minLength' => 0,
+                'description' => 'Raw photo field value from the user record.'
+            ],
+            'photoUrl:s|n' => [
+                'minLength' => 0,
+                'description' => 'URL to the user photo.'
+            ],
+            'points:i',
+            'emailConfirmed:b' => 'Has the email address for this user been confirmed?',
+            'showEmail:b' => 'Is the email address visible to other users?',
+            'bypassSpam:b' => 'Should submissions from this user bypass SPAM checks?',
+            'banned:i' => 'Is the user banned?',
+            'dateInserted:dt' => 'When the user was created.',
+            'dateLastActive:dt|n' => 'Time the user was last active.',
+            'dateUpdated:dt|n' => 'When the user was last updated.',
+            'roles:a?' => SchemaFactory::parse([
+                'roleID:i' => 'ID of the role.',
+                'name:s' => 'Name of the role.'
+            ], 'RoleFragment'),
+            'label:s?',
+        ]);
+        return $result;
+    }
+
+    /**
+     * A schema representing fields relevant to reading and displaying user info (e.g. no password).
+     *
+     * @return Schema
+     */
+    public function readSchema() {
+            $result = Schema::parse([
+                "banned",
+                "bypassSpam",
+                "email?",
+                "emailConfirmed",
+                "dateInserted",
+                "dateLastActive",
+                "dateUpdated",
+                "name",
+                'sortName?',
+                "photoUrl",
+                "url?",
+                "points",
+                "roles?",
+                "showEmail",
+                "userID",
+                "title?",
+                "countDiscussions?",
+                "countComments?",
+                "countPosts?",
+                "label?",
+            ]);
+            $result->add($this->schema());
+
+            return $result;
     }
 
     /**
      * Create an admin user account.
      *
      * @param array $formPostValues
+     * @return int|null
      */
     public function saveAdminUser($formPostValues) {
         $userID = 0;
@@ -2453,8 +2962,8 @@ class UserModel extends Gdn_Model {
         $formPostValues['ShowEmail'] = '0';
         $formPostValues['TermsOfService'] = '1';
         $formPostValues['DateOfBirth'] = '1975-09-16';
-        $formPostValues['DateLastActive'] = Gdn_Format::toDateTime();
-        $formPostValues['DateUpdated'] = Gdn_Format::toDateTime();
+        $formPostValues['DateLastActive'] = DateTimeFormatter::getCurrentDateTime();
+        $formPostValues['DateUpdated'] = DateTimeFormatter::getCurrentDateTime();
         $formPostValues['Gender'] = 'u';
         $formPostValues['Admin'] = '1';
 
@@ -2464,7 +2973,7 @@ class UserModel extends Gdn_Model {
             $fields = $this->Validation->schemaValidationFields(); // Only fields that are present in the schema
 
             // Insert the new user
-            $userID = $this->insertInternal($fields, ['NoConfirmEmail' => true, 'Setup' => true]);
+            $userID = $this->insertInternal($fields, [self::OPT_NO_CONFIRM_EMAIL => true, 'Setup' => true]);
 
             if ($userID > 0) {
                 $activityModel = new ActivityModel();
@@ -2480,136 +2989,246 @@ class UserModel extends Gdn_Model {
                 );
             }
 
-            $this->saveRoles($userID, [16], false);
+            $this->saveRoles($userID, [16], [self::OPT_LOG_ROLE_CHANGES => false]);
         }
         return $userID;
     }
 
     /**
+     * Save the user's roles.
      *
-     *
-     * @param int $UserID
-     * @param array $RoleIDs
-     * @param bool $RecordEvent
+     * @param int $userID
+     * @param int[] $roleIDs The Role ID or IDs. This can also be a CSV string of names.
+     * @param array $options Options to control the save.
      */
-    public function saveRoles($UserID, $RoleIDs, $RecordEvent) {
-        if (is_string($RoleIDs) && !is_numeric($RoleIDs)) {
+    public function saveRoles($userID, $roleIDs, $options = []) {
+        if (!is_array($options)) {
+            deprecated(__METHOD__.'($userID, $roleIDs, $recordEvent)', __METHOD__.'($userID, $roleIDs, $options)');
+            // Backwards compatible save.
+            $options = ['recordEvent' => (bool)$options];
+        }
+        $options += [
+            self::OPT_LOG_ROLE_CHANGES => true,
+            self::OPT_ROLE_SYNC => [],
+        ];
+
+        if (is_string($roleIDs) && !is_numeric($roleIDs)) {
+            /* @codeCoverageIgnoreStart */
+            $method = __METHOD__;
+            trigger_error("Calling $method with non-array roleIDs is deprecated.", E_USER_DEPRECATED);
+
             // The $RoleIDs are a comma delimited list of role names.
-            $RoleNames = array_map('trim', explode(',', $RoleIDs));
-            $RoleIDs = $this->SQL
+            $RoleNames = array_map('trim', explode(',', $roleIDs));
+            $roleIDs = $this->SQL
                 ->select('r.RoleID')
                 ->from('Role r')
                 ->whereIn('r.Name', $RoleNames)
                 ->get()->resultArray();
-            $RoleIDs = array_column($RoleIDs, 'RoleID');
+            $roleIDs = array_column($roleIDs, 'RoleID');
+            /* @codeCoverageIgnoreEnd */
         }
 
-        if (!is_array($RoleIDs)) {
-            $RoleIDs = [$RoleIDs];
+        if (!is_array($roleIDs)) {
+            $roleIDs = [$roleIDs];
         }
 
         // Get the current roles.
-        $OldRoleIDs = [];
-        $OldRoleData = $this->SQL
-            ->select('ur.RoleID, r.Name')
-            ->from('UserRole ur')
-            ->join('Role r', 'r.RoleID = ur.RoleID', 'left')
-            ->where('ur.UserID', $UserID)
-            ->get()
-            ->resultArray();
-
-        if ($OldRoleData !== false) {
-            $OldRoleIDs = array_column($OldRoleData, 'RoleID');
-        }
+        $oldRoleData = $this->getRolesInternal($userID);
+        $oldRoleIDs = array_keys($oldRoleData);
 
         // 1a) Figure out which roles to delete.
-        $DeleteRoleIDs = [];
-        foreach ($OldRoleData as $row) {
+        $deleteRoleIDs = [];
+        foreach ($oldRoleData as $row) {
             // The role should be deleted if it is an orphan or the user has not been assigned the role.
-            if ($row['Name'] === null || !in_array($row['RoleID'], $RoleIDs)) {
-                $DeleteRoleIDs[] = $row['RoleID'];
+            if ((empty($options[self::OPT_ROLE_SYNC]) || in_array($row['Sync'], $options[self::OPT_ROLE_SYNC])) &&
+                ($row['Name'] === null || !in_array($row['RoleID'], $roleIDs))
+            ) {
+                $deleteRoleIDs[] = $row['RoleID'];
             }
         }
 
         // 1b) Remove old role associations for this user.
-        if (!empty($DeleteRoleIDs)) {
-            $this->SQL->whereIn('RoleID', $DeleteRoleIDs)->delete('UserRole', ['UserID' => $UserID]);
+        if (!empty($deleteRoleIDs)) {
+            $this->SQL->whereIn('RoleID', $deleteRoleIDs)->delete('UserRole', ['UserID' => $userID]);
         }
 
         // 2a) Figure out which roles to insert.
-        $InsertRoleIDs = array_diff($RoleIDs, $OldRoleIDs);
+        $insertRoleIDs = array_diff($roleIDs, $oldRoleIDs);
         // 2b) Insert the new role associations for this user.
-        foreach ($InsertRoleIDs as $InsertRoleID) {
-            if (is_numeric($InsertRoleID)) {
-                $this->SQL->insert('UserRole', ['UserID' => $UserID, 'RoleID' => $InsertRoleID]);
+        foreach ($insertRoleIDs as $insertRoleID) {
+            if (is_numeric($insertRoleID)) {
+                $this->SQL->insert('UserRole', ['UserID' => $userID, 'RoleID' => $insertRoleID]);
             }
         }
 
-        $this->clearCache($UserID, ['roles', 'permissions']);
+        $this->clearCache($userID, [self::CACHE_TYPE_ROLES, self::CACHE_TYPE_PERMISSIONS]);
 
-        if ($RecordEvent) {
-            $User = $this->getID($UserID);
+        if ($options['recordEvent']) {
+            $this->logRoleChanges($userID, $insertRoleIDs, $deleteRoleIDs);
+        }
+    }
 
-            $OldRoles = [];
-            foreach ($DeleteRoleIDs as $deleteRoleID) {
-                $role = RoleModel::roles($deleteRoleID);
-                $OldRoles[] = val('Name', $role, t('Unknown').' ('.$deleteRoleID.')');
-            }
+    /**
+     * Log changes to a user's roles.
+     *
+     * @param int $userID The user that had roles changed.
+     * @param array $insertRoleIDs The roles that were added.
+     * @param array $deleteRoleIDs The roles that were removed.
+     */
+    private function logRoleChanges(int $userID, array $insertRoleIDs, array $deleteRoleIDs): void {
+        $user = $this->getID($userID);
 
-            $NewRoles = [];
-            foreach ($InsertRoleIDs as $insertRoleID) {
-                $role = RoleModel::roles($insertRoleID);
-                $NewRoles[] = val('Name', $role, t('Unknown').' ('.$insertRoleID.')');
-            }
+        $oldRoles = [];
+        foreach ($deleteRoleIDs as $deleteRoleID) {
+            $role = RoleModel::roles($deleteRoleID);
+            $oldRoles[] = val('Name', $role, t('Unknown') . ' (' . $deleteRoleID . ')');
+        }
 
-            $RemovedRoles = array_diff($OldRoles, $NewRoles);
-            $NewRoles = array_diff($NewRoles, $OldRoles);
+        $newRoles = [];
+        foreach ($insertRoleIDs as $insertRoleID) {
+            $role = RoleModel::roles($insertRoleID);
+            $newRoles[] = val('Name', $role, t('Unknown') . ' (' . $insertRoleID . ')');
+        }
 
-            foreach ($RemovedRoles as $RoleName) {
-                Logger::event(
-                    'role_remove',
-                    Logger::INFO,
-                    "{username} removed {toUsername} from the {role} role.",
-                    ['touserid' => $User->UserID, 'toUsername' => $User->Name, 'role' => $RoleName]
-                );
-            }
+        $removedRoles = array_diff($oldRoles, $newRoles);
+        $newRoles = array_diff($newRoles, $oldRoles);
 
-            foreach ($NewRoles as $RoleName) {
-                Logger::event(
-                    'role_add',
-                    Logger::INFO,
-                    "{username} added {toUsername} to the {role} role.",
-                    ['touserid' => $User->UserID, 'toUsername' => $User->Name, 'role' => $RoleName]
-                );
+        foreach ($removedRoles as $RoleName) {
+            Logger::event(
+                'role_remove',
+                Logger::INFO,
+                "{" . Logger::FIELD_TARGET_USERNAME . "} removed from the {role} role.",
+                [
+                    Logger::FIELD_TARGET_USERID => $user->UserID,
+                    Logger::FIELD_TARGET_USERNAME => $user->Name,
+                    'role' => $RoleName,
+                    Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                ]
+            );
+        }
+
+        foreach ($newRoles as $RoleName) {
+            Logger::event(
+                'role_add',
+                Logger::INFO,
+                "{" . Logger::FIELD_TARGET_USERNAME . "} added to the {role} role.",
+                [
+                    Logger::FIELD_TARGET_USERID => $user->UserID,
+                    Logger::FIELD_TARGET_USERNAME => $user->Name,
+                    'role' => $RoleName,
+                    Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY
+                ]
+            );
+        }
+    }
+
+    /**
+     * Add the given roles to the user.
+     *
+     * @param int $userID
+     * @param array $roleIDs
+     * @param bool $logEvent
+     */
+    public function addRoles(int $userID, array $roleIDs, bool $logEvent): void {
+        $oldRoleData = $this->getRolesInternal($userID);
+        $oldRoleIDs = array_keys($oldRoleData);
+
+        // Figure out which roles to insert.
+        $insertRoleIDs = array_diff($roleIDs, $oldRoleIDs);
+
+        // Insert the new role associations for this user.
+        foreach ($insertRoleIDs as $insertRoleID) {
+            if (is_numeric($insertRoleID)) {
+                $this->SQL->insert('UserRole', ['UserID' => $userID, 'RoleID' => $insertRoleID]);
             }
         }
+
+        $this->clearCache($userID, [self::CACHE_TYPE_ROLES, self::CACHE_TYPE_PERMISSIONS]);
+
+        if ($logEvent) {
+            $this->logRoleChanges($userID, $insertRoleIDs, []);
+        }
+    }
+
+    /**
+     * Remove the given roles from a user (but not others).
+     *
+     * @param int $userID
+     * @param array $roleIDs
+     * @param bool $logEvent
+     */
+    public function removeRoles(int $userID, array $roleIDs, bool $logEvent): void {
+        $oldRoleData = $this->getRolesInternal($userID);
+
+        // Figure out which roles to delete.
+        $deleteRoleIDs = [];
+        foreach ($oldRoleData as $id => $row) {
+            // The role should be deleted if it is an orphan or the role is being specified as a deletion.
+            if ($row['Name'] === null || in_array($id, $roleIDs)) {
+                $deleteRoleIDs[] = $id;
+            }
+        }
+
+        // 1b) Remove old role associations for this user.
+        if (!empty($deleteRoleIDs)) {
+            $this->SQL->whereIn('RoleID', $deleteRoleIDs)->delete('UserRole', ['UserID' => $userID]);
+        }
+
+        $this->clearCache($userID, [self::CACHE_TYPE_ROLES, self::CACHE_TYPE_PERMISSIONS]);
+
+        if ($logEvent) {
+            $this->logRoleChanges($userID, [], $deleteRoleIDs);
+        }
+    }
+
+    /**
+     * Escapes fields with \, _
+     *
+     * @param string $field
+     * @return string|string[]
+     */
+    private function escapeField(string $field) {
+        $field =  str_replace(['\\', '_'], ['\\\\', '\_'], $field);
+        return $field;
     }
 
     /**
      * Search users.
      *
      * @param array|string $filter
-     * @param string $orderFields
+     * @param string|array $orderFields
      * @param string $orderDirection
      * @param bool $limit
      * @param bool $offset
      * @return Gdn_DataSet
      */
-    public function search($filter, $orderFields = '', $orderDirection = 'asc', $limit = false, $offset = false) {
+    public function search(
+        $filter,
+        $orderFields = '',
+        $orderDirection = 'asc',
+        $limit = false,
+        $offset = false
+    ) {
         $optimize = false;
+
+        $dirtyRecords = $filter[DirtyRecordModel::DIRTY_RECORD_OPT] ?? false;
+        if (isset($filter[DirtyRecordModel::DIRTY_RECORD_OPT])) {
+            unset($filter[DirtyRecordModel::DIRTY_RECORD_OPT]);
+        }
 
         if (is_array($filter)) {
             $where = $filter;
             $keywords = val('Keywords', $filter, '');
             $optimize = val('Optimize', $filter);
-            unset($where['Keywords'], $where['Optimize']);
+            $roleID = $filter["roleID"] ?? null;
+            unset($where['Keywords'], $where['Optimize'], $where["roleID"]);
         } else {
             $keywords = $filter;
         }
         $keywords = trim($keywords);
-
+        $isIPAddress = filter_var($keywords, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6);
         // Check for an IPV4/IPV6 address.
-        if (filter_var($keywords, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6) !== false) {
+        if ($isIPAddress !== false) {
             $ipAddress = $keywords;
             $this->addIpFilters($ipAddress, ['LastIPAddress']);
         } elseif (strtolower($keywords) == 'banned') {
@@ -2618,11 +3237,12 @@ class UserModel extends Gdn_Model {
         } elseif (preg_match('/^\d+$/', $keywords)) {
             $numericQuery = $keywords;
             $keywords = '';
-        } elseif (!empty($keywords)) {
+        } elseif (empty($roleID) && !empty($keywords)) {
             // Check to see if the search exactly matches a role name.
             $roleID = $this->SQL->getWhere('Role', ['Name' => $keywords])->value('RoleID');
         }
 
+        $rankID = null;
         $this->EventArguments['Keywords'] =& $keywords;
         $this->EventArguments['RankID'] =& $rankID;
         $this->EventArguments['Optimize'] =& $optimize;
@@ -2645,7 +3265,8 @@ class UserModel extends Gdn_Model {
                 ->orWhere('u.Name', $numericQuery)
                 ->endWhereGroup();
         } elseif ($keywords) {
-            if ($optimize) {
+            $keywords = $this->escapeField($keywords);
+            if ($optimize && !$isIPAddress) {
                 // An optimized search should only be done against name OR email.
                 if (strpos($keywords, '@') !== false) {
                     $this->SQL->like('u.Email', $keywords, 'right');
@@ -2654,12 +3275,18 @@ class UserModel extends Gdn_Model {
                 }
             } else {
                 // Search on the user table.
-                $like = ['u.Name' => $keywords, 'u.Email' => $keywords];
+                $whereCriterias = [
+                    'where' => [],
+                    'like' => ['u.Name' => $keywords, 'u.Email' => $keywords]
+                ];
+
+                $whereCriterias = $this->getEventManager()->fireFilter('userModel_searchKeyWords', $whereCriterias, $keywords);
 
                 $this->SQL
                     ->orOp()
                     ->beginWhereGroup()
-                    ->orLike($like, '', 'right')
+                    ->orLike($whereCriterias['like'] ?? [], '', 'right')
+                    ->orWhere($whereCriterias['where'] ?? [])
                     ->endWhereGroup();
             }
         }
@@ -2670,7 +3297,12 @@ class UserModel extends Gdn_Model {
             return new Gdn_DataSet([]);
         }
 
+        if ($dirtyRecords) {
+            $this->applyDirtyWheres('u');
+        }
+
         $data = $this->SQL
+            ->andOp()
             ->where('u.Deleted', 0)
             ->orderBy($orderFields, $orderDirection)
             ->limit($limit, $offset)
@@ -2733,23 +3365,26 @@ class UserModel extends Gdn_Model {
      * @return int
      */
     public function searchCount($filter = '') {
+        $roleID = false;
+
         if (is_array($filter)) {
             $where = $filter;
-            $keywords = $where['Keywords'];
-            unset($where['Keywords'], $where['Optimize']);
+            $keywords = $where['Keywords'] ?? '';
+            $roleID = $where["roleID"] ?? false;
+            unset($where['Keywords'], $where['Optimize'], $where["roleID"]);
         } else {
             $keywords = $filter;
         }
         $keywords = trim($keywords);
 
         // Check to see if the search exactly matches a role name.
-        $roleID = false;
-        if (strtolower($keywords) == 'banned') {
-            $this->SQL->where('u.Banned >', 0);
-        } else {
-            $roleID = $this->SQL->getWhere('Role', ['Name' => $keywords])->value('RoleID');
+        if (empty($roleID) && $keywords !== "") {
+            if (strtolower($keywords) == 'banned') {
+                $this->SQL->where('u.Banned >', 0);
+            } else {
+                $roleID = $this->SQL->getWhere('Role', ['Name' => $keywords])->value('RoleID');
+            }
         }
-
         if (isset($where)) {
             $this->SQL->where($where, null, false);
         }
@@ -2762,7 +3397,7 @@ class UserModel extends Gdn_Model {
         if (filter_var($keywords, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6) !== false) {
             $fields = ['LastIPAddress'];
             $this->addIpFilters($keywords, $fields);
-        } else if ($roleID) {
+        } elseif ($roleID) {
             $this->SQL->join('UserRole ur2', "u.UserID = ur2.UserID and ur2.RoleID = $roleID");
         } else {
             // Search on the user table.
@@ -2789,7 +3424,7 @@ class UserModel extends Gdn_Model {
      * Search all users by username.
      *
      * @param string $name The username to search. Supports wildcards (e.g. user*).
-     * @param string $sortField Column to sort resutls by.
+     * @param string $sortField Column to sort results by.
      * @param string $sortDirection Direction used for column sort.
      * @param int|bool $limit Maximum results to return.
      * @param int|bool $offset Offset for result rows.
@@ -2800,7 +3435,7 @@ class UserModel extends Gdn_Model {
 
         // Preserve existing % by escaping.
         $name = trim($name);
-        $name = str_replace('%', '\%', $name);
+        $name = $this->escapeField($name);
         if ($wildcardSearch) {
             $name = rtrim($name, '*');
         }
@@ -2822,7 +3457,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Return the appropriate username/email label depending on settings.
      *
      * @return string
      */
@@ -2840,7 +3475,7 @@ class UserModel extends Gdn_Model {
     public function tagSearch($search, $limit = 10) {
         $search = trim(str_replace(['%', '_'], ['\%', '\_'], $search));
 
-        list($order, $direction) = $this->getMentionsSort();
+        [$order, $direction] = $this->getMentionsSort();
 
         return $this->SQL
             ->select('UserID', '', 'id')
@@ -2921,7 +3556,7 @@ class UserModel extends Gdn_Model {
         $inviteUserID = $invitation->InsertUserID;
         $formPostValues['Email'] = $invitation->Email;
 
-        if (val('ValidateName', $options, true)) {
+        if (val(self::OPT_VALIDATE_NAME, $options, true)) {
             $this->Validation->applyRule('Name', 'Username');
         }
 
@@ -2930,10 +3565,11 @@ class UserModel extends Gdn_Model {
             $spam = SpamModel::isSpam('Registration', $formPostValues);
             if ($spam) {
                 $this->Validation->addValidationResult('Spam', 'You are not allowed to register at this time.');
-                return;
+                return false;
             }
 
-            $fields = $this->Validation->validationFields(); // All fields on the form that need to be validated (including non-schema field rules defined above)
+            // All fields on the form that need to be validated (including non-schema field rules defined above)
+            $fields = $this->Validation->validationFields();
             $username = val('Name', $fields);
             $email = val('Email', $fields);
             $fields = $this->Validation->schemaValidationFields(); // Only fields that are present in the schema
@@ -2950,8 +3586,8 @@ class UserModel extends Gdn_Model {
             }
 
             // And insert the new user.
-            if (!isset($options['NoConfirmEmail'])) {
-                $options['NoConfirmEmail'] = true;
+            if (!isset($options[self::OPT_NO_CONFIRM_EMAIL])) {
+                $options[self::OPT_NO_CONFIRM_EMAIL] = true;
             }
 
             // Use RoleIDs from Invitation table, if any. They are stored as a
@@ -2975,7 +3611,7 @@ class UserModel extends Gdn_Model {
             $this->SQL
                 ->update('Invitation')
                 ->set('AcceptedUserID', $userID)
-                ->set('DateAccepted', Gdn_Format::toDateTime())
+                ->set('DateAccepted', DateTimeFormatter::getCurrentDateTime())
                 ->where('InvitationID', $invitation->InvitationID)
                 ->put();
 
@@ -3030,22 +3666,22 @@ class UserModel extends Gdn_Model {
 
         $this->addInsertFields($formPostValues);
 
-        if (val('ValidateName', $options, true)) {
+        if (val(self::OPT_VALIDATE_NAME, $options, true)) {
             $this->Validation->applyRule('Name', 'Username');
         }
 
         if ($this->validate($formPostValues, true)) {
-
             if (val('ValidateSpam', $options, true)) {
                 // Check for spam.
                 $spam = SpamModel::isSpam('Registration', $formPostValues);
                 if ($spam) {
                     $this->Validation->addValidationResult('Spam', 'You are not allowed to register at this time.');
-                    return;
+                    return false;
                 }
             }
 
-            $fields = $this->Validation->validationFields(); // All fields on the form that need to be validated (including non-schema field rules defined above)
+            // All fields on the form that need to be validated (including non-schema field rules defined above)
+            $fields = $this->Validation->validationFields();
             $username = val('Name', $fields);
             $email = val('Email', $fields);
             $fields = $this->Validation->schemaValidationFields(); // Only fields that are present in the schema
@@ -3056,10 +3692,13 @@ class UserModel extends Gdn_Model {
             }
 
             // If in Captcha registration mode, check the captcha value.
-            if (val('CheckCaptcha', $options, true) && Captcha::enabled()) {
+            if (val(self::OPT_CHECK_CAPTCHA, $options, true) && Captcha::enabled()) {
                 $captchaIsValid = Captcha::validate();
                 if ($captchaIsValid !== true) {
-                    $this->Validation->addValidationResult('Garden.Registration.CaptchaPublicKey', t('The captcha was not completed correctly. Please try again.'));
+                    $this->Validation->addValidationResult(
+                        'Garden.Registration.CaptchaPublicKey',
+                        t('The captcha was not completed correctly. Please try again.')
+                    );
                     return false;
                 }
             }
@@ -3070,10 +3709,43 @@ class UserModel extends Gdn_Model {
 
             // And insert the new user
             $userID = $this->insertInternal($fields, $options);
+
+            if ($userID) {
+                //user registered successfully, trigger applicant notification
+                $this->triggerApplicantNotification($userID, $username);
+            }
         } else {
             $userID = false;
         }
         return $userID;
+    }
+
+    /**
+     * Trigger notification to users with 'Preferences.Email.Applicant' enabled
+     *
+     * @param int $userID
+     * @param string $username
+     */
+    public function triggerApplicantNotification($userID = 0, $username = '') {
+        if ($userID > 0 && !empty($username)) {
+            // Notification text
+            $label = t('NewApplicantEmail', 'New applicant:');
+            $story = anchor(Gdn_Format::text($label . ' ' . $username), externalUrl('dashboard/user/applicants'));
+
+            try {
+                $data = Gdn::database()->sql()->getWhere('UserMeta', ['Name' => 'Preferences.Email.Applicant'])->resultArray();
+                $activityModel = new ActivityModel();
+                foreach ($data as $row) {
+                    $activityModel->add($userID, 'Applicant', $story, $row['UserID'], '', '/dashboard/user/applicants', 'Only');
+                }
+            } catch (Exception $ex) {
+                Logger::event(
+                    'applicant_notification_failure',
+                    Logger::ERROR,
+                    $ex->getMessage()
+                );
+            }
+        }
     }
 
     /**
@@ -3084,7 +3756,6 @@ class UserModel extends Gdn_Model {
      * @param array $options
      *  - ValidateName - Make sure the provided name is valid. Blacklisted names will always be blocked.
      * @return bool|int|string
-     * @throws Exception
      */
     public function insertForBasic($formPostValues, $checkCaptcha = true, $options = []) {
         $roleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
@@ -3092,7 +3763,7 @@ class UserModel extends Gdn_Model {
             throw new Exception(t('The default role has not been configured.'), 400);
         }
 
-        if (val('SaveRoles', $options)) {
+        if (val(self::OPT_SAVE_ROLES, $options)) {
             $roleIDs = val('RoleID', $formPostValues);
         }
 
@@ -3107,7 +3778,7 @@ class UserModel extends Gdn_Model {
         if (val('ValidateEmail', $options, true)) {
             $this->Validation->applyRule('Email', 'Email');
         }
-        if (val('ValidateName', $options, true)) {
+        if (val(self::OPT_VALIDATE_NAME, $options, true)) {
             $this->Validation->applyRule('Name', 'Username');
         }
 
@@ -3124,7 +3795,8 @@ class UserModel extends Gdn_Model {
         $this->addInsertFields($formPostValues);
 
         if ($this->validate($formPostValues, true) === true) {
-            $fields = $this->Validation->validationFields(); // All fields on the form that need to be validated (including non-schema field rules defined above)
+            // All fields on the form that need to be validated (including non-schema field rules defined above)
+            $fields = $this->Validation->validationFields();
             $username = val('Name', $fields);
             $email = val('Email', $fields);
             $fields = $this->Validation->schemaValidationFields(); // Only fields that are present in the schema
@@ -3135,7 +3807,10 @@ class UserModel extends Gdn_Model {
             if ($checkCaptcha && Captcha::enabled()) {
                 $captchaIsValid = Captcha::validate();
                 if ($captchaIsValid !== true) {
-                    $this->Validation->addValidationResult('Garden.Registration.CaptchaPublicKey', t('The captcha was not completed correctly. Please try again.'));
+                    $this->Validation->addValidationResult(
+                        'Garden.Registration.CaptchaPublicKey',
+                        t('The captcha was not completed correctly. Please try again.')
+                    );
                     return false;
                 }
             }
@@ -3157,7 +3832,7 @@ class UserModel extends Gdn_Model {
 
             // And insert the new user
             $userID = $this->insertInternal($fields, $options);
-            if ($userID > 0 && !val('NoActivity', $options)) {
+            if ($userID > 0 && !val(self::OPT_NO_ACTIVITY, $options)) {
                 $activityModel = new ActivityModel();
                 $activityModel->save(
                     [
@@ -3175,9 +3850,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     * Parent override.
-     *
-     * @param array &$fields
+     * {@inheritDoc}
      */
     public function addInsertFields(&$fields) {
         $this->defineSchema();
@@ -3190,7 +3863,7 @@ class UserModel extends Gdn_Model {
         }
 
         // Set some required dates.
-        $now = Gdn_Format::toDateTime();
+        $now = DateTimeFormatter::getCurrentDateTime();
         $fields[$this->DateInserted] = $now;
         touchValue('DateFirstVisit', $fields, $now);
         $fields['DateLastActive'] = $now;
@@ -3202,20 +3875,20 @@ class UserModel extends Gdn_Model {
      * Record an IP address for a user.
      *
      * @param int $userID Unique ID of the user.
-     * @param string $iP Human-readable IP address.
-     * @param string $dateUpdated Force an update timesetamp.
+     * @param string $ip Human-readable IP address.
+     * @param string|false $dateUpdated Force an update timesetamp.
      * @return bool Was the operation successful?
      */
-    public function saveIP($userID, $iP, $dateUpdated = false) {
-        if (!filter_var($iP, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6)) {
+    public function saveIP($userID, $ip, $dateUpdated = false) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_IPV6) || $ip === '0.0.0.0') {
             return false;
         }
 
-        $packedIP = ipEncode($iP);
+        $packedIP = ipEncode($ip);
         $px = Gdn::database()->DatabasePrefix;
 
         if (!$dateUpdated) {
-            $dateUpdated = Gdn_Format::toDateTime();
+            $dateUpdated = DateTimeFormatter::getCurrentDateTime();
         }
 
         $query = "insert into {$px}UserIP (UserID, IPAddress, DateInserted, DateUpdated)
@@ -3224,7 +3897,7 @@ class UserModel extends Gdn_Model {
         $values = [
             ':UserID' => $userID,
             ':IPAddress' => $packedIP,
-            ':DateInserted' => Gdn_Format::toDateTime(),
+            ':DateInserted' => DateTimeFormatter::getCurrentDateTime(),
             ':DateUpdated' => $dateUpdated,
             ':DateUpdated2' => $dateUpdated
         ];
@@ -3241,75 +3914,17 @@ class UserModel extends Gdn_Model {
 
     /**
      * Updates visit level information such as date last active and the user's ip address.
+     *
      * @param int $userID
      * @param null|int|float $clientHour
+     *
      * @throws Exception If the user ID is not valid.
      * @return bool True on success, false if the user is banned or deleted.
      */
     public function updateVisit($userID, $clientHour = null) {
-        $userID = (int)$userID;
-        if (!$userID) {
-            throw new Exception('A valid User ID is required.');
-        }
-
-        $user = Gdn::userModel()->getID($userID, DATASET_TYPE_ARRAY);
-
-        // Do not update visit information if the user is banned or deleted.
-        if (val('Banned', $user) || val('Deleted', $user)) {
-            return false;
-        }
-
-        $fields = [];
-
-        if (Gdn_Format::toTimestamp($user['DateLastActive']) < strtotime('5 minutes ago')) {
-            // We only update the last active date once every 5 minutes to cut down on DB activity.
-            $fields['DateLastActive'] = Gdn_Format::toDateTime();
-        }
-
-        // Update session level information if necessary.
-        if ($userID == Gdn::session()->UserID) {
-            $iP = Gdn::request()->ipAddress();
-            $fields['LastIPAddress'] = ipEncode($iP);
-            $this->saveIP($userID, $iP);
-
-            if (Gdn::session()->newVisit()) {
-                $fields['CountVisits'] = val('CountVisits', $user, 0) + 1;
-                $this->fireEvent('Visit');
-            }
-        }
-
-        // Set the hour offset based on the client's clock.
-        if (is_numeric($clientHour) && $clientHour >= 0 && $clientHour < 24) {
-            $hourOffset = $clientHour - date('G', time());
-            $fields['HourOffset'] = $hourOffset;
-        }
-
-        // See if the fields have changed.
-        $set = [];
-        foreach ($fields as $name => $value) {
-            if (val($name, $user) != $value) {
-                $set[$name] = $value;
-            }
-        }
-
-        if (!empty($set)) {
-            $this->EventArguments['Fields'] = &$set;
-            $this->fireEvent('UpdateVisit');
-
-            $this->setField($userID, $set);
-        }
-
-        if ($user['LastIPAddress'] != $fields['LastIPAddress']) {
-            $user = $this->getID($userID, DATASET_TYPE_ARRAY);
-            if (!BanModel::checkUser($user, null, true, $bans)) {
-                $banModel = new BanModel();
-                $ban = array_pop($bans);
-                $banModel->saveUser($user, true, $ban);
-                $banModel->setCounts($ban);
-            }
-        }
-
-        return true;
+        /** @var UserVisitUpdater $visitModel */
+        $visitModel = \Gdn::getContainer()->get(UserVisitUpdater::class);
+        return $visitModel->updateVisit((int) $userID, $clientHour);
     }
 
 
@@ -3367,7 +3982,7 @@ class UserModel extends Gdn_Model {
             }
         }
 
-        $profileControllerEndpoints = array_map(function($str) { return strtolower($str); }, $profileControllerEndpoints);
+        $profileControllerEndpoints = array_map('strtolower', $profileControllerEndpoints);
         $endpoints = array_merge($profileControllerEndpoints, $pluginEndpoints);
         return $endpoints;
     }
@@ -3387,10 +4002,6 @@ class UserModel extends Gdn_Model {
             $this->Validation->unapplyRule('Email', 'Required');
         }
 
-        if (!$insert && !isset($formPostValues['Name'])) {
-            $this->Validation->unapplyRule('Name');
-        }
-
         return $this->Validation->validate($formPostValues, $insert);
     }
 
@@ -3402,14 +4013,16 @@ class UserModel extends Gdn_Model {
      * Return the user's id, admin status and attributes.
      *
      * @param string $email
+     * @param int $id
      * @param string $password
+     * @param bool $throw
      * @return object|false Returns the user matching the credentials or **false** if the user doesn't validate.
      */
-    public function validateCredentials($email = '', $iD = 0, $password, $throw = false) {
-        $this->EventArguments['Credentials'] = ['Email' => $email, 'ID' => $iD, 'Password' => $password];
+    public function validateCredentials($email = '', $id = 0, $password = '', $throw = false) {
+        $this->EventArguments['Credentials'] = ['Email' => $email, 'ID' => $id, 'Password' => $password];
         $this->fireEvent('BeforeValidateCredentials');
 
-        if (!$email && !$iD) {
+        if (!$email && !$id) {
             throw new Exception('The email or id is required');
         }
 
@@ -3417,8 +4030,8 @@ class UserModel extends Gdn_Model {
             $this->SQL->select('UserID, Name, Attributes, Admin, Password, HashMethod, Deleted, Banned')
                 ->from('User');
 
-            if ($iD) {
-                $this->SQL->where('UserID', $iD);
+            if ($id) {
+                $this->SQL->where('UserID', $id);
             } else {
                 if (strpos($email, '@') > 0) {
                     $this->SQL->where('Email', $email);
@@ -3435,8 +4048,8 @@ class UserModel extends Gdn_Model {
             $this->SQL->select('UserID, Name, Attributes, Admin, Password')
                 ->from('User');
 
-            if ($iD) {
-                $this->SQL->where('UserID', $iD);
+            if ($id) {
+                $this->SQL->where('UserID', $id);
             } else {
                 if (strpos($email, '@') > 0) {
                     $this->SQL->where('Email', $email);
@@ -3464,7 +4077,7 @@ class UserModel extends Gdn_Model {
 
         $passwordHash = new Gdn_PasswordHash();
         $hashMethod = val('HashMethod', $userData);
-        if (!$passwordHash->checkPassword($password, $userData->Password, $hashMethod, $userData->Name)) {
+        if (!$passwordHash->checkPassword($password, $userData->Password, $hashMethod)) {
             if ($throw) {
                 $validation = new \Garden\Schema\Validation();
                 $validation->addError('password', t('The password you entered is incorrect.'), 401);
@@ -3487,11 +4100,10 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Validate a registration that was detected by spam.
      *
      * @param array $user
      * @return bool|string
-     * @since 2.1
      */
     public function validateSpamRegistration($user) {
         $discoveryText = val('DiscoveryText', $user);
@@ -3567,7 +4179,6 @@ class UserModel extends Gdn_Model {
      * @param int $userID
      * @param string|null $email Deprecated.
      * @return bool
-     * @throws Exception
      */
     public function approve($userID, $email = null) {
         if ($email !== null) {
@@ -3581,7 +4192,7 @@ class UserModel extends Gdn_Model {
             $roleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
 
             // Wipe out old & insert new roles for this user
-            $this->saveRoles($userID, $roleIDs, false);
+            $this->saveRoles($userID, $roleIDs, [self::OPT_LOG_ROLE_CHANGES => false]);
 
             // Send out a notification to the user
             $user = $this->getID($userID);
@@ -3622,19 +4233,21 @@ class UserModel extends Gdn_Model {
                 // Report the approval for moderators.
                 $activityModel->save(
                     [
-                    'ActivityType' => 'Registration',
-                    'ActivityUserID' => Gdn::session()->UserID,
-                    'RegardingUserID' => $userID,
-                    'NotifyUserID' => ActivityModel::NOTIFY_MODS,
-                        'HeadlineFormat' => t('HeadlineFormat.RegistrationApproval', '{ActivityUserID,user} approved the applications for {RegardingUserID,user}.')],
+                        'ActivityType' => 'Registration',
+                        'ActivityUserID' => $this->session->UserID,
+                        'RegardingUserID' => $userID,
+                        'NotifyUserID' => ActivityModel::NOTIFY_MODS,
+                        'HeadlineFormat' => t(
+                            'HeadlineFormat.RegistrationApproval',
+                            '{ActivityUserID,user} approved the applications for {RegardingUserID,user}.'
+                        ),
+                    ],
                     false,
                     ['GroupBy' => ['ActivityTypeID', 'ActivityUserID']]
                 );
 
-                Gdn::userModel()->saveAttribute($userID, 'ApprovedByUserID', Gdn::session()->UserID);
+                Gdn::userModel()->saveAttribute($userID, 'ApprovedByUserID', $this->session->UserID);
             }
-
-
         }
         return true;
     }
@@ -3684,6 +4297,8 @@ class UserModel extends Gdn_Model {
             ->set([
                 'Name' => t('[Deleted User]'),
                 'Photo' => null,
+                'Title' => null,
+                'Location' => null,
                 'Password' => randomString('10'),
                 'HashMethod' => 'Random',
                 'About' => '',
@@ -3702,11 +4317,15 @@ class UserModel extends Gdn_Model {
                     // We cannot keep emails until we have a method to purge deleted users.
                     // See https://github.com/vanilla/vanilla/pull/5808 for more details.
                     'OriginalName' => $userData['Name'],
-                    'DeletedBy' => Gdn::session()->UserID,
+                    'DeletedBy' => $this->session->UserID,
                 ]),
                 'DateSetInvitations' => null,
                 'DateOfBirth' => null,
-                'DateUpdated' => Gdn_Format::toDateTime(),
+                'DateFirstVisit' => null,
+                'DateLastActive' => null,
+                'DateUpdated' => DateTimeFormatter::getCurrentDateTime(),
+                'InsertIPAddress' => null,
+                'LastIPAddress' => null,
                 'HourOffset' => '0',
                 'Score' => null,
                 'Admin' => 0,
@@ -3717,7 +4336,14 @@ class UserModel extends Gdn_Model {
 
         // Remove user's cache rows
         $this->clearCache($userID);
-
+        if ($userData) {
+            $userEvent = $this->eventFromRow(
+                (array)$userData,
+                UserEvent::ACTION_DELETE,
+                $this->currentFragment()
+            );
+            $this->getEventManager()->dispatch($userEvent);
+        }
         return true;
     }
 
@@ -3783,7 +4409,6 @@ class UserModel extends Gdn_Model {
      *
      * @param int $userID
      * @return bool
-     * @throws Exception
      */
     public function decline($userID) {
         $applicantRoleIDs = RoleModel::getDefaultRoles(RoleModel::TYPE_APPLICANT);
@@ -3944,7 +4569,7 @@ class UserModel extends Gdn_Model {
 
         // Do not reduce if the user has unlimited invitations
         if ($currentCount == -1) {
-            return true;
+            return;
         }
 
         // Do not reduce the count below zero.
@@ -3969,7 +4594,7 @@ class UserModel extends Gdn_Model {
 
         // Do not alter if the user has unlimited invitations
         if ($currentCount == -1) {
-            return true;
+            return;
         }
 
         $this->SQL->update($this->Name)
@@ -3994,9 +4619,11 @@ class UserModel extends Gdn_Model {
      *
      * This method throws exceptions when errors are encountered. Use try catch blocks to capture these exceptions.
      *
-     * @param string $column The name of the serialized column to save to. At the time of this writing there are three serialized columns on the user table: Permissions, Preferences, and Attributes.
+     * @param string $column The name of the serialized column to save to. At the time of this writing there are three
+     * serialized columns on the user table: Permissions, Preferences, and Attributes.
      * @param int $userID The UserID to save.
-     * @param mixed $name The name of the value being saved, or an associative array of name => value pairs to be saved. If this is an associative array, the $value argument will be ignored.
+     * @param mixed $name The name of the value being saved, or an associative array of name => value pairs to be saved.
+     * If this is an associative array, the $value argument will be ignored.
      * @param mixed $value The value being saved.
      */
     public function saveToSerializedColumn($column, $userID, $name, $value = '') {
@@ -4048,7 +4675,7 @@ class UserModel extends Gdn_Model {
 
         // Save the values back to the db
         $saveResult = $this->SQL->put('User', [$column => $values], ['UserID' => $userID]);
-        $this->clearCache($userID, ['user']);
+        $this->clearCache($userID, [self::CACHE_TYPE_USER]);
 
         return $saveResult;
     }
@@ -4059,12 +4686,13 @@ class UserModel extends Gdn_Model {
      * This is a convenience method that uses $this->saveToSerializedColumn().
      *
      * @param int $userID The UserID to save.
-     * @param mixed $preference The name of the preference being saved, or an associative array of name => value pairs to be saved. If this is an associative array, the $value argument will be ignored.
+     * @param mixed $preference The name of the preference being saved, or an associative array of name => value pairs
+     * to be saved. If this is an associative array, the $value argument will be ignored.
      * @param mixed $value The value being saved.
      */
     public function savePreference($userID, $preference, $value = '') {
         // Make sure that changes to the current user become effective immediately.
-        $session = Gdn::session();
+        $session = $this->session;
         if ($userID == $session->UserID) {
             $session->setPreference($preference, $value, false);
         }
@@ -4078,12 +4706,13 @@ class UserModel extends Gdn_Model {
      * This is a convenience method that uses $this->saveToSerializedColumn().
      *
      * @param int $userID The UserID to save.
-     * @param mixed $attribute The name of the attribute being saved, or an associative array of name => value pairs to be saved. If this is an associative array, the $value argument will be ignored.
+     * @param mixed $attribute The name of the attribute being saved, or an associative array of name => value pairs to
+     * be saved. If this is an associative array, the $value argument will be ignored.
      * @param mixed $value The value being saved.
      */
     public function saveAttribute($userID, $attribute, $value = '') {
         // Make sure that changes to the current user become effective immediately.
-        $session = Gdn::session();
+        $session = $this->session;
         if ($userID == $session->UserID) {
             $session->setAttribute($attribute, $value);
         }
@@ -4092,7 +4721,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Save the authentication row for the user.
      *
      * @param array $data
      * @return Gdn_DataSet|string
@@ -4105,7 +4734,11 @@ class UserModel extends Gdn_Model {
         $provider = $cn->quote($data['Provider']);
         $userID = $cn->quote($data['UserID']);
 
-        $sql = "insert {$px}UserAuthentication (ForeignUserKey, ProviderKey, UserID) values ($uID, $provider, $userID) on duplicate key update UserID = $userID";
+        $sql = <<<SQL
+insert {$px}UserAuthentication (ForeignUserKey, ProviderKey, UserID)
+values ($uID, $provider, $userID)
+on duplicate key update UserID = $userID
+SQL;
         $result = $this->Database->query($sql);
         return $result;
     }
@@ -4113,14 +4746,13 @@ class UserModel extends Gdn_Model {
     /**
      * Set fields that need additional manipulation after retrieval.
      *
-     * @param array|object &$user
-     * @throws Exception
+     * @param array|object $user
      */
     public function setCalculatedFields(&$user) {
         if (is_object($user)) {
             $this->setCalculatedFieldsObject($user);
             return;
-        } elseif (empty($user)){
+        } elseif (empty($user)) {
             return;
         }
         if (is_string($v = ($user['Attributes'] ?? false))) {
@@ -4169,10 +4801,10 @@ class UserModel extends Gdn_Model {
     /**
      * Duplicates `setCalculatedFields()` for objects.
      *
+     * @param object $user
      * @deprecated Call `setCalculatedFields()` with an array instead.
      */
-    public function setCalculatedFieldsObject( &$user) {
-        deprecated(__METHOD__);
+    public function setCalculatedFieldsObject(&$user) {
         if ($v = val('Attributes', $user)) {
             if (is_string($v)) {
                 setValue('Attributes', $user, dbdecode($v));
@@ -4223,7 +4855,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Set a meta value for a user.
      *
      * @param int $userID
      * @param array $meta
@@ -4236,7 +4868,7 @@ class UserModel extends Gdn_Model {
 
         foreach ($meta as $name => $value) {
             $name = $prefix.$name;
-            if ($value === null || $value == '') {
+            if ($value === null || $value === '') {
                 $deletes[] = $name;
             } else {
                 Gdn::database()->query($sql, [':UserID' => $userID, ':Name' => $name, ':Value' => $value, ':Value1' => $value]);
@@ -4280,12 +4912,11 @@ class UserModel extends Gdn_Model {
      *
      * @param int|string|null $user
      * @param bool $force
-     * @throws Exception
      */
     public function sendEmailConfirmationEmail($user = null, $force = false) {
 
         if (!$user) {
-            $user = Gdn::session()->User;
+            $user = $this->session->User;
         } elseif (is_numeric($user)) {
             $user = $this->getID($user);
         } elseif (is_string($user)) {
@@ -4349,6 +4980,13 @@ class UserModel extends Gdn_Model {
 
         $email->setEmailTemplate($emailTemplate);
 
+        // Apply rate limiting
+        // Check if user is admin to avoid applying ratelimit when approving
+        // user registrations
+        if (!Gdn::session()->checkPermission('Garden.Moderation.Manage')) {
+            self::rateLimit($user);
+        }
+
         try {
             $email->send();
         } catch (Exception $e) {
@@ -4365,10 +5003,9 @@ class UserModel extends Gdn_Model {
      * @param string $password
      * @param string $registerType
      * @param array|null $additionalData
-     * @throws Exception
      */
     public function sendWelcomeEmail($userID, $password, $registerType = 'Add', $additionalData = null) {
-        $session = Gdn::session();
+        $session = $this->session;
         $sender = $this->getID($session->UserID);
         $user = $this->getID($userID);
 
@@ -4397,13 +5034,20 @@ class UserModel extends Gdn_Model {
         $message .= $this->getEmailWelcome($registerType, $user, $data, $password);
 
         // Add the email confirmation key.
+        $query = ['vn_campaign' => 'welcome', 'vn_source' => strtolower($registerType), 'vn_medium' => 'email'];
         if ($data['EmailKey']) {
-            $emailUrlFormat = '{/entry/emailconfirm,exurl,domain}/{User.UserID,rawurlencode}/{EmailKey,rawurlencode}';
-            $url = formatString($emailUrlFormat, $data);
+            $landingUrl = externalUrl('/entry/emailconfirm?'.http_build_query([
+                'userID' => $data['User']['UserID'],
+                'emailKey' => $data['EmailKey'],
+                ] + $query));
             $message .= '<p>'.t('You need to confirm your email address before you can continue.').'</p>';
-            $emailTemplate->setButton($url, t('Confirm My Email Address'));
+            $emailTemplate->setButton($landingUrl, t('Confirm My Email Address'));
         } else {
-            $emailTemplate->setButton(externalUrl('/'), t('Access the Site'));
+            $landingUrl = externalUrl('/?'.http_build_query($query));
+            $emailTemplate->setButton(
+                $landingUrl,
+                t('Access the Site')
+            );
         }
 
         $emailTemplate->setMessage($message);
@@ -4448,19 +5092,19 @@ class UserModel extends Gdn_Model {
             );
         } else {
             switch ($registerType) {
-                case 'Connect' :
+                case 'Connect':
                     $welcome = formatString(t('You have successfully connected to {Title}.'), $data).' '.
                         t('Find your account information below.').'<br></p>'.
                         '<p>'.sprintf(t('%s: %s'), t('Username'), val('Name', $user)).'<br>'.
                         formatString(t('Connected With: {ProviderName}'), $data).'<br></p>';
                     break;
-                case 'Register' :
+                case 'Register':
                     $welcome = formatString(t('You have successfully registered for an account at {Title}.'), $data).' '.
                         t('Find your account information below.').'<br></p>'.
                         '<p>'.sprintf(t('%s: %s'), t('Username'), val('Name', $user)).'<br>'.
                         sprintf(t('%s: %s'), t('Email'), val('Email', $user)).'<br></p>';
                     break;
-                default :
+                default:
                     $welcome = sprintf(t('%s has created an account for you at %s.'), val('Name', val('Sender', $data)), $appTitle).' '.
                         t('Find your account information below.').'<br></p>'.
                         '<p>'.sprintf(t('%s: %s'), t('Email'), val('Email', $user)).'<br>'.
@@ -4477,7 +5121,7 @@ class UserModel extends Gdn_Model {
      * @param string $password
      */
     public function sendPasswordEmail($userID, $password) {
-        $session = Gdn::session();
+        $session = $this->session;
         $sender = $this->getID($session->UserID);
         $user = $this->getID($userID);
         $appTitle = Gdn::config('Garden.Title');
@@ -4507,88 +5151,15 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     * Synchronizes the user based on a given UserKey.
-     *
-     * @param string $userKey A string that uniquely identifies this user.
-     * @param array $data Information to put in the user table.
-     * @return int The ID of the user.
-     */
-    public function synchronize($userKey, $data) {
-        $userID = 0;
-
-        $attributes = val('Attributes', $data);
-        if (is_string($attributes)) {
-            $attributes = dbdecode($attributes);
-        }
-
-        if (!is_array($attributes)) {
-            $attributes = [];
-        }
-
-        // If the user didnt log in, they won't have a UserID yet. That means they want a new
-        // account. So create one for them.
-        if (!isset($data['UserID']) || $data['UserID'] <= 0) {
-            // Prepare the user data.
-            $userData = [];
-            $userData['Name'] = $data['Name'];
-            $userData['Password'] = randomString(16);
-            $userData['Email'] = val('Email', $data, 'no@email.com');
-            $userData['Gender'] = strtolower(substr(val('Gender', $data, 'u'), 0, 1));
-            $userData['HourOffset'] = val('HourOffset', $data, 0);
-            $userData['DateOfBirth'] = val('DateOfBirth', $data, '');
-            $userData['CountNotifications'] = 0;
-            $userData['Attributes'] = $attributes;
-            $userData['InsertIPAddress'] = ipEncode(Gdn::request()->ipAddress());
-            if ($userData['DateOfBirth'] == '') {
-                $userData['DateOfBirth'] = '1975-09-16';
-            }
-
-            // Make sure there isn't another user with this username.
-            if ($this->validateUniqueFields($userData['Name'], $userData['Email'])) {
-                if (!BanModel::checkUser($userData, $this->Validation, true)) {
-                    throw permissionException('Banned');
-                }
-
-                // Insert the new user.
-                $this->addInsertFields($userData);
-                $userID = $this->insertInternal($userData);
-            }
-
-            if ($userID > 0) {
-                $newUserRoleIDs = $this->newUserRoleIDs();
-
-                // Save the roles.
-                $roles = val('Roles', $data, false);
-                if (empty($roles)) {
-                    $roles = $newUserRoleIDs;
-                }
-
-                $this->saveRoles($userID, $roles, false);
-            }
-        } else {
-            $userID = $data['UserID'];
-        }
-
-        // Synchronize the transientkey from the external user data source if it is present (eg. WordPress' wpnonce).
-        if (array_key_exists('TransientKey', $attributes) && $attributes['TransientKey'] != '' && $userID > 0) {
-            $this->setTransientKey($userID, $attributes['TransientKey']);
-        }
-
-        return $userID;
-    }
-
-    /**
-     *
+     * Get all of the user IDs for newly registered users.
      *
      * @return array
-     * @throws Gdn_UserException
      */
     public function newUserRoleIDs() {
         // Registration method
         $registrationMethod = c('Garden.Registration.Method', 'Basic');
         $defaultRoleID = RoleModel::getDefaultRoles(RoleModel::TYPE_MEMBER);
         switch ($registrationMethod) {
-
             case 'Approval':
                 $roleID = RoleModel::getDefaultRoles(RoleModel::TYPE_APPLICANT);
                 break;
@@ -4645,7 +5216,7 @@ class UserModel extends Gdn_Model {
                     'password_reset_failure',
                     Logger::INFO,
                     'Can\'t find account associated with email/username {input}.',
-                    ['input' => $input]
+                    ['input' => $input, Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                 );
             }
             return false;
@@ -4679,7 +5250,13 @@ class UserModel extends Gdn_Model {
                         'password_reset_request',
                         Logger::INFO,
                         '{email} has been sent a password reset email.',
-                        ['input' => $input, 'email' => $user->Email, 'forUserID' => $user->UserID]
+                        [
+                            'input' => $input,
+                            'email' => $user->Email,
+                            Logger::FIELD_TARGET_USERID => $user->UserID,
+                            Logger::FIELD_TARGET_USERNAME => $user->Name,
+                            Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                        ]
                     );
                 }
             } catch (Exception $ex) {
@@ -4689,14 +5266,22 @@ class UserModel extends Gdn_Model {
                             'password_reset_skipped',
                             Logger::INFO,
                             $ex->getMessage(),
-                            ['input' => $input, 'email' => $user->Email]
+                            [
+                                'input' => $input,
+                                'email' => $user->Email,
+                                Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                            ]
                         );
                     } else {
                         Logger::event(
                             'password_reset_failure',
                             Logger::ERROR,
                             'The password reset email to {email} failed to send.',
-                            ['input' => $input, 'email' => $user->Email]
+                            [
+                                'input' => $input,
+                                'email' => $user->Email,
+                                Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY,
+                            ]
                         );
                     }
                 }
@@ -4715,7 +5300,7 @@ class UserModel extends Gdn_Model {
                     'password_reset_failure',
                     Logger::INFO,
                     'Can\'t find account associated with email/username {input}.',
-                    ['input' => $input]
+                    ['input' => $input, Logger::FIELD_CHANNEL => Logger::CHANNEL_SECURITY]
                 );
             }
             return false;
@@ -4756,8 +5341,11 @@ class UserModel extends Gdn_Model {
      * Check and apply login rate limiting
      *
      * @param array $user
+     * @return bool
      */
     public static function rateLimit($user) {
+        // Make sure $user is an object
+        $user = (object) $user;
         if (Gdn::cache()->activeEnabled()) {
             // Rate limit using Gdn_Cache.
             $userRateKey = formatString(self::LOGIN_RATE_KEY, ['Source' => $user->UserID]);
@@ -4773,7 +5361,6 @@ class UserModel extends Gdn_Model {
             Gdn::cache()->store($sourceRateKey, 1, [
                 Gdn_Cache::FEATURE_EXPIRY => self::LOGIN_RATE
             ]);
-
         } elseif (c('Garden.Apc', false) && function_exists('apc_store')) {
             // Rate limit using the APC data store.
             $userRateKey = formatString(self::LOGIN_RATE_KEY, ['Source' => $user->UserID]);
@@ -4785,7 +5372,6 @@ class UserModel extends Gdn_Model {
             $sourceRate = (int)apc_fetch($sourceRateKey);
             $sourceRate += 1;
             apc_store($sourceRateKey, 1, self::LOGIN_RATE);
-
         } else {
             // Rate limit using user attributes.
             $now = time();
@@ -4806,7 +5392,6 @@ class UserModel extends Gdn_Model {
 
             // IP rate limiting is not available without an active cache.
             $sourceRate = 0;
-
         }
 
         // Put user into cooldown mode.
@@ -4858,7 +5443,7 @@ class UserModel extends Gdn_Model {
             ->put();
 
         if (in_array($property, ['Permissions'])) {
-            $this->clearCache($rowID, ['permissions']);
+            $this->clearCache($rowID, [self::CACHE_TYPE_PERMISSIONS]);
         } else {
             $this->updateUserCache($rowID, $property, $value);
         }
@@ -4871,6 +5456,7 @@ class UserModel extends Gdn_Model {
         $this->EventArguments['Fields'] = $property;
         $this->fireEvent('AfterSetField');
 
+        $this->addDirtyRecord('user', $rowID);
         return $value;
     }
 
@@ -4905,7 +5491,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Refresh the cache entry for a user.
      *
      * @param int $userID
      * @param string|array $field
@@ -4933,6 +5519,7 @@ class UserModel extends Gdn_Model {
      * Cache a user.
      *
      * @param array $user The user to cache.
+     * @param int|null $userID The user's ID if not specified in the `$user` parameter.
      * @return bool Returns **true** if the user was cached or **false** otherwise.
      */
     public function userCache($user, $userID = null) {
@@ -4982,6 +5569,7 @@ class UserModel extends Gdn_Model {
      * Delete cached data for user.
      *
      * @param int|null $userID The user to clear the cache for.
+     * @param ?string $cacheTypesToClear
      * @return bool Returns **true** if the cache was cleared or **false** otherwise.
      */
     public function clearCache($userID, $cacheTypesToClear = null) {
@@ -5031,14 +5619,22 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * @return Permissions
+     */
+    public function getGuestPermissions(): Permissions {
+        return $this->getPermissions(self::GUEST_USER_ID);
+    }
+
+    /**
      * Get a user's permissions.
      *
      * @param int $userID Unique ID of the user.
      * @return Vanilla\Permissions
      */
     public function getPermissions($userID) {
-        $permissions = new Vanilla\Permissions();
+        $permissions = Gdn::permissionModel()->createPermissionInstance();
         $permissionsKey = '';
+        $user = $this->getID($userID, DATASET_TYPE_ARRAY);
 
         if (Gdn::cache()->activeEnabled()) {
             $permissionsIncrement = $this->getPermissionsIncrement();
@@ -5050,12 +5646,15 @@ class UserModel extends Gdn_Model {
             $cachedPermissions = Gdn::cache()->get($permissionsKey);
             if ($cachedPermissions !== Gdn_Cache::CACHEOP_FAILURE) {
                 $permissions->setPermissions($cachedPermissions);
+                $permissions->setAdmin($user['Admin'] > 0);
                 return $permissions;
             }
         }
 
-        $data = Gdn::permissionModel()->cachePermissions($userID);
-        $permissions->compileAndLoad($data);
+        $data = Gdn::permissionModel()->getPermissionsByUser($userID);
+        $permissions->setPermissions($data);
+        $admin = $user['Admin'] ?? null;
+        $permissions->setAdmin($admin > 0);
 
         $this->EventArguments['UserID'] = $userID;
         $this->EventArguments['Permissions'] = $permissions;
@@ -5078,7 +5677,7 @@ class UserModel extends Gdn_Model {
     }
 
     /**
-     *
+     * Get the permission increment for cache keys.
      *
      * @return bool|int|mixed
      */
@@ -5095,9 +5694,9 @@ class UserModel extends Gdn_Model {
     }
 
     /**
+     * Lookup the roles IDs from an array of role names.
      *
-     *
-     * @param array $roles
+     * @param array|string $roles The roles to lookup.
      * @return array
      */
     protected function lookupRoleIDs($roles) {
@@ -5127,7 +5726,7 @@ class UserModel extends Gdn_Model {
      */
     public function clearNavigationPreferences($userID = '') {
         if (!$userID) {
-            $userID = Gdn::session()->UserID;
+            $userID = $this->session->UserID;
         }
 
         $this->savePreference($userID, 'DashboardNav.Collapsed', []);
@@ -5146,7 +5745,7 @@ class UserModel extends Gdn_Model {
      */
     public function clearSectionNavigationPreference($url = '', $userID = '', $resetSectionPreference = true) {
         if (!$userID) {
-            $userID = Gdn::session()->UserID;
+            $userID = $this->session->UserID;
         }
 
         if ($url == '') {
@@ -5154,8 +5753,10 @@ class UserModel extends Gdn_Model {
         }
 
         $user = $this->getID($userID);
-        $preferences = val('Preferences', $user, []);
-        $landingPages = val('DashboardNav.SectionLandingPages', $preferences, []);
+        $preferences = $user->Preferences ?? [];
+        $landingPages = $preferences['DashboardNav.SectionLandingPages'] ?? [];
+        $sectionPreference = $preferences['DashboardNav.DashboardLandingPage'] ?? '';
+        $sectionReset = false;
 
         // Run through the user's saved landing page per section and if the url matches the passed url,
         // remove that preference.
@@ -5163,20 +5764,24 @@ class UserModel extends Gdn_Model {
             $url = strtolower(trim($url, '/'));
             $landingPage = strtolower(trim($landingPage, '/'));
             if ($url == $landingPage || stringEndsWith($url, $landingPage)) {
+                $sectionReset = true;
                 unset($landingPages[$section]);
             }
         }
 
-        $this->savePreference($userID, 'DashboardNav.SectionLandingPages', $landingPages);
+        if ($sectionReset) {
+            $this->savePreference($userID, 'DashboardNav.SectionLandingPages', $landingPages);
+        }
 
-        if ($resetSectionPreference) {
+        if ($resetSectionPreference && $sectionPreference !== '') {
             $this->savePreference($userID, 'DashboardNav.DashboardLandingPage', '');
         }
     }
 
     /**
+     * Determine whether or not a user is an applicant.
+     *
      * @param int $userID
-     * @throws Exception
      * @return bool
      */
     public function isApplicant($userID) {
@@ -5204,7 +5809,7 @@ class UserModel extends Gdn_Model {
      * Do the registration values indicate SPAM?
      *
      * @param array $formPostValues
-     * @throws Gdn_UserException if the values trigger a positive SPAM match.
+     * @throws Gdn_UserException Throws an exception if the values trigger a positive SPAM match.
      * @return bool
      */
     public function isRegistrationSpam(array $formPostValues) {
@@ -5217,7 +5822,7 @@ class UserModel extends Gdn_Model {
      *
      * @param string $password A password to test.
      * @param string $username The name of the user. Used to verify the password doesn't contain this value.
-     * @throws Gdn_UserException if the password is too weak.
+     * @throws Gdn_UserException Throws an exception if the password is too weak.
      * @return bool
      */
     public function validatePasswordStrength($password, $username) {
@@ -5295,5 +5900,103 @@ class UserModel extends Gdn_Model {
     public function setEmailUnique(bool $emailUnique) {
         $this->emailUnique = $emailUnique;
         return $this;
+    }
+
+    /**
+     * Generate a cache key for a user authentication row for a specific provider.
+     *
+     * @param string $provider
+     * @param int $userID
+     * @return string
+     */
+    private function authenticationCacheKey(string $provider, int $userID): string {
+        $result = "userAuthentication.{$provider}.{$userID}";
+        return $result;
+    }
+
+    /**
+     * Given an array of user IDs
+     *
+     * @param int[] $userIDs
+     * @return array
+     */
+    public function getDefaultSSOIDs(array $userIDs): array {
+        $defaultProvider = Gdn_AuthenticationProviderModel::getDefault();
+        $result = array_combine($userIDs, array_pad([], count($userIDs), null));
+
+        if ($defaultProvider === false) {
+            return $result;
+        }
+
+        $connections = $this->getAuthentications($userIDs, $defaultProvider["AuthenticationKey"]);
+        $mapping = array_column($connections, "ForeignUserKey", "UserID");
+        foreach ($mapping as $userID => $ssoID) {
+            $result[$userID] = $ssoID;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get a fragment suitable for representing the current signed-in user or a guest if no user is signed-in..
+     *
+     * @return array
+     */
+    public function currentFragment(): array {
+        if ($this->session->UserID) {
+            $result = $this->getFragmentByID($this->session->UserID, true);
+        } else {
+            $result = $this->getGeneratedFragment(self::GENERATED_FRAGMENT_KEY_GUEST);
+        }
+        return $result;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getCrawlInfo(): array {
+        $r = \Vanilla\Models\LegacyModelUtils::getCrawlInfoFromPrimaryKey(
+            $this,
+            '/api/v2/users?sort=-userID&expand=crawl',
+            'userID'
+        );
+        return $r;
+    }
+
+    /**
+     * Get user profile link
+     *
+     * @param array $user
+     * @return string
+     */
+    public static function getProfileUrl(array $user) {
+        $userName = $user['name'];
+        $userName = str_replace(['/', '&'], ['%2f', '%26'], $userName);
+
+        $result = '/profile/'.rawurlencode($userName);
+        $result = Gdn::request()->getSimpleUrl($result);
+
+        return $result;
+    }
+
+    /**
+     * Get the a user's roles.
+     *
+     * This is an internal implementation that should remain private.
+     *
+     * @param int $userID
+     * @return array
+     */
+    private function getRolesInternal(int $userID): array {
+        $roles = $this->SQL
+            ->select('ur.RoleID, r.Name, r.Type, r.Sync')
+            ->from('UserRole ur')
+            ->join('Role r', 'r.RoleID = ur.RoleID', 'left')
+            ->where('ur.UserID', $userID)
+            ->get()
+            ->resultArray();
+        $roles = array_column($roles, null, 'RoleID');
+
+        return $roles;
     }
 }

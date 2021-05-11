@@ -9,8 +9,8 @@ import ErrorMessages from "@library/forms/ErrorMessages";
 import { getRequiredID, IOptionalComponentID } from "@library/utility/idUtils";
 import classNames from "classnames";
 import Paragraph from "@library/layout/Paragraph";
-import { IFieldError } from "@library/@types/api/core";
 import { inputBlockClasses } from "@library/forms/InputBlockStyles";
+import { IError } from "@library/errorPages/CoreErrorMessages";
 
 export enum InputTextBlockBaseClass {
     STANDARD = "inputBlock",
@@ -35,9 +35,12 @@ export interface IInputBlockProps extends IOptionalComponentID {
     labelNote?: string;
     labelID?: string;
     descriptionID?: string;
-    errors?: IFieldError[];
+    errors?: IError[];
     baseClass?: InputTextBlockBaseClass;
     legacyMode?: boolean;
+    noMargin?: boolean;
+    grid?: boolean;
+    tight?: boolean;
 }
 
 interface IState {
@@ -90,14 +93,19 @@ export default class InputBlock extends React.Component<IInputBlockProps, IState
                 )}
 
                 <span
-                    className={classNames(classesInputBlock.inputWrap, this.props.wrapClassName, [
-                        classesInputBlock.fieldsetGroup,
-                    ])}
+                    className={classNames(
+                        classesInputBlock.inputWrap,
+                        this.props.wrapClassName,
+                        [classesInputBlock.fieldsetGroup],
+                        { [classesInputBlock.grid]: this.props.grid },
+                        { [classesInputBlock.tight]: this.props.tight },
+                        { noMargin: this.props.noMargin },
+                    )}
                 >
                     {children}
                 </span>
                 <Paragraph className={classesInputBlock.labelNote}>{this.props.noteAfterInput}</Paragraph>
-                <ErrorMessages id={this.errorID} errors={this.props.errors} />
+                <ErrorMessages id={this.errorID} errors={this.props.errors} padded />
             </OuterTag>
         );
     }

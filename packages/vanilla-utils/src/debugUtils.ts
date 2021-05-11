@@ -35,6 +35,20 @@ export function logDebug(...value: any[]) {
 }
 
 /**
+ * Log something to console.
+ * This only prints in debug mode, and if outputLog is true.
+ *
+ * @param outputLog - Condition to render log
+ * @param value - The value to log.
+ */
+export function logDebugConditionnal(outputLog = false, ...value: any[]) {
+    if (internalDebugValue && outputLog) {
+        // eslint-disable-next-line no-console
+        console.log(...value);
+    }
+}
+
+/**
  * Log an error to console.
  * This will not run in test mode _unless_ debug is set to true.
  *
@@ -55,7 +69,7 @@ export function logError(...value: any[]) {
  * @param value - The value to log.
  */
 export function logWarning(...value: any[]) {
-    if (!internalDebugValue && process.env.NODE_ENV === "test") {
+    if (!internalDebugValue || process.env.NODE_ENV === "test") {
         return;
     }
     // eslint-disable-next-line no-console

@@ -8,16 +8,25 @@
  * @since 2.0
  */
 
+use Garden\Container\Callback;
 use Garden\Container\Container;
 use Garden\Container\Reference;
 use Garden\Web\Exception\ClientException;
+use Vanilla\Dashboard\Modules\CommunityLeadersModule;
 use Vanilla\Exception\PermissionException;
 use Vanilla\Contracts;
+use Vanilla\Utility\ContainerUtils;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
+use Vanilla\Web\APIExpandMiddleware;
+use Vanilla\Widgets\WidgetService;
 
 /**
  * Event handlers for the Dashboard application.
  */
-class DashboardHooks extends Gdn_Plugin {
+class DashboardHooks extends Gdn_Plugin implements LoggerAwareInterface {
+
+    use LoggerAwareTrait;
 
     /** @var string */
     private $mobileThemeKey;
@@ -37,6 +46,8 @@ class DashboardHooks extends Gdn_Plugin {
      * @param \Vanilla\AddonManager $addonManager
      * @param Contracts\ConfigurationInterface $config
      * @param Emoji $emoji
+     * @throws \Garden\Container\ContainerException Catch container errors.
+     * @throws \Garden\Container\NotFoundException Catch if ther is no container.
      */
     public function __construct(\Vanilla\AddonManager $addonManager, Contracts\ConfigurationInterface $config, Emoji $emoji) {
         parent::__construct();
@@ -80,7 +91,43 @@ class DashboardHooks extends Gdn_Plugin {
             ->addCall('addProvider', [new Reference(ActivityCounterProvider::class)])
             ->addCall('addProvider', [new Reference(LogCounterProvider::class)])
             ->addCall('addProvider', [new Reference(RoleCounterProvider::class)])
+
+            ->rule(WidgetService::class)
+            ->addCall('registerWidget', [CommunityLeadersModule::class])
         ;
+
+        $mf = \Vanilla\Models\ModelFactory::fromContainer($dic);
+        $mf->addModel('user', UserModel::class, 'u');
+
+        $privateIPs = \Gdn::config('Garden.Privacy.IPs');
+
+        if (in_array($privateIPs, ['full', 'partial'])) {
+            ContainerUtils::addCall($dic, \Gdn_Request::class, 'anonymizeIP', [$privateIPs === 'full']);
+            // This is a kludge, but given this is a privacy setting, let's ensure newed up IPs are used properly.
+            $_SERVER['HTTP_CLIENT_IP'] = $_SERVER['HTTP_X_FORWARDED_FOR'] = $_SERVER['REMOTE_ADDR'] = \Gdn::request()->getIP();
+        }
+
+        ContainerUtils::addCall(
+            $dic,
+            APIExpandMiddleware::class,
+            "addExpandField",
+            [
+                "ssoID",
+                [
+                    "firstInsertUser.ssoID" => "firstInsertUserID",
+                    "insertUser.ssoID" => "insertUserID",
+                    "lastInsertUser.ssoID" => "lastInsertUserID",
+                    "lastPost.insertUser.ssoID" => "lastPost.insertUserID",
+                    "lastUser.ssoID" => "lastUserID",
+                    "updateUser.ssoID" => "updateUserID",
+                    "user.ssoID" => "userID",
+                    "ssoID" => "userID",
+                ],
+                new Callback(function (Container $dic) {
+                    return [$dic->get(UserModel::class), "getDefaultSSOIDs"];
+                })
+            ]
+        );
     }
 
     /**
@@ -91,8 +138,7 @@ class DashboardHooks extends Gdn_Plugin {
     public function base_render_before($sender) {
         $session = Gdn::session();
 
-
-        if ($sender->MasterView == 'admin') {
+        if ($sender->MasterView == 'admin' && ($sender->isRenderingMasterView() || $sender->deliveryType() === DELIVERY_TYPE_VIEW)) {
             if (val('Form', $sender)) {
                 $sender->Form->setStyles('bootstrap');
             }
@@ -135,46 +181,9 @@ class DashboardHooks extends Gdn_Plugin {
         }
 
         // Check the statistics.
-        if ($sender->deliveryType() == DELIVERY_TYPE_ALL) {
+        if ($sender->isRenderingMasterView()) {
             Gdn::statistics()->check();
         }
-
-        // Inform user of theme previewing
-        if ($session->isValid()) {
-            $previewThemeFolder = htmlspecialchars($session->getPreference('PreviewThemeFolder', ''));
-            $previewMobileThemeFolder = htmlspecialchars($session->getPreference('PreviewMobileThemeFolder', ''));
-            $previewThemeName = htmlspecialchars($session->getPreference(
-                'PreviewThemeName',
-                $previewThemeFolder
-            ));
-            $previewMobileThemeName = htmlspecialchars($session->getPreference(
-                'PreviewMobileThemeName',
-                $previewMobileThemeFolder
-            ));
-
-            if ($previewThemeFolder != '') {
-                $sender->informMessage(
-                    sprintf(t('You are previewing the %s desktop theme.'), wrap($previewThemeName, 'em'))
-                    .'<div class="PreviewThemeButtons">'
-                    .anchor(t('Apply'), 'settings/themes/'.$previewThemeFolder.'/'.$session->transientKey(), 'PreviewThemeButton')
-                    .' '.anchor(t('Cancel'), 'settings/cancelpreview/'.$previewThemeFolder.'/'.$session->transientKey(), 'PreviewThemeButton')
-                    .'</div>',
-                    'DoNotDismiss'
-                );
-            }
-
-            if ($previewMobileThemeFolder != '') {
-                $sender->informMessage(
-                    sprintf(t('You are previewing the %s mobile theme.'), wrap($previewMobileThemeName, 'em'))
-                    .'<div class="PreviewThemeButtons">'
-                    .anchor(t('Apply'), 'settings/mobilethemes/'.$previewMobileThemeFolder.'/'.$session->transientKey(), 'PreviewThemeButton')
-                    .' '.anchor(t('Cancel'), 'settings/cancelpreview/'.$previewMobileThemeFolder.'/'.$session->transientKey(), 'PreviewThemeButton')
-                    .'</div>',
-                    'DoNotDismiss'
-                );
-            }
-        }
-
 
         if ($session->isValid()) {
             $confirmed = val('Confirmed', Gdn::session()->User, true);
@@ -199,6 +208,9 @@ class DashboardHooks extends Gdn_Plugin {
             $exceptions = [];
         }
 
+        // All registration pages should display "Register" messages.
+        $location = strpos(strtolower($location), 'dashboard/entry/register') === 0 ? 'dashboard/entry/register' : $location;
+
         if ($sender->MasterView != 'admin' && !$sender->data('_NoMessages') && (val('MessagesLoaded', $sender) != '1' && $sender->MasterView != 'empty' && arrayInArray($exceptions, $messageCache, false) || inArrayI($location, $messageCache))) {
             $messageModel = new MessageModel();
             $messageData = $messageModel->getMessagesForLocation($location, $exceptions, $sender->data('Category.CategoryID'));
@@ -206,13 +218,14 @@ class DashboardHooks extends Gdn_Plugin {
                 $messageModule = new MessageModule($sender, $message);
                 if ($signInOnly) { // Insert special messages even in SignIn popup
                     echo $messageModule;
-                } elseif ($sender->deliveryType() == DELIVERY_TYPE_ALL)
+                } elseif ($sender->isRenderingMasterView()) {
                     $sender->addModule($messageModule);
+                }
             }
             $sender->MessagesLoaded = '1'; // Fixes a bug where render gets called more than once and messages are loaded/displayed redundantly.
         }
 
-        if ($sender->deliveryType() == DELIVERY_TYPE_ALL) {
+        if ($sender->isRenderingMasterView()) {
             $gdn_Statistics = Gdn::factory('Statistics');
             $gdn_Statistics->check($sender);
         }
@@ -298,9 +311,12 @@ class DashboardHooks extends Gdn_Plugin {
         }
         $isDefaultMaster = $sender->MasterView == 'default' || $sender->MasterView == '';
         if ($theme != '' && $isDefaultMaster) {
-            $htmlFile = paths(PATH_THEMES, $theme, 'views', 'default.master.tpl');
-            if (file_exists($htmlFile)) {
-                $sender->EventArguments['MasterViewPath'] = $htmlFile;
+            $themeHtmlFile = paths(PATH_THEMES, $theme, 'views', 'default.master.tpl');
+            $themeAddonHtmlFile = paths(PATH_ADDONS_THEMES, $theme, 'views', 'default.master.tpl');
+            if (file_exists($themeHtmlFile)) {
+                $sender->EventArguments['MasterViewPath'] = $themeHtmlFile;
+            } elseif (file_exists($themeAddonHtmlFile)) {
+                $sender->EventArguments['MasterViewPath'] = $themeAddonHtmlFile;
             } else {
                 // for default theme
                 $sender->EventArguments['MasterViewPath'] = $sender->fetchViewLocation('default.master', '', 'dashboard');
@@ -320,25 +336,67 @@ class DashboardHooks extends Gdn_Plugin {
         $session = Gdn::session();
         $desktopTheme = $this->addonManager->lookupTheme($this->desktopThemeKey);
         $mobileTheme = $this->addonManager->lookupTheme($this->mobileThemeKey);
-        $isDistinctMobileTheme = $mobileTheme !== $desktopTheme;
-        $hasThemeOptions = count($desktopTheme->getInfoValue('options', [])) > 0;
-        $hasMobileThemeOptions = $isDistinctMobileTheme && count($mobileTheme->getInfoValue('options', [])) > 0;
+
+        $hasThemeOptions = false;
+        $isDistinctMobileTheme = false;
+        $hasMobileThemeOptions = false;
+        if ($desktopTheme) {
+            $hasThemeOptions = count($desktopTheme->getInfoValue('options', [])) > 0;
+        }
+
+        if ($mobileTheme) {
+            $isDistinctMobileTheme = $mobileTheme !== $desktopTheme && $mobileTheme->getInfoValue('isMobile');
+            $hasMobileThemeOptions = $isDistinctMobileTheme && (count($mobileTheme->getInfoValue('options', [])) > 0);
+        }
 
         $sort = -1; // Ensure these nav items come before any plugin nav items.
 
         $nav->addGroupToSection('Moderation', t('Site'), 'site')
             ->addLinkToSectionIf('Garden.Community.Manage', 'Moderation', t('Messages'), '/dashboard/message', 'site.messages', '', $sort)
             ->addLinkToSectionIf($session->checkPermission(['Garden.Users.Add', 'Garden.Users.Edit', 'Garden.Users.Delete'], false), 'Moderation', t('Users'), '/dashboard/user', 'site.users', '', $sort)
-            ->addLinkToSectionIf($session->checkPermission('Garden.Users.Approve') && (c('Garden.Registration.Method') == 'Approval'), 'Moderation', t('Applicants'), '/dashboard/user/applicants', 'site.applicants', '', $sort, ['popinRel' => '/dashboard/user/applicantcount'], false)
             ->addLinkToSectionIf('Garden.Settings.Manage', 'Moderation', t('Ban Rules'), '/dashboard/settings/bans', 'site.bans', '', $sort)
+            ;
 
+        $nav
+            ->addGroupToSection('Moderation', t('Requests'), 'requests')
+            ->addLinkToSectionIf(
+                $session->checkPermission('Garden.Users.Approve') && (c('Garden.Registration.Method') == 'Approval'),
+                'Moderation',
+                t('Applicants'),
+                '/dashboard/user/applicants',
+                'requests.applicants',
+                '',
+                $sort,
+                ['popinRel' => '/dashboard/user/applicantcount'],
+                false
+            )
+            ->addLinkToSectionIf(
+                \Vanilla\FeatureFlagHelper::featureEnabled(ManageController::FEATURE_ROLE_APPLICATIONS) &&
+                $session->checkPermission('Garden.Community.Manage'),
+                'Moderation',
+                t('Role Applicants'),
+                '/manage/requests/role-applications',
+                'requests.role-applications',
+                '',
+                $sort
+            )
+            ;
+
+        $nav
             ->addGroupToSection('Moderation', t('Content'), 'moderation')
             ->addLinkToSectionIf($session->checkPermission(['Garden.Moderation.Manage', 'Moderation.Spam.Manage'], false), 'Moderation', t('Spam Queue'), '/dashboard/log/spam', 'moderation.spam-queue', '', $sort)
             ->addLinkToSectionIf($session->checkPermission(['Garden.Moderation.Manage', 'Moderation.ModerationQueue.Manage'], false), 'Moderation', t('Moderation Queue'), '/dashboard/log/moderation', 'moderation.moderation-queue', '', $sort, ['popinRel' => '/dashboard/log/count/moderate'], false)
             ->addLinkToSectionIf($session->checkPermission(['Garden.Settings.Manage', 'Garden.Moderation.Manage'], false), 'Moderation', t('Change Log'), '/dashboard/log/edits', 'moderation.change-log', '', $sort)
 
             ->addGroup(t('Appearance'), 'appearance', '', -1)
-            ->addLinkIf($session->checkPermission(['Garden.Settings.Manage', 'Garden.Community.Manage'], false), t('Branding'), '/dashboard/settings/branding', 'appearance.banner', '', $sort)
+            ->addLinkIf(
+                $session->checkPermission(['Garden.Settings.Manage', 'Garden.Community.Manage'], false),
+                t('Branding & SEO'),
+                '/dashboard/settings/branding',
+                'appearance.banner',
+                '',
+                $sort
+            )
             ->addLinkIf('Garden.Settings.Manage', t('Layout'), '/dashboard/settings/layout', 'appearance.layout', '', $sort)
             ->addLinkIf('Garden.Settings.Manage', t('Themes'), '/dashboard/settings/themes', 'appearance.themes', '', $sort)
             ->addLinkIf($hasThemeOptions && $session->checkPermission('Garden.Settings.Manage'), t('Theme Options'), '/dashboard/settings/themeoptions', 'appearance.theme-options', '', $sort)
@@ -349,6 +407,7 @@ class DashboardHooks extends Gdn_Plugin {
             ->addGroup(t('Membership'), 'users', '', ['after' => 'appearance'])
             ->addLinkIf($session->checkPermission(['Garden.Settings.Manage', 'Garden.Roles.Manage'], false), t('Roles & Permissions'), '/dashboard/role', 'users.roles', '', $sort)
             ->addLinkIf('Garden.Settings.Manage', t('Registration'), '/dashboard/settings/registration', 'users.registration', '', $sort)
+            ->addLinkIf('Garden.Settings.Manage', t('User Profile'), '/dashboard/settings/profile', 'users.profile', '', $sort)
 
             ->addGroup(t('Discussions'), 'forum', '', ['after' => 'users'])
             ->addLinkIf('Garden.Settings.Manage', t('Tagging'), 'settings/tagging', 'forum.tagging', $sort)
@@ -361,6 +420,7 @@ class DashboardHooks extends Gdn_Plugin {
             ->addGroup(t('Addons'), 'add-ons', '', ['after' => 'connect'])
             ->addLinkIf('Garden.Settings.Manage', t('Plugins'), '/dashboard/settings/plugins', 'add-ons.plugins', '', $sort)
             ->addLinkIf('Garden.Settings.Manage', t('Applications'), '/dashboard/settings/applications', 'add-ons.applications', '', $sort)
+            ->addLinkIf('Garden.Settings.Manage', t('Labs'), '/settings/labs', 'add-ons.labs', '', $sort, ['badge' => 'New'])
 
             ->addGroup(t('Technical'), 'site-settings', '', ['after' => 'reputation'])
             ->addLinkIf('Garden.Settings.Manage', t('Locales'), '/settings/locales', 'site-settings.locales', '', $sort)
@@ -368,6 +428,8 @@ class DashboardHooks extends Gdn_Plugin {
             ->addLinkIf('Garden.Settings.Manage', t('Security'), '/dashboard/settings/security', 'site-settings.security', '', $sort)
             ->addLinkIf('Garden.Settings.Manage', t('Routes'), '/dashboard/routes', 'site-settings.routes', '', $sort)
             ->addLinkIf('Garden.Settings.Manage', t('Statistics'), '/dashboard/statistics', 'site-settings.statistics', '', $sort)
+
+            ->addGroup('API Integrations', 'api', '', ['after' => 'site-settings'])
 
             ->addGroupIf('Garden.Settings.Manage', t('Forum Data'), 'forum-data', '', ['after' => 'site-settings'])
             ->addLinkIf(
@@ -383,12 +445,28 @@ class DashboardHooks extends Gdn_Plugin {
     /**
      * Aggressively prompt users to upgrade PHP version.
      *
-     * @param $sender
+     * @param SettingsController $sender
      */
     public function settingsController_render_before($sender) {
-        // Set this in your config to dismiss our upgrade warnings. Not recommended.
-        if (c('Vanilla.WarnedMeToUpgrade') === 'PHP 7.0') {
+        if (!inSection('Dashboard') || $sender->isRenderingMasterView()) {
             return;
+        }
+        // Set this in your config to dismiss our upgrade warnings. Not recommended.
+        $warning = c('Vanilla.WarnedMeToUpgrade');
+        if ($warning && version_compare(ENVIRONMENT_PHP_NEXT_VERSION, $warning) <= 0) {
+            return;
+        }
+
+        $phpVersion = phpversion();
+        if (version_compare($phpVersion, ENVIRONMENT_PHP_NEXT_VERSION) < 0) {
+            $versionStr = htmlspecialchars($phpVersion);
+
+            $upgradeMessage = [
+                'Content' => 'We recommend using at least PHP '.ENVIRONMENT_PHP_NEXT_VERSION.'. Support for PHP '.$versionStr.' may be dropped in upcoming releases.',
+                'AssetTarget' => 'Content', 'CssClass' => 'WarningMessage'
+            ];
+            $messageModule = new MessageModule($sender, $upgradeMessage);
+            $sender->addModule($messageModule);
         }
 
         $mysqlVersion = gdn::sql()->version();
@@ -419,16 +497,11 @@ class DashboardHooks extends Gdn_Plugin {
             saveToConfig('Tagging.Discussions.Enabled', $formValue);
         }
 
-        // Get all tag types
-        $tagModel = TagModel::instance();
-        $tagTypes = $tagModel->getTagTypes();
-
-
-        list($offset, $limit) = offsetLimit($page, 100);
+        [$offset, $limit] = offsetLimit($page, 100);
         $sender->setData('_Limit', $limit);
 
         if ($search) {
-            $sQL->like('Name', $search, 'right');
+            $sQL->like('FullName', $search, 'right');
         }
 
         $queryType = $type;
@@ -447,6 +520,9 @@ class DashboardHooks extends Gdn_Plugin {
             $sQL->where('Type', $queryType);
         }
 
+        // Get all tag types
+        $tagModel = TagModel::instance();
+        $tagTypes = $tagModel->getTagTypes();
         $tagTypes = array_change_key_case($tagTypes, CASE_LOWER);
 
         // Store type for view
@@ -459,7 +535,6 @@ class DashboardHooks extends Gdn_Plugin {
         // Determine if new tags can be added for the current type.
         $canAddTags = (!empty($tagTypes[$type]['addtag']) && $tagTypes[$type]['addtag']) ? 1 : 0;
         $canAddTags &= checkPermission('Vanilla.Tagging.Add');
-
         $sender->setData('_CanAddTags', $canAddTags);
 
         $data = $sQL
@@ -472,7 +547,7 @@ class DashboardHooks extends Gdn_Plugin {
         $sender->setData('Tags', $data);
 
         if ($search) {
-            $sQL->like('Name', $search, 'right');
+            $sQL->like('FullName', $search, 'right');
         }
 
         // Make sure search uses its own search type, so results appear in their own tab.
@@ -538,7 +613,7 @@ class DashboardHooks extends Gdn_Plugin {
                     // Make sure the tag is valid
                     $tagData = $sender->Form->getFormValue('Name');
                     if (!TagModel::validateTag($tagData)) {
-                        $sender->Form->addError('@'.t('ValidateTag', 'Tags cannot contain commas.'));
+                        $sender->Form->addError('@'.t('ValidateTag', 'Tags cannot contain commas or underscores.'));
                     }
 
                     // Make sure that the tag name is not already in use.
@@ -577,10 +652,10 @@ class DashboardHooks extends Gdn_Plugin {
                     // Make sure the tag is valid
                     $tagName = $sender->Form->getFormValue('Name');
                     if (!TagModel::validateTag($tagName)) {
-                        $sender->Form->addError('@'.t('ValidateTag', 'Tags cannot contain commas.'));
+                        $sender->Form->addError('@'.t('ValidateTag', 'Tags cannot contain commas or underscores.'));
                     }
 
-                    $tagType = $sender->Form->getFormValue('Type');
+                    $tagType = $tagType ?? $sender->Form->getFormValue('Type') ?? '';
                     if (!$tagModel->canAddTagForType($tagType)) {
                         $sender->Form->addError('@'.t('ValidateTagType', 'That type does not accept manually adding new tags.'));
                     }
@@ -624,9 +699,9 @@ class DashboardHooks extends Gdn_Plugin {
             throw notFoundException('Discussion');
         }
 
-        $hasPermission = Gdn::session()->checkPermission('Garden.Moderation.Manage');
+        $hasPermission = Gdn::session()->checkPermission('Vanilla.Tagging.Add');
         if (!$hasPermission && $discussion['InsertUserID'] !== GDN::session()->UserID) {
-            throw permissionException('Garden.Moderation.Manage');
+            throw permissionException('Vanilla.Tagging.Add');
         }
         $sender->title('Add Tags');
 
@@ -693,6 +768,24 @@ class DashboardHooks extends Gdn_Plugin {
                 foreach (Gdn::userModel()->Validation->resultsArray() as $msg) {
                     trace($msg, TRACE_ERROR);
                 }
+                if (c('Vanilla.SSO.Debug') && $this->logger instanceof Psr\Log\LoggerInterface) {
+                    $this->logger->info(
+                        'SSO String Failed to Connect',
+                        [
+                            Vanilla\Logger::FIELD_CHANNEL => Vanilla\Logger::CHANNEL_APPLICATION,
+                            'event' => 'embedded_sso',
+                            'timestamp' => time(),
+                            'userid' => Gdn::session()->UserID,
+                            'username' => Gdn::session()->User->Name ?? 'anonymous',
+                            'ip' => Gdn::request()->getIP(),
+                            'method' => Gdn::request()->requestMethod(),
+                            'domain' => rtrim(url('/', true), '/'),
+                            'path' => Gdn::request()->getPath(),
+                            'error_message' => $msg ?? 'Unknown Error',
+                            'vanilla_sso' => $sso
+                        ]
+                    );
+                }
                 Gdn::userModel()->Validation->reset();
             }
 
@@ -700,7 +793,7 @@ class DashboardHooks extends Gdn_Plugin {
             // no leak via the Referer field.
             $deliveryType = $sender->getDeliveryType($deliveryMethod);
             if (!$isApi && !Gdn::request()->isPostBack() && $deliveryType !== DELIVERY_TYPE_DATA) {
-                $url = trim(preg_replace('#(\?.*)sso=[^&]*&?(.*)$#', '$1$2', Gdn::request()->pathAndQuery()), '&');
+                $url = \Vanilla\Utility\UrlUtils::replaceQuery(Gdn::request()->getUri(), ['sso' => null]);
                 redirectTo($url);
             }
         }
@@ -824,7 +917,7 @@ class DashboardHooks extends Gdn_Plugin {
         // found. We should clear the user prefs in that case.
         if (!empty($args['PathArgs'])) {
             if (Gdn::session()->isValid()) {
-                $uri = Gdn::request()->getRequestArguments('server')['REQUEST_URI'];
+                $uri = Gdn::request()->getRequestArguments('server')['REQUEST_URI'] ?? '';
                 try {
                     $userModel = new UserModel();
                     $userModel->clearSectionNavigationPreference($uri);
@@ -923,6 +1016,11 @@ class DashboardHooks extends Gdn_Plugin {
         $parsed['Name'] = str_replace('..', '', $parsed['Name']);
         $remotePath = PATH_ROOT.'/'.$parsed['Name'];
 
+        // Make sure we are copying a file from uploads.
+        if (strpos($remotePath, PATH_UPLOADS) !== 0 || strpos($remotePath, PATH_UPLOADS.'/import/' === 0)) {
+            throw new \Exception("Can only copy from the uploads folder.", 403);
+        }
+
         // Since this is just a temp file we don't want to nest it in a bunch of subfolders.
         $localPath = paths(PATH_UPLOADS, 'tmp-static', str_replace('/', '-', $parsed['Name']));
 
@@ -935,5 +1033,16 @@ class DashboardHooks extends Gdn_Plugin {
         copy($remotePath, $localPath);
 
         $args['Path'] = $localPath;
+    }
+
+    /**
+     * Keep text fields their lengths when altering tables.
+     *
+     * @param \Gdn_DatabaseStructure $structure
+     */
+    public function gdn_mySQLStructure_beforeSet(\Gdn_DatabaseStructure $structure): void {
+        if (!\Vanilla\FeatureFlagHelper::featureEnabled(\Vanilla\Utility\SqlUtils::FEATURE_ALTER_TEXT_FIELD_LENGTHS)) {
+            \Vanilla\Utility\SqlUtils::keepTextFieldLengths($structure);
+        }
     }
 }

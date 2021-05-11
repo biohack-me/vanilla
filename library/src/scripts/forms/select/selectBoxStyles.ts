@@ -5,8 +5,10 @@
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { percent, px } from "csx";
+import { styleUnit } from "@library/styles/styleUnit";
 
 export const selectBoxClasses = useThemeCache(() => {
     const globalVars = globalVariables();
@@ -19,10 +21,10 @@ export const selectBoxClasses = useThemeCache(() => {
         textAlign: "left",
         maxWidth: percent(100),
         border: 0,
-        $nest: {
+        ...{
             "&.minimalStyles": {
                 justifyContent: "center",
-                $nest: {
+                ...{
                     ".selectBox-buttonIcon": {
                         marginRight: 0,
                     },
@@ -40,7 +42,7 @@ export const selectBoxClasses = useThemeCache(() => {
         maxWidth: percent(100),
         lineHeight: globalVars.lineHeights.condensed,
         paddingLeft: px(13.5),
-        $nest: {
+        ...{
             "&[disabled]": {
                 opacity: 1,
             },
@@ -48,7 +50,6 @@ export const selectBoxClasses = useThemeCache(() => {
     });
 
     const buttonIcon = style("buttonIcon", {
-        marginLeft: px(6),
         marginRight: "auto",
     });
 
@@ -68,10 +69,10 @@ export const selectBoxClasses = useThemeCache(() => {
         alignItems: "center",
         justifyContent: "center",
         color: globalVars.mainColors.primary.toString(),
-        width: px(18),
+        width: percent(100),
         height: px(18),
         flexBasis: px(18),
-        marginRight: px(9),
+        marginLeft: "auto",
     });
 
     const spacer = style("spacer", {
@@ -81,7 +82,13 @@ export const selectBoxClasses = useThemeCache(() => {
     });
 
     const itemLabel = style("itemLabel", {
-        width: percent(100),
+        display: "block",
+        flexGrow: 1,
+    });
+
+    const offsetPadding = style("offsetPadding", {
+        paddingTop: styleUnit(0),
+        paddingBottom: styleUnit(0),
     });
 
     return {
@@ -93,5 +100,6 @@ export const selectBoxClasses = useThemeCache(() => {
         checkContainer,
         spacer,
         itemLabel,
+        offsetPadding,
     };
 });

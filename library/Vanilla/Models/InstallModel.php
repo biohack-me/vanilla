@@ -7,6 +7,7 @@
 
 namespace Vanilla\Models;
 
+use Garden\Container\Container;
 use Garden\Schema\Schema;
 use Garden\Schema\Validation;
 use Garden\Schema\ValidationException;
@@ -26,7 +27,7 @@ class InstallModel {
     /** @var AddonModel  */
     protected $addonModel;
 
-    /** @var ContainerInterface  */
+    /** @var Container  */
     protected $container;
 
     /** @var \Gdn_Session  */
@@ -37,12 +38,12 @@ class InstallModel {
      *
      * @param \Gdn_Configuration $config The configuration dependency used to load/save configuration information.
      * @param AddonModel $addonModel The addon model dependency used to enable installation addons.
-     * @param ContainerInterface $container The container used to create additional dependencies once they are enabled.
+     * @param Container $container The container used to create additional dependencies once they are enabled.
      */
     public function __construct(
         \Gdn_Configuration $config,
         AddonModel $addonModel,
-        ContainerInterface $container,
+        Container $container,
         \Gdn_Session $session
     ) {
         $this->config = $config;
@@ -122,11 +123,19 @@ class InstallModel {
             $this->config->set('Garden.Installed', $oldConfigValue);
         }
 
+        // Kludge: If we are testing the dashboard hooks will not have had an opportunity to configure the container.
+        $this->addonModel->callBootstrapEvents(\DashboardHooks::class);
+
         // Run through the addons.
         $data += ['addons' => static::$DEFAULT_ADDONS];
 
         foreach ($data['addons'] as $addonKey) {
             $addon = $this->addonModel->getAddonManager()->lookupAddon($addonKey);
+
+            if ($addon === null) {
+                throw new \InvalidArgumentException("Could not find addon with key: $addonKey", 404);
+            }
+
             // TODO: Once we are using this addon model we can remove the force and tweak the config defaults.
             $this->addonModel->enable($addon, ['force' => true]);
         }
@@ -167,8 +176,8 @@ class InstallModel {
             throw new ValidationException($validation);
         }
 
-        if (PHP_VERSION_ID < 70000) {
-            $validation->addError('', 'PHP {version} or higher is required.', ['version' => '7.0']);
+        if (version_compare(phpversion(), ENVIRONMENT_PHP_VERSION) < 0) {
+            $validation->addError('', 'PHP {version} or higher is required.', ['version' => ENVIRONMENT_PHP_VERSION]);
         }
 
         if (!class_exists(\PDO::class)) {

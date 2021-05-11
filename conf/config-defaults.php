@@ -51,6 +51,7 @@ $Configuration['Garden']['StripWebRoot'] = false;
 $Configuration['Garden']['AllowSSL'] = true;
 $Configuration['Garden']['PrivateCommunity'] = false;
 $Configuration['Garden']['Forms']['HoneypotName'] = 'hpt';
+$Configuration['Feature']['DeferredLegacyScripts']['Enabled'] = true;
 
 // Developer stuff.
 $Configuration['Garden']['Debug'] = false;
@@ -69,7 +70,6 @@ $Configuration['Garden']['Authenticator']['RegisterUrl'] = '/entry/register?Targ
 $Configuration['Garden']['Authenticator']['SignInUrl'] = '/entry/signin?Target=%2$s';
 $Configuration['Garden']['Authenticator']['SignOutUrl'] = '/entry/signout/{Session_TransientKey}?Target=%2$s';
 $Configuration['Garden']['Authenticator']['EnabledSchemes'] = ['password'];
-$Configuration['Garden']['Authenticator']['SyncScreen'] = "smart";
 $Configuration['Garden']['Authenticators']['password']['Name'] = "Password";
 $Configuration['Garden']['UserAccount']['AllowEdit'] = true; // Allow users to edit their account information? (SSO requires accounts be edited in external system).
 $Configuration['Garden']['Registration']['Method'] = 'Captcha'; // Options are: Basic, Captcha, Approval, Invitation
@@ -114,8 +114,8 @@ $Configuration['Garden']['Profile']['MaxWidth'] = 560;
 $Configuration['Garden']['Thumbnail']['Size'] = 200;
 
 // Appearance.
-$Configuration['Garden']['Theme'] = 'keystone';
-$Configuration['Garden']['MobileTheme'] = 'mobile';
+$Configuration['Garden']['Theme'] = 'theme-foundation';
+$Configuration['Garden']['MobileTheme'] = 'theme-foundation';
 $Configuration['Garden']['Menu']['Sort'] = ['Dashboard', 'Discussions', 'Questions', 'Activity', 'Applicants', 'Conversations', 'User'];
 $Configuration['Garden']['ThemeOptions']['Styles']['Key'] = 'Default';
 $Configuration['Garden']['ThemeOptions']['Styles']['Value'] = '%s_default';
@@ -137,6 +137,9 @@ $Configuration['Garden']['SignIn']['Popup'] = true; // Should the sign-in link p
 $Configuration['Garden']['InputFormatter'] = 'Rich'; // Html, BBCode, Markdown, Text, Rich
 $Configuration['Garden']['MobileInputFormatter'] = 'Rich';
 $Configuration['Garden']['Html']['AllowedElements'] = "a, abbr, acronym, address, area, audio, b, bdi, bdo, big, blockquote, br, caption, center, cite, code, col, colgroup, dd, del, details, dfn, div, dl, dt, em, figure, figcaption, font, h1, h2, h3, h4, h5, h6, hgroup, hr, i, img, ins, kbd, li, map, mark, menu, meter, ol, p, pre, q, s, samp, small, span, strike, strong, sub, sup, summary, table, tbody, td, tfoot, th, thead, time, tr, tt, u, ul, var, video, wbr";
+$Configuration['Garden']['Html']['AllowedUrlSchemes'] = [
+    'aim', 'feed', 'file', 'ftp', 'gopher', 'http', 'https', 'irc', 'mailto', 'news', 'nntp', 'rapidminer', 'sftp', 'ssh', 'telnet'
+];
 $Configuration['Garden']['Search']['Mode'] = 'boolean'; // matchboolean, match, boolean, like
 $Configuration['Garden']['EditContentTimeout'] = 3600; // -1 means no timeout. 0 means immediate timeout. > 0 is in seconds. 60 * 60 = 3600 (aka 1hr)
 $Configuration['Garden']['Format']['Mentions'] = true;
@@ -175,6 +178,10 @@ $Configuration['Modules']['Conversations']['Content'] = ['MessageModule', 'MeMod
 // Routes.
 $Configuration['Routes']['DefaultController'] = 'discussions';
 $Configuration['Routes']['DefaultForumRoot'] = 'discussions';
-$Configuration['Routes']['Default404'] = ['dashboard/home/filenotfound', 'NotFound'];
-$Configuration['Routes']['DefaultPermission'] = ['dashboard/home/unauthorized', 'NotAuthorized'];
-$Configuration['Routes']['UpdateMode'] = 'dashboard/home/updatemode';
+$Configuration['Routes']['Default404'] = ['home/filenotfound', 'NotFound'];
+$Configuration['Routes']['DefaultPermission'] = ['home/unauthorized', 'NotAuthorized'];
+$Configuration['Routes']['UpdateMode'] = 'home/updatemode';
+
+// Themes
+$Configuration['Theme']['Banner']['VisibleSections'] = ["DiscussionList", "CategoryDiscussionList", "CategoryList", "NewEventList"];
+$Configuration['Theme']['ContentBanner']['VisibleSections'] = ["Discussion", 'Drafts', 'Profile', 'PostDiscussion'];

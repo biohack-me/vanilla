@@ -5,7 +5,7 @@
  */
 
 import React from "react";
-import { ButtonTypes } from "@library/forms/buttonStyles";
+import { ButtonTypes } from "@library/forms/buttonTypes";
 import Button from "@library/forms/Button";
 import { IOptionalComponentID } from "@library/utility/idUtils";
 import classNames from "classnames";
@@ -15,7 +15,8 @@ interface IProps extends IOptionalComponentID {
     className?: string;
     disabled?: boolean;
     legacyMode?: boolean;
-    baseClass?: ButtonTypes;
+    buttonType?: ButtonTypes;
+
     tabIndex?: number;
 }
 
@@ -38,7 +39,7 @@ export default class ButtonSubmit extends React.Component<IProps, IOptionalCompo
                 className={this.props.className}
                 prefix="submitButton"
                 legacyMode={this.props.legacyMode}
-                baseClass={this.props.baseClass}
+                buttonType={this.props.buttonType}
                 tabIndex={this.props.tabIndex}
             >
                 {this.props.children}

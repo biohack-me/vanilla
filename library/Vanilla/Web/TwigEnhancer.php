@@ -10,12 +10,15 @@ namespace Vanilla\Web;
 use Garden\EventManager;
 use \Gdn_Request;
 use Gdn;
+use PocketsPlugin;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
-use Vanilla\Contracts\AddonProviderInterface;
+use Vanilla\AddonManager;
 use Vanilla\Contracts\ConfigurationInterface;
 use Vanilla\Contracts\LocaleInterface;
+use Vanilla\Dashboard\Models\BannerImageModel;
 use Vanilla\FeatureFlagHelper;
+use Vanilla\Utility\ArrayUtils;
 use Vanilla\Utility\HtmlUtils;
 
 /**
@@ -23,8 +26,8 @@ use Vanilla\Utility\HtmlUtils;
  */
 class TwigEnhancer {
 
-    /** @var AddonProviderInterface */
-    private $addonProvider;
+    /** @var AddonManager */
+    private $addonManager;
 
     /** @var EventManager */
     private $eventManager;
@@ -41,6 +44,9 @@ class TwigEnhancer {
     /** @var Gdn_Request */
     private $request;
 
+    /** @var BannerImageModel */
+    private $bannerImageModel;
+
     /** @var string|null The directory to cache compiled twig templates in. */
     private $compileCacheDirectory = null;
 
@@ -55,27 +61,30 @@ class TwigEnhancer {
     /**
      * DI.
      *
-     * @param AddonProviderInterface $addonProvider
+     * @param AddonManager $addonManager
      * @param EventManager $eventManager
      * @param \Gdn_Session $session
      * @param ConfigurationInterface $config
      * @param LocaleInterface $locale
      * @param Gdn_Request $request
+     * @param BannerImageModel $bannerImageModel
      */
     public function __construct(
-        AddonProviderInterface $addonProvider,
+        AddonManager $addonManager,
         EventManager $eventManager,
         \Gdn_Session $session,
         ConfigurationInterface $config,
         LocaleInterface $locale,
-        Gdn_Request $request
+        Gdn_Request $request,
+        BannerImageModel $bannerImageModel = null
     ) {
-        $this->addonProvider = $addonProvider;
+        $this->addonManager = $addonManager;
         $this->eventManager = $eventManager;
         $this->session = $session;
         $this->config = $config;
         $this->locale = $locale;
         $this->request = $request;
+        $this->bannerImageModel = $bannerImageModel;
     }
 
     /**
@@ -99,10 +108,14 @@ class TwigEnhancer {
      */
     public function enhanceEnvironment(\Twig\Environment $twig) {
         foreach ($this->getFunctionMappings() as $key => $callable) {
-            if (is_int($key) && is_string($callable)) {
-                $key = $callable;
+            if (is_object($callable) && $callable instanceof TwigFunction) {
+                $twig->addFunction($callable);
+            } else {
+                if (is_int($key) && is_string($callable)) {
+                    $key = $callable;
+                }
+                $twig->addFunction(new TwigFunction($key, $callable));
             }
-            $twig->addFunction(new TwigFunction($key, $callable));
         }
     }
 
@@ -118,7 +131,10 @@ class TwigEnhancer {
      * @param FilesystemLoader $loader
      */
     public function enhanceFileSystem(FilesystemLoader $loader) {
-        $addons = $this->addonProvider->getEnabled();
+        $addons = $this->addonManager->getEnabled();
+        $loader->addPath(PATH_ROOT . '/resources/views', 'resources');
+        $loader->addPath(PATH_ROOT . "/library", "library");
+
         foreach ($addons as $addon) {
             $viewDirectory = PATH_ROOT . $addon->getSubdir() . '/views';
             if (file_exists($viewDirectory)) {
@@ -166,6 +182,50 @@ class TwigEnhancer {
     }
 
     /**
+     * Render a module with some parameters.
+     *
+     * @param string $moduleName The name of the module.
+     * @param array $moduleParams The parameters to pass to the module.
+     *
+     * @return \Twig\Markup
+     */
+    public function renderModule(string $moduleName, array $moduleParams = []): \Twig\Markup {
+        return new \Twig\Markup(\Gdn_Theme::module($moduleName, $moduleParams), 'utf-8');
+    }
+
+    /**
+     * Render a module with some parameters.
+     *
+     * @param string $assetName The name of the asset.
+     *
+     * @return \Twig\Markup
+     */
+    public function renderControllerAsset(string $assetName): \Twig\Markup {
+        $controller = Gdn::controller();
+        if (!$controller) {
+            return new \Twig\Markup("Could not render an asset without a Gdn_Controller instance", "utf-8");
+        }
+        return $controller->renderAssetForTwig($assetName);
+    }
+
+    /**
+     * Render a pocket if it exists.
+     *
+     * @param string $pocketName The name of the pocket.
+     * @param array $pocketArgs Arguments to pass to PocketsPlugin::pocketString().
+     *
+     * @return \Twig\Markup
+     */
+    public function renderPocket(string $pocketName, array $pocketArgs = []): \Twig\Markup {
+        if (!class_exists(PocketsPlugin::class)) {
+            return new \Twig\Markup('', 'utf-8');
+        }
+
+        $result = PocketsPlugin::pocketString($pocketName, $pocketArgs);
+        return new \Twig\Markup($result, 'utf-8');
+    }
+
+    /**
      * Get a config key. The result will then be cached for the instance of the twig enhancer.
      *
      * @param string $key Config key.
@@ -199,14 +259,53 @@ class TwigEnhancer {
      * Check if a user has a permission or one of a group of permissions.
      *
      * @param string $permissionName The permission name.
+     * @param int|null $id The permission ID.
      *
      * @return bool
      */
-    public function hasPermission(string $permissionName): bool {
-        if (!key_exists($permissionName, $this->permissionCache)) {
-            $this->permissionCache[$permissionName] = $this->session->checkPermission($permissionName);
+    public function hasPermission(string $permissionName, $id = null): bool {
+        $key = "$permissionName-$id";
+        if (!array_key_exists($key, $this->permissionCache)) {
+            if (!empty($id) && is_numeric($id) || is_string($id)) {
+                $category = \CategoryModel::categories($id);
+
+                // Handle checking categories with the permissionCategoryID.
+                $has = \CategoryModel::checkPermission($category, $permissionName, false);
+            } else {
+                $has = $this->session->checkPermission($permissionName, false, '', $id);
+            }
+            $this->permissionCache[$key] = $has;
         }
-        return $this->permissionCache[$permissionName];
+        return $this->permissionCache[$key];
+    }
+
+    /**
+     * Make an asset URL.
+     *
+     * @param string $url
+     */
+    public function assetUrl(string $url) {
+        return asset($url, true, true);
+    }
+
+    /**
+     * Render out breadcrumbs from the controller.
+     *
+     * @param array $options
+     *
+     * @return \Twig\Markup
+     */
+    public function renderBreadcrumbs(array $options = []): \Twig\Markup {
+        $breadcrumbs = Gdn::controller()->data('Breadcrumbs', []);
+        $html = \Gdn_Theme::breadcrumbs($breadcrumbs, val('homelink', $options, true), $options);
+        return new \Twig\Markup($html, 'utf-8');
+    }
+
+    /**
+     * @return string
+     */
+    public function renderNoop(): string {
+        return '';
     }
 
     /**
@@ -221,11 +320,21 @@ class TwigEnhancer {
             't' => [$this, 'getTranslation'],
             'sprintf',
 
-            // Utility
+            // Utility`
             'sanitizeUrl' => [\Gdn_Format::class, 'sanitizeUrl'],
             'classNames' => [HtmlUtils::class, 'classNames'],
+            'renderHtml' => new TwigFunction('renderHtml', function (?string $body, ?string $format = null) {
+                return Gdn::formatService()->renderHTML((string)$body, $format);
+            }, ['is_safe' => ['html']]),
+            'isArray' => [ArrayUtils::class, 'isArray'],
+            'isAssociativeArray' => [ArrayUtils::class, 'isAssociative'],
 
             // Application interaction.
+            'renderControllerAsset' => [$this, 'renderControllerAsset'],
+            'renderModule' => [$this, 'renderModule'],
+            'renderBreadcrumbs' => [$this, 'renderBreadcrumbs'],
+            'renderPocket' => [$this, 'renderPocket'],
+            'renderBanner' => $this->bannerImageModel ? [$this->bannerImageModel, 'renderBanner'] : [$this, 'renderNoop'],
             'fireEchoEvent' => [$this, 'fireEchoEvent'],
             'firePluggableEchoEvent' => [$this, 'firePluggableEchoEvent'],
             'helpAsset',
@@ -233,8 +342,10 @@ class TwigEnhancer {
             // Session
             'hasPermission' => [$this, 'hasPermission'],
             'inSection' => [\Gdn_Theme::class, 'inSection'],
+            'isSignedIn' => [$this->session, 'isValid'],
 
             // Routing.
+            'assetUrl' => [$this, 'assetUrl'],
             'url' => [$this->request, 'url'],
         ];
     }

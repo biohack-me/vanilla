@@ -3,57 +3,56 @@
  * @copyright 2009-2019 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
+import { ColorsUtils } from "@library/styles/ColorsUtils";
 import {
-    absolutePosition,
     appearance,
-    colorOut,
     singleBorder,
     singleLineEllipsis,
-    srOnly,
-    unit,
     userSelect,
-    sticky,
     pointerEvents,
-    allButtonStates,
-    borders,
-    negative,
+    importantUnit,
 } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { Mixins } from "@library/styles/Mixins";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { styleFactory, useThemeCache } from "@library/styles/styleUtils";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { calc, important, percent, quote, translateY } from "csx";
 import { richEditorVariables } from "@rich-editor/editor/richEditorVariables";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { NestedCSSProperties } from "typestyle/lib/types";
-import { buttonResetMixin } from "@library/forms/buttonStyles";
+import { CSSObject } from "@emotion/css";
+import { buttonResetMixin } from "@library/forms/buttonMixins";
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
 
-export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: boolean) => {
+export const richEditorClasses = useThemeCache((legacyMode: boolean) => {
     const globalVars = globalVariables();
     const style = styleFactory("richEditor");
     const vars = richEditorVariables();
     const formVars = formElementsVariables();
+    const mediaQueries = panelLayoutVariables().mediaQueries();
 
     const root = style({
         position: "relative",
         display: "block",
-        $nest: {
+        ...{
             "&.isDisabled": {
-                $nest: {
+                ...{
                     "&, &.richEditor-button": {
                         cursor: important("progress"),
                     },
                 },
             },
-            "& .richEditor-textWrap, & .richEditor-frame": {
+            ".richEditor-textWrap, .richEditor-frame": {
                 display: "flex",
                 flexDirection: "column",
                 flexGrow: 1,
                 position: "relative",
             },
             "& .ql-clipboard": {
-                ...srOnly(),
+                ...Mixins.absolute.srOnly(),
                 position: "fixed", // Fixed https://github.com/quilljs/quill/issues/1374#issuecomment-415333651
             },
-            "& .richEditor-nextInput, .iconButton, .richEditor-button": {
+            ".richEditor-nextInput, .iconButton, .richEditor-button": {
                 ...singleLineEllipsis(),
                 ...appearance(),
                 position: "relative",
@@ -62,14 +61,14 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
                 background: "none",
                 textAlign: "left",
             },
-            "& .Close-x": {
+            ".Close-x": {
                 display: "block",
                 cursor: "pointer",
             },
-            "& .content-wrapper": {
+            ".content-wrapper": {
                 height: percent(100),
             },
-            "& .embedDialogue": {
+            ".embedDialogue": {
                 position: "relative",
             },
         },
@@ -78,32 +77,32 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
     const iconWrap = style("iconWrap", {
         ...pointerEvents(),
         content: quote(``),
-        ...absolutePosition.middleOfParent(),
-        width: unit(vars.iconWrap.width),
-        height: unit(vars.iconWrap.width),
-        ...borders({
+        ...Mixins.absolute.middleOfParent(),
+        width: styleUnit(vars.iconWrap.width),
+        height: styleUnit(vars.iconWrap.width),
+        ...Mixins.border({
             radius: 3,
             color: globalVars.elementaryColors.transparent,
         }),
-    } as NestedCSSProperties);
+    });
 
     const paragraphMenu = style("paragraphMenu", {
         position: "absolute",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        top: unit(vars.pilcrow.offset),
+        top: styleUnit(vars.pilcrow.offset),
         left: 0,
-        marginLeft: unit(-globalVars.gutter.quarter + (!legacyMode ? -(globalVars.gutter.size + 6) : 0)),
+        marginLeft: styleUnit(-globalVars.gutter.quarter - (!legacyMode ? globalVars.gutter.size * 2 : 0)),
         transform: `translateX(-100%) translateY(-50%)`,
-        height: unit(vars.paragraphMenuHandle.size),
-        width: unit(globalVars.icon.sizes.default),
+        height: styleUnit(vars.paragraphMenuHandle.size),
+        width: styleUnit(vars.paragraphMenuHandle.size),
         animationName: vars.pilcrow.animation.name,
         animationDuration: vars.pilcrow.animation.duration,
         animationTimingFunction: vars.pilcrow.animation.timing,
         animationIterationCount: vars.pilcrow.animation.iterationCount,
-        zIndex: 1,
-        $nest: {
+        zIndex: 10,
+        ...{
             ".richEditor-button&.isActive:hover": {
                 cursor: "default",
             },
@@ -123,7 +122,10 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
 
     const menuBar = style("menuBar", {
         position: "relative",
-        width: unit(vars.menuButton.size * 4),
+        width: styleUnit(vars.menuButton.size * 4),
+        ...Mixins.font({
+            ...globalVars.fontSizeAndWeightVars("medium"),
+        }),
         overflow: "hidden",
         zIndex: 1,
     });
@@ -133,7 +135,7 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         display: "flex",
         justifyContent: "space-between",
         flexWrap: "nowrap",
-        width: unit(vars.menuButton.size * 4),
+        width: styleUnit(vars.menuButton.size * 4),
     });
 
     const paragraphMenuHandle = style("paragraphMenuHandle", {
@@ -143,50 +145,57 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         border: 0,
         display: "block",
         cursor: "pointer",
-        width: unit(formVars.sizing.height),
-        height: unit(formVars.sizing.height),
+        width: styleUnit(formVars.sizing.height),
+        height: styleUnit(formVars.sizing.height),
         padding: 0,
-        maxWidth: unit(formVars.sizing.height),
-        minWidth: unit(formVars.sizing.height),
+        maxWidth: styleUnit(formVars.sizing.height),
+        minWidth: styleUnit(formVars.sizing.height),
         outline: 0,
-        $nest: {
+        ...{
             "&:focus, &:hover": {
-                color: colorOut(globalVars.mainColors.primary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.primary),
             },
             [`&.isOpen .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
         },
     });
 
     const paragraphMenuHandleMobile = style("paragraphMenuHandleMobile", {
-        width: unit(vars.menuButton.size),
-        height: unit(vars.menuButton.size),
-        maxWidth: unit(vars.menuButton.size),
-        minWidth: unit(vars.menuButton.size),
+        width: styleUnit(vars.menuButton.size),
+        height: styleUnit(vars.menuButton.size),
+        maxWidth: styleUnit(vars.menuButton.size),
+        minWidth: styleUnit(vars.menuButton.size),
     });
 
-    const text = style("text", {
-        position: "relative",
-        whiteSpace: important("pre-wrap"),
-        outline: 0,
-        paddingBottom: 24, // So the user has room to click.
-        $nest: {
-            // When the editor is empty we should be displaying a placeholder.
-            "&.ql-blank::before": {
-                content: `attr(placeholder)`,
-                display: "block",
-                color: colorOut(vars.text.placeholder.color),
-                position: "absolute",
-                top: vars.text.offset,
-                left: 0,
-                cursor: "text",
+    const text = style(
+        "text",
+        {
+            position: "relative",
+            whiteSpace: important("pre-wrap"),
+            outline: 0,
+            paddingBottom: 24, // So the user has room to click.
+
+            ...{
+                // When the editor is empty we should be displaying a placeholder.
+                "&.ql-blank::before": {
+                    content: `attr(placeholder)`,
+                    display: "block",
+                    color: ColorsUtils.colorOut(vars.text.placeholder.color),
+                    position: "absolute",
+                    top: vars.text.offset,
+                    left: 0,
+                    cursor: "text",
+                },
             },
         },
-    });
+        mediaQueries.oneColumnDown({
+            fontSize: importantUnit(16), // for iOS
+        }),
+    );
 
     const menuItems = style("menuItems", {
-        "-ms-overflow-style": "-ms-autohiding-scrollbar",
+        msOverflowStyle: "-ms-autohiding-scrollbar",
         display: "flex",
         alignItems: "center",
         justifyContent: "flex-start",
@@ -196,25 +205,25 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         margin: 0,
         zIndex: 1,
         overflow: "visible",
-        $nest: {
+        ...{
             ".richEditor-menuItem": {
                 display: "block",
                 padding: 0,
                 margin: 0,
-                $nest: {
+                ...{
                     ".richEditor-button": {
                         display: "block",
-                        width: unit(vars.menuButton.size),
-                        fontSize: unit((vars.menuButton.size * 24) / 39),
-                        lineHeight: unit(vars.menuButton.size),
-                        $nest: {
+                        width: styleUnit(vars.menuButton.size),
+                        fontSize: styleUnit((vars.menuButton.size * 24) / 39),
+                        lineHeight: styleUnit(vars.menuButton.size),
+                        ...{
                             "&.emojiChar-🇺🇳": {
-                                fontSize: unit(10),
+                                fontSize: styleUnit(10),
                             },
                         },
                     },
                     "&:first-child .richEditor-embedButton": {
-                        borderBottomLeftRadius: unit(globalVars.border.radius),
+                        borderBottomLeftRadius: styleUnit(globalVars.border.radius),
                     },
                     "&.isRightAligned": {
                         marginLeft: "auto",
@@ -230,57 +239,57 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         ...userSelect(),
         ...appearance(),
         cursor: "pointer",
-        width: unit(vars.menuButton.size),
-        height: unit(vars.menuButton.size),
+        width: styleUnit(vars.menuButton.size),
+        height: styleUnit(vars.menuButton.size),
         border: 0,
         padding: 0,
         overflow: "hidden",
         position: "relative",
-        color: colorOut(globalVars.mainColors.fg),
+        color: ColorsUtils.colorOut(globalVars.mainColors.fg),
         outline: 0,
-        $nest: {
+        ...{
             "&:hover": {
-                color: colorOut(globalVars.mainColors.primary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.primary),
             },
             "&:focus": {
-                color: colorOut(globalVars.mainColors.secondary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.secondary),
             },
             "&:active": {
-                color: colorOut(globalVars.mainColors.secondary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.secondary),
             },
             [`&:hover .${iconWrap}`]: {
-                color: colorOut(globalVars.mainColors.primary),
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                color: ColorsUtils.colorOut(globalVars.mainColors.primary),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
             [`&.isOpen .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
             [`&.focus-visible .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
             "&.richEditor-formatButton, &.richEditor-embedButton": {
-                height: unit(vars.menuButton.size),
+                height: styleUnit(vars.menuButton.size),
             },
             "&.emojiGroup": {
                 display: "block",
-                width: unit(vars.menuButton.size),
-                height: unit(vars.menuButton.size),
+                width: styleUnit(vars.menuButton.size),
+                height: styleUnit(vars.menuButton.size),
                 textAlign: "center",
             },
             "&:not(:disabled)": {
                 cursor: "pointer",
             },
             [`&.isActive .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
         },
     });
 
     const topLevelButtonActive = style("topLevelButtonActive", {
-        color: colorOut(globalVars.mainColors.primary),
-        $nest: {
-            [`& .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+        color: ColorsUtils.colorOut(globalVars.mainColors.primary),
+        ...{
+            [`.${iconWrap}`]: {
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
         },
     });
@@ -290,16 +299,16 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         padding: 0,
         margin: 0,
         overflow: "visible",
-        $nest: {
-            "& .richEditor-button, &.richEditor-button": {
-                width: unit(vars.menuButton.size),
-                height: unit(vars.menuButton.size),
-                maxWidth: unit(vars.menuButton.size),
-                fontSize: unit((vars.menuButton.size * 24) / 39),
-                lineHeight: unit(vars.menuButton.size),
-                $nest: {
+        ...{
+            ".richEditor-button, &.richEditor-button": {
+                width: styleUnit(vars.menuButton.size),
+                height: styleUnit(vars.menuButton.size),
+                maxWidth: styleUnit(vars.menuButton.size),
+                fontSize: styleUnit((vars.menuButton.size * 24) / 39),
+                lineHeight: styleUnit(vars.menuButton.size),
+                ...{
                     "&.emojiChar-🇺🇳": {
-                        fontSize: unit(14),
+                        fontSize: styleUnit(14),
                     },
                 },
             },
@@ -316,25 +325,36 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
     const embedBar = style("embedBar", {
         display: "block",
         width: percent(100),
-        padding: unit(vars.embedMenu.padding),
-        background: legacyMode ? undefined : colorOut(vars.colors.bg),
+        ...Mixins.padding({
+            horizontal: legacyMode ? 0 : (vars.menuButton.size - globalVars.icon.sizes.small) / 2,
+            vertical: vars.embedMenu.padding,
+        }),
+        background: legacyMode ? undefined : ColorsUtils.colorOut(vars.colors.bg),
+    });
+
+    const embedBarSeparator = style("embedBarSeparator", {
+        height: styleUnit(globalVars.gutter.quarter),
+        width: styleUnit(globalVars.gutter.quarter),
+        borderRadius: styleUnit(globalVars.gutter.quarter),
+        background: ColorsUtils.colorOut(globalVars.mainColors.fg),
+        ...Mixins.margin({ horizontal: globalVars.gutter.half }),
     });
 
     const icon = style("icon", {
         display: "block",
         margin: "auto",
-        height: unit(globalVars.icon.sizes.default),
-        width: unit(globalVars.icon.sizes.default),
+        height: styleUnit(globalVars.icon.sizes.default),
+        width: styleUnit(globalVars.icon.sizes.default),
     });
 
     const legacyFrame = style("legacyFrame", {
         margin: "auto",
         height: "initial",
-        minHeight: unit(vars.sizing.minHeight + vars.menuButton.size),
+        minHeight: styleUnit(vars.sizing.minHeight + vars.menuButton.size),
         position: "relative",
-        backgroundColor: colorOut(vars.colors.bg),
+        backgroundColor: ColorsUtils.colorOut(vars.colors.bg),
         padding: 0,
-        $nest: {
+        ...{
             "&.isMenuInset": {
                 overflow: "initial",
                 position: "relative",
@@ -343,18 +363,21 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
     });
 
     const close = style("close", {
-        ...absolutePosition.middleRightOfParent(),
+        ...Mixins.absolute.middleRightOfParent(),
         ...userSelect(),
         ...appearance(),
-        width: unit(vars.menuButton.size),
-        height: unit(vars.menuButton.size),
-        lineHeight: unit(vars.menuButton.size),
+        width: styleUnit(vars.menuButton.size),
+        height: styleUnit(vars.menuButton.size),
+        lineHeight: styleUnit(vars.menuButton.size),
         verticalAlign: "bottom",
         textAlign: "center",
         background: "transparent",
         cursor: "pointer",
         border: 0,
         outline: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
     });
 
     const flyoutDescription = style("flyoutDescription", {
@@ -363,18 +386,20 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
 
     const separator = style("separator", {
         borderTop: singleBorder(),
-        marginBottom: unit(8),
+        marginBottom: styleUnit(8),
     });
 
     const position = style("position", {
-        position: "absolute",
-        left: calc(`50% - ${unit(vars.spacing.paddingLeft / 2)}`),
-        $nest: {
+        ...{
+            "&&": {
+                position: "absolute",
+                left: calc(`50% - ${styleUnit(vars.spacing.paddingLeft / 2)}`),
+            },
             "&.isUp": {
-                bottom: calc(`50% + ${unit(vars.spacing.paddingRight / 2 - formVars.border.width)}`),
+                bottom: calc(`50% + ${styleUnit(vars.spacing.paddingRight / 2 - formVars.border.width)}`),
             },
             "&.isDown": {
-                top: calc(`50% + ${unit(vars.spacing.paddingRight / 2 - formVars.border.width)}`),
+                top: calc(`50% + ${styleUnit(vars.spacing.paddingRight / 2 - formVars.border.width)}`),
             },
         },
     });
@@ -382,15 +407,23 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
     const paragraphMenuPanel = style("paragraphMenuPanel", {});
 
     const emojiGroup = style("emojiGroup", {
-        $nest: {
+        ...{
             [`&.isSelected .${iconWrap}`]: {
-                backgroundColor: colorOut(vars.buttonContents.state.bg),
+                backgroundColor: ColorsUtils.colorOut(vars.buttonContents.state.bg),
             },
         },
     });
 
     const flyoutOffset = style("flyoutOffset", {
-        marginTop: unit((vars.menuButton.size - vars.iconWrap.width) / -2 + 1),
+        marginTop: styleUnit((vars.menuButton.size - vars.iconWrap.width) / -2 + 1),
+    });
+
+    const placeholder = style("placeholder", {
+        ...{
+            "&&&:before": {
+                margin: 0,
+            },
+        },
     });
 
     return {
@@ -403,6 +436,7 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         menuItems,
         upload,
         embedBar,
+        embedBarSeparator,
         menuItem,
         button,
         topLevelButtonActive,
@@ -418,5 +452,6 @@ export const richEditorClasses = useThemeCache((legacyMode: boolean, mobile?: bo
         iconWrap,
         flyoutOffset,
         emojiGroup,
+        placeholder,
     };
 });

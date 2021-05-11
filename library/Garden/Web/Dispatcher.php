@@ -1,7 +1,7 @@
 <?php
 /**
  * @author Todd Burry <todd@vanillaforums.com>
- * @copyright 2009-2019 Vanilla Forums Inc.
+ * @copyright 2009-2020 Vanilla Forums Inc.
  * @license GPL-2.0-only
  */
 
@@ -14,19 +14,23 @@ use Garden\Web\Exception\HttpException;
 use Garden\Web\Exception\NotFoundException;
 use Garden\Web\Exception\Pass;
 use Psr\Container\ContainerInterface;
+use Vanilla\Contracts\LocaleInterface;
 use Vanilla\Permissions;
 use Garden\CustomExceptionHandler;
 
+/**
+ * Dispatches requests and receives responses.
+ */
 class Dispatcher {
     use MiddlewareAwareTrait;
 
-    /** @var Gdn_Locale */
+    /** @var LocaleInterface */
     private $locale;
 
     /**
      * @var array
      */
-    private $routes;
+    private $routes = [];
 
     /**
      * @var string|array|callable
@@ -41,10 +45,10 @@ class Dispatcher {
     /**
      * Dispatcher constructor.
      *
-     * @param Gdn_Locale $locale
+     * @param LocaleInterface $locale
      * @param ContainerInterface $container The container is used to fetch view handlers.
      */
-    public function __construct(Gdn_Locale $locale = null, ContainerInterface $container = null) {
+    public function __construct(LocaleInterface $locale = null, ContainerInterface $container = null) {
         $this->middleware = function (RequestInterface $request): Data {
             return $this->dispatchInternal($request);
         };
@@ -60,6 +64,11 @@ class Dispatcher {
      * @return $this
      */
     public function addRoute(Route $route, $key = '') {
+        if (!$route->isEnabled()) {
+            // Return early. Route may have been disabled by some configuration.
+            return $this;
+        }
+
         if ($key !== '') {
             $this->routes[$key] = $route;
         } else {
@@ -170,8 +179,9 @@ class Dispatcher {
                 // Pass to the next route.
                 continue;
             } catch (\Throwable $dispatchEx) {
+                logException($dispatchEx);
                 $response = null;
-                if ($action instanceof Action) {
+                if (is_object($action ?? null) && $action instanceof Action) {
                     $obj = $action->getCallback()[0] ?? false;
                     if ($obj instanceof CustomExceptionHandler) {
                         if ($obj->hasExceptionHandler($dispatchEx)) {
@@ -274,9 +284,8 @@ class Dispatcher {
             // This is an array of response data.
             $result = new Data($raw);
         } elseif ($raw instanceof \Throwable) {
-
             // Let's not mask errors when in debug mode!
-            if ($raw instanceof \Error && debug())  {
+            if ($raw instanceof \Error && debug()) {
                 throw $raw;
             }
 
@@ -441,5 +450,67 @@ class Dispatcher {
             // The default is JSON which may need to change.
             $response->render();
         }
+    }
+
+    /**
+     * Reflect arguments on a reflected function.
+     *
+     * @param \ReflectionFunctionAbstract $function The reflected functions.
+     * @param array $args The route arguments.
+     * @param ContainerInterface $container A container to satisfy type hinted arguments.
+     * @param bool $throw Whether or not to throw an exception.
+     * @return array
+     */
+    public static function reflectArgs(
+        \ReflectionFunctionAbstract $function,
+        array $args,
+        ContainerInterface $container,
+        bool $throw = true
+    ): array {
+        $largs = array_change_key_case($args);
+
+        $result = [];
+        $missing = [];
+        foreach ($function->getParameters() as $index => $param) {
+            /* @var \ReflectionParameter $param */
+            $lname = strtolower($param->getName());
+
+            if ($param->getClass() !== null) {
+                $className = $param->getClass()->getName();
+
+                if (isset($largs[$lname]) && is_a($largs[$lname], $className)) {
+                    $value = $largs[$lname];
+                } elseif (isset($largs[$index]) && is_a($largs[$index], $className)) {
+                    $value = $largs[$index];
+                } elseif ($container->has($className)) {
+                    $value = $container->get($param->getClass()->getName());
+                } else {
+                    $value = null;
+                    $missing[$lname] = '$'.$param->getName();
+                }
+            } elseif (isset($largs[$lname])) {
+                $value = $largs[$lname];
+            } elseif (isset($largs[$index])) {
+                $value = $largs[$index];
+            } elseif ($param->isDefaultValueAvailable()) {
+                $value = $param->getDefaultValue();
+            } else {
+                $value = null;
+                $missing[$lname] = '$'.$param->getName();
+            }
+            $result[$param->getName()] = $value;
+        }
+
+        if ($throw && !empty($missing)) {
+            if ($function instanceof \ReflectionMethod) {
+                $name = $function->getDeclaringClass()->getName().'::'.$function->getName();
+            } else {
+                $name = $function->getName();
+            }
+
+            throw new \ReflectionException("$name() expects the following parameters: ".implode(', ', $missing).'.', 400);
+        }
+
+        return $result;
     }
 }

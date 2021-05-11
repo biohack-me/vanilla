@@ -6,11 +6,11 @@
 
 import React from "react";
 import ReactDOM from "react-dom";
-import FocusableEmbedBlot from "../abstract/FocusableEmbedBlot";
 import uniqueId from "lodash/uniqueId";
-import { FOCUS_CLASS } from "@library/embeddedContent/embedService";
+import { EMBED_FOCUS_CLASS } from "@library/embeddedContent/embedConstants";
 import StandardEmbedError from "@rich-editor/quill/blots/embeds/StandardEmbedError";
 import AttachmentError from "@library/content/attachments/AttachmentError";
+import { SelectableEmbedBlot } from "@rich-editor/quill/blots/abstract/SelectableEmbedBlot";
 
 export enum ErrorBlotType {
     FILE = "file",
@@ -26,7 +26,7 @@ export interface IErrorData {
 /**
  * A full error. Non-recoverable. A form should not be submitted while one of these is present.
  */
-export default class ErrorBlot extends FocusableEmbedBlot {
+export default class ErrorBlot extends SelectableEmbedBlot {
     public static blotName = "embed-error";
     public static className = "embed-error";
     public static tagName = "div";
@@ -58,7 +58,7 @@ export default class ErrorBlot extends FocusableEmbedBlot {
         if (!data.error) {
             return;
         }
-        domNode.classList.remove(FOCUS_CLASS);
+        domNode.classList.remove(EMBED_FOCUS_CLASS);
         domNode.removeAttribute("tabindex");
 
         if (data.type === ErrorBlotType.FILE) {

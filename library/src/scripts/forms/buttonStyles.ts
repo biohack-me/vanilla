@@ -1,305 +1,38 @@
-/*
- * @author Stéphane LaFlèche <stephane.l@vanillaforums.com>
- * @copyright 2009-2019 Vanilla Forums Inc.
- * @license GPL-2.0-only
+/**
+ * @author Adam Charron <adam.c@vanillaforums.com>
+ * @copyright 2009-2020 Vanilla Forums Inc.
+ * @license gpl-2.0-only
  */
 
 import { globalVariables } from "@library/styles/globalStyleVars";
-import {
-    allButtonStates,
-    colorOut,
-    ColorValues,
-    flexHelper,
-    IFont,
-    modifyColorBasedOnLightness,
-    spinnerLoader,
-    unit,
-    userSelect,
-} from "@library/styles/styleHelpers";
-import { NestedCSSProperties } from "typestyle/lib/types";
-import { DEBUG_STYLES, styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { allButtonStates, flexHelper, spinnerLoaderAnimationProperties } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
+import { CSSObject, css } from "@emotion/css";
+import { styleFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { formElementsVariables } from "@library/forms/formElementStyles";
-import { important, percent, px } from "csx";
-import merge from "lodash/merge";
+import { important, percent } from "csx";
 import generateButtonClass from "./styleHelperButtonGenerator";
-import { IButtonType } from "@library/forms/styleHelperButtonInterface";
-
-export const buttonGlobalVariables = useThemeCache(() => {
-    // Fetch external global variables
-    const globalVars = globalVariables();
-    const formElVars = formElementsVariables();
-    const makeThemeVars = variableFactory("button");
-
-    const colors = makeThemeVars("colors", {
-        fg: globalVars.mainColors.fg,
-        bg: globalVars.mainColors.bg,
-    });
-
-    const font = makeThemeVars("font", {
-        color: globalVars.mainColors.fg,
-        size: globalVars.fonts.size.medium,
-    });
-
-    const padding = makeThemeVars("padding", {
-        top: 2,
-        bottom: 3,
-        side: 12,
-    });
-
-    const sizing = makeThemeVars("sizing", {
-        minHeight: formElVars.sizing.height,
-        minWidth: 104,
-        compactHeight: 24,
-    });
-
-    const border = makeThemeVars("border", globalVars.border);
-
-    return {
-        padding,
-        sizing,
-        border,
-        font,
-        colors,
-    };
-});
-
-export const buttonVariables = useThemeCache(() => {
-    const globalVars = globalVariables();
-    const makeThemeVars = variableFactory("button");
-
-    const standard: IButtonType = makeThemeVars("basic", {
-        name: ButtonTypes.STANDARD,
-        spinnerColor: globalVars.mainColors.fg,
-        colors: {
-            bg: globalVars.mainColors.bg,
-        },
-        borders: {
-            color: globalVars.mixBgAndFg(0.24),
-            radius: globalVars.border.radius,
-        },
-        fonts: {
-            color: globalVars.mainColors.fg,
-        },
-        hover: {
-            colors: {
-                bg: globalVars.mainColors.primary,
-            },
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-        },
-        active: {
-            colors: {
-                bg: globalVars.mainColors.primary,
-            },
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-        },
-        focus: {
-            colors: {
-                bg: globalVars.mainColors.primary,
-            },
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-        },
-        focusAccessible: {
-            colors: {
-                bg: globalVars.mainColors.primary,
-            },
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-        },
-    });
-
-    const primary: IButtonType = makeThemeVars("primary", {
-        name: ButtonTypes.PRIMARY,
-        colors: {
-            bg: globalVars.mainColors.primary,
-        },
-        fonts: {
-            color: globalVars.mainColors.bg,
-        },
-        spinnerColor: globalVars.mainColors.bg,
-        borders: {
-            color: globalVars.mainColors.primary,
-            radius: globalVars.border.radius,
-        },
-        hover: {
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-            colors: {
-                bg: globalVars.mainColors.secondary,
-            },
-        },
-        active: {
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-            colors: {
-                bg: globalVars.mainColors.secondary,
-            },
-        },
-        focus: {
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-            colors: {
-                bg: globalVars.mainColors.secondary,
-            },
-        },
-        focusAccessible: {
-            fonts: {
-                color: globalVars.mainColors.bg,
-            },
-            colors: {
-                bg: globalVars.mainColors.secondary,
-            },
-        },
-    });
-
-    const transparent: IButtonType = makeThemeVars("transparent", {
-        name: ButtonTypes.TRANSPARENT,
-        colors: {
-            fg: globalVars.mainColors.bg,
-            bg: globalVars.mainColors.fg.fade(0.1),
-        },
-        fonts: {
-            color: globalVars.mainColors.bg,
-        },
-        borders: {
-            color: globalVars.mainColors.bg,
-            radius: globalVars.border.radius,
-        },
-        hover: {
-            colors: {
-                bg: globalVars.mainColors.fg.fade(0.2),
-            },
-        },
-        active: {
-            colors: {
-                bg: globalVars.mainColors.fg.fade(0.2),
-            },
-        },
-        focus: {
-            colors: {
-                bg: globalVars.mainColors.fg.fade(0.2),
-            },
-        },
-        focusAccessible: {
-            colors: {
-                bg: globalVars.mainColors.fg.fade(0.2),
-            },
-        },
-    });
-
-    const translucid: IButtonType = makeThemeVars("translucid", {
-        name: ButtonTypes.TRANSLUCID,
-        colors: {
-            bg: globalVars.mainColors.bg,
-        },
-        fonts: {
-            color: globalVars.mainColors.primary,
-        },
-        spinnerColor: globalVars.mainColors.bg,
-        borders: {
-            color: globalVars.mainColors.bg,
-            radius: globalVars.border.radius,
-        },
-        hover: {
-            colors: {
-                bg: globalVars.mainColors.bg.fade(0.8),
-            },
-        },
-        active: {
-            colors: {
-                bg: globalVars.mainColors.bg.fade(0.8),
-            },
-        },
-        focus: {
-            colors: {
-                bg: globalVars.mainColors.bg.fade(0.8),
-            },
-        },
-        focusAccessible: {
-            colors: {
-                bg: globalVars.mainColors.bg.fade(0.8),
-            },
-        },
-    });
-
-    return {
-        standard,
-        primary,
-        transparent,
-        translucid,
-    };
-});
-
-export const buttonSizing = (height, minWidth, fontSize, paddingHorizontal, formElementVars) => {
-    const borderWidth = formElementVars.borders ? formElementVars.borders : buttonGlobalVariables().border.width;
-    return {
-        minHeight: unit(formElementVars.sizing.minHeight),
-        fontSize: unit(fontSize),
-        padding: `${unit(0)} ${px(paddingHorizontal)}`,
-        lineHeight: unit(formElementVars.sizing.height - borderWidth * 2),
-    };
-};
-
-export const buttonResetMixin = (): NestedCSSProperties => ({
-    ...userSelect(),
-    "-webkit-appearance": "none",
-    appearance: "none",
-    border: 0,
-    background: "none",
-    cursor: "pointer",
-    color: "inherit",
-});
-
-export const overwriteButtonClass = (
-    buttonTypeVars: IButtonType,
-    overwriteVars: IButtonType,
-    setZIndexOnState = false,
-) => {
-    const buttonVars = merge(buttonTypeVars, overwriteVars);
-    // append names for debugging purposes
-    buttonVars.name = `${buttonTypeVars.name}-${overwriteVars.name}`;
-    return generateButtonClass(buttonVars, setZIndexOnState);
-};
-
-export enum ButtonTypes {
-    STANDARD = "standard",
-    PRIMARY = "primary",
-    TRANSPARENT = "transparent",
-    TRANSLUCID = "translucid",
-    CUSTOM = "custom",
-    RESET = "reset",
-    TEXT = "text",
-    TEXT_PRIMARY = "textPrimary",
-    ICON = "icon",
-    ICON_COMPACT = "iconCompact",
-    TITLEBAR_LINK = "titleBarLink",
-    DASHBOARD_STANDARD = "dashboardStandard",
-    DASHBOARD_PRIMARY = "dashboardPrimary",
-    DASHBOARD_SECONDARY = "dashboardSecondary",
-    DASHBOARD_LINK = "dashboardLink",
-}
+import { panelLayoutVariables } from "@library/layout/PanelLayout.variables";
+import { ColorsUtils } from "@library/styles/ColorsUtils";
+import { buttonResetMixin } from "./buttonMixins";
+import { buttonVariables, buttonGlobalVariables } from "./Button.variables";
 
 export const buttonClasses = useThemeCache(() => {
     const vars = buttonVariables();
     return {
         primary: generateButtonClass(vars.primary),
         standard: generateButtonClass(vars.standard),
+        outline: generateButtonClass(vars.outline),
         transparent: generateButtonClass(vars.transparent),
         translucid: generateButtonClass(vars.translucid),
         icon: buttonUtilityClasses().buttonIcon,
         iconCompact: buttonUtilityClasses().buttonIconCompact,
         text: buttonUtilityClasses().buttonAsText,
         textPrimary: buttonUtilityClasses().buttonAsTextPrimary,
+        radio: generateButtonClass(vars.radio),
         custom: "",
+        notStandard: generateButtonClass(vars.notStandard),
     };
 });
 
@@ -308,6 +41,7 @@ export const buttonUtilityClasses = useThemeCache(() => {
     const globalVars = globalVariables();
     const formElementVars = formElementsVariables();
     const style = styleFactory("buttonUtils");
+    const mediaQueries = panelLayoutVariables().mediaQueries();
 
     const pushLeft = style("pushLeft", {
         marginRight: important("auto"),
@@ -317,41 +51,47 @@ export const buttonUtilityClasses = useThemeCache(() => {
         marginLeft: important("auto"),
     });
 
-    const iconMixin = (dimension: number): NestedCSSProperties => ({
+    const iconMixin = (dimension: number): CSSObject => ({
         ...buttonResetMixin(),
         alignItems: "center",
         display: "flex",
-        height: unit(dimension),
-        minWidth: unit(dimension),
-        width: unit(dimension),
+        height: styleUnit(dimension),
+        minWidth: styleUnit(dimension),
+        width: styleUnit(dimension),
         justifyContent: "center",
         border: "none",
         padding: 0,
+        background: "transparent",
         ...allButtonStates({
+            allStates: {
+                color: ColorsUtils.colorOut(globalVars.mainColors.secondary),
+            },
             hover: {
-                color: colorOut(globalVars.mainColors.primary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.primary),
             },
-            focusNotKeyboard: {
+            clickFocus: {
                 outline: 0,
-                color: colorOut(globalVars.mainColors.secondary),
             },
-            focus: {
-                color: colorOut(globalVars.mainColors.secondary),
-            },
-            accessibleFocus: {
-                color: colorOut(globalVars.mainColors.secondary),
-            },
-            active: {
-                color: colorOut(globalVars.mainColors.secondary),
+            keyboardFocus: {
+                outline: "initial",
             },
         }),
+        color: "inherit",
     });
 
-    const buttonIcon = style("icon", iconMixin(formElementVars.sizing.height));
+    const buttonIcon = style(
+        "buttonIcon",
+        iconMixin(formElementVars.sizing.height),
+        mediaQueries.oneColumnDown({
+            height: vars.sizing.compactHeight,
+            width: vars.sizing.compactHeight,
+            minWidth: vars.sizing.compactHeight,
+        }),
+    );
 
     const buttonIconCompact = style("iconCompact", iconMixin(vars.sizing.compactHeight));
 
-    const asTextStyles: NestedCSSProperties = {
+    const asTextStyles: CSSObject = {
         ...buttonResetMixin(),
         minWidth: important(0),
         padding: 0,
@@ -359,38 +99,41 @@ export const buttonUtilityClasses = useThemeCache(() => {
         textAlign: "left",
         lineHeight: globalVars.lineHeights.base,
         fontWeight: globalVars.fonts.weights.semiBold,
+        whiteSpace: "nowrap",
     };
 
     const buttonAsText = style("asText", asTextStyles, {
         color: "inherit",
-        $nest: {
+        ...{
             "&:not(.focus-visible)": {
                 outline: 0,
             },
             "&:focus, &:active, &:hover": {
-                color: colorOut(globalVars.mainColors.secondary),
+                color: ColorsUtils.colorOut(globalVars.mainColors.secondary),
             },
         },
     });
 
-    const buttonAsTextPrimary = style("asTextPrimary", asTextStyles, {
-        color: colorOut(globalVars.mainColors.primary),
-        $nest: {
-            "&:not(.focus-visible)": {
+    const buttonAsTextPrimary = css(asTextStyles, {
+        ...{
+            "&&": {
+                color: ColorsUtils.colorOut(globalVars.links.colors.default),
+            },
+            "&&:not(.focus-visible)": {
                 outline: 0,
             },
-            "&:hover, &:focus, &:active": {
-                color: colorOut(globalVars.mainColors.secondary),
+            "&&:hover, &&:focus, &&:active": {
+                color: ColorsUtils.colorOut(globalVars.links.colors.active),
             },
         },
     });
 
     const buttonIconRightMargin = style("buttonIconRightMargin", {
-        marginRight: unit(6),
+        marginRight: styleUnit(6),
     });
 
     const buttonIconLeftMargin = style("buttonIconLeftMargin", {
-        marginLeft: unit(6),
+        marginLeft: styleUnit(6),
     });
 
     const reset = style("reset", buttonResetMixin());
@@ -400,6 +143,7 @@ export const buttonUtilityClasses = useThemeCache(() => {
         buttonAsText,
         buttonAsTextPrimary,
         pushRight,
+        iconMixin,
         buttonIconCompact,
         buttonIcon,
         buttonIconRightMargin,
@@ -408,34 +152,45 @@ export const buttonUtilityClasses = useThemeCache(() => {
     };
 });
 
-export const buttonLoaderClasses = (buttonType?: ButtonTypes) => {
-    const globalVars = globalVariables();
+export const buttonLoaderClasses = useThemeCache(() => {
     const flexUtils = flexHelper();
     const style = styleFactory("buttonLoader");
-    const buttonVars = buttonVariables();
-    let spinnerColor;
 
-    switch (buttonType) {
-        case ButtonTypes.PRIMARY:
-            spinnerColor = buttonVars.primary.spinnerColor;
-            break;
-        default:
-            spinnerColor = globalVars.mainColors.primary;
-            break;
-    }
-
-    const root = (alignment: "left" | "center" = "center") =>
+    const root = useThemeCache((alignment: "left" | "center" = "center") =>
         style({
             ...(alignment === "center" ? flexUtils.middle() : flexUtils.middleLeft),
-            padding: unit(4),
+            padding: styleUnit(4),
             height: percent(100),
             width: percent(100),
-            $nest: {
-                "&:after": spinnerLoader({
-                    color: spinnerColor,
-                    dimensions: 20,
-                }),
+            ...{
+                [`& + .suggestedTextInput-parentTag`]: {
+                    display: "none",
+                },
             },
-        });
-    return { root };
-};
+        }),
+    );
+
+    const reducedPadding = style("reducedPadding", {
+        ...{
+            "&&": {
+                padding: styleUnit(3),
+            },
+        },
+    });
+
+    const svg = style("svg", spinnerLoaderAnimationProperties());
+    return { root, svg, reducedPadding };
+});
+
+export const buttonLabelWrapClass = useThemeCache(() => {
+    const style = styleFactory("buttonLabelWrap");
+    const root = style({
+        maxWidth: percent(100),
+        textOverflow: "ellipsis",
+        overflow: "hidden",
+    });
+
+    return {
+        root,
+    };
+});

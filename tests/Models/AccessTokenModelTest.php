@@ -7,6 +7,8 @@
 
 namespace VanillaTests\Models;
 
+use Vanilla\Contracts\ConfigurationInterface;
+use VanillaTests\Fixtures\MockConfig;
 use VanillaTests\SharedBootstrapTestCase;
 use AccessTokenModel;
 use VanillaTests\SiteTestTrait;
@@ -32,11 +34,12 @@ class AccessTokenModelTest extends SharedBootstrapTestCase {
      * Test revoking a token.
      *
      * @param string $token A valid access token to revoke.
-     * @expectedException \Exception
-     * @expectedExceptionMessage Your access token was revoked.
      * @depends testIssueAndVerify
      */
     public function testRevoke($token) {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Your access token was revoked.');
+
         $model = new AccessTokenModel('sss');
         $this->assertTrue($model->revoke($token));
         $model->verify($token, true);
@@ -44,11 +47,11 @@ class AccessTokenModelTest extends SharedBootstrapTestCase {
 
     /**
      * A deleted token shouldn't verify.
-     *
-     * @expectedException \Exception
-     * @expectedExceptionMessage Access token not found.
      */
     public function testVerifyDeletedToken() {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Access token not found.');
+
         $model = new AccessTokenModel('sss');
         $token = $model->issue(1);
         $model->verify($token, true);
@@ -56,5 +59,22 @@ class AccessTokenModelTest extends SharedBootstrapTestCase {
         $id = $row['AccessTokenID'];
         $model->deleteID($id);
         $model->verify($token, true);
+    }
+
+    /**
+     * Test that our config saved tokens work correctly.
+     */
+    public function testEnsureSingleSystemToken() {
+        $model = new AccessTokenModel('sss');
+
+        $model->ensureSingleSystemToken();
+        $initialConfToken = \Gdn::config()->get(AccessTokenModel::CONFIG_SYSTEM_TOKEN);
+        $this->assertNotFalse($model->verify($initialConfToken));
+
+        // Run again, should revoke the first token and save a new one.
+        $model->ensureSingleSystemToken();
+        $secondConfToken = \Gdn::config()->get(AccessTokenModel::CONFIG_SYSTEM_TOKEN);
+        $this->assertFalse($model->verify($initialConfToken));
+        $this->assertNotFalse($model->verify($secondConfToken));
     }
 }

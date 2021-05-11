@@ -6,14 +6,59 @@
 
 namespace Vanilla;
 
+use Vanilla\Models\PermissionFragmentSchema;
 use Vanilla\Utility\CamelCaseScheme;
 use Vanilla\Utility\DelimitedScheme;
+use Webmozart\Assert\Assert;
 
 /**
  * Compile, manage and check user permissions.
  */
 class Permissions implements \JsonSerializable {
     use PermissionsTranslationTrait;
+
+    /** @var string Mode used when you want to know only if the user has the global permission, and not a resource specific one. */
+    const CHECK_MODE_GLOBAL_ONLY = "checkGlobalOnly";
+
+    /** @var string Standard mode for checking. If the use has the global or any resource specific permission, will return it. */
+    const CHECK_MODE_GLOBAL_OR_RESOURCE = "checkGlobalOrResource";
+
+    /** @var string Check only on the specific resource. */
+    const CHECK_MODE_RESOURCE_ONLY = "checkResource";
+
+    /** @var string Check only on the specific resource. */
+    const CHECK_MODE_RESOURCE_IF_JUNCTION = "checkResourceIfJunction";
+
+    /** @var int Items with this junctionID are special and are treated as global permissions. */
+    public const GLOBAL_JUNCTION_ID = -1;
+
+    const PERMISSION_CHECK_MODES = [
+        self::CHECK_MODE_GLOBAL_ONLY,
+        self::CHECK_MODE_GLOBAL_OR_RESOURCE,
+        self::CHECK_MODE_RESOURCE_ONLY,
+    ];
+
+    public const PERMISSION_SYSTEM = "system";
+
+    /** Array of ranked permissions. */
+    private const RANKED_PERMISSIONS = [
+        'Garden.Admin.Allow' => 6, // virtual permission for isAdmin
+        'Garden.Settings.Manage' => 5,
+        'Garden.Community.Manage' => 4,
+        'Garden.Moderation.Manage' => 3,
+        'Garden.Curation.Manage' => 2,
+        'Garden.SignIn.Allow' => 1,
+    ];
+
+    /**
+     * An array of ranked permissions that won't ever change. Suitable for storing in the config.
+     */
+    private const RANKED_PERMISSION_ALIASES = [
+        self::RANK_MEMBER => 'Garden.SignIn.Allow',
+        self::RANK_MODERATOR => 'Garden.Moderation.Manage',
+        self::RANK_COMMUNITY_MANAGER => 'Garden.Community.Manage',
+        self::RANK_ADMIN => 'Garden.Settings.Manage',
+    ];
 
     const BAN_BANNED = '!banned';
     const BAN_DELETED = '!deleted';
@@ -22,6 +67,12 @@ class Permissions implements \JsonSerializable {
     const BAN_2FA = '!2fa';
     const BAN_CSRF = '!csrf';
     const BAN_UNINSTALLED = '!uninstalled';
+
+    public const RANK_EVERYONE = "everyone";
+    public const RANK_MEMBER = 'member';
+    public const RANK_MODERATOR = 'moderator';
+    public const RANK_COMMUNITY_MANAGER = 'communityManager';
+    public const RANK_ADMIN = 'admin';
 
     /**
      * Global permissions are stored as numerical indexes.
@@ -39,6 +90,32 @@ class Permissions implements \JsonSerializable {
     private $bans = [];
 
     /**
+     * Track junctions.
+     *
+     * @var array $junctions
+     * @example
+     * [
+     *      'Category' => [1, 49, 100],
+     *      'knowledgeBase' => [53, 60, 100],
+     * ]
+     */
+    private $junctions = [];
+
+    /**
+     * @var array Track aliases for junction IDs.
+     *
+     * @example
+     * [
+     *     'Category' => [
+     *         // ALIAS => ACTUAL
+     *         5 => 21,
+     *         15 => 24,
+     *     ]
+     * ]
+     */
+    private $junctionAliases = [];
+
+    /**
      * Permissions constructor.
      *
      * @param array $permissions The internal permissions array, usually from a cache.
@@ -46,6 +123,61 @@ class Permissions implements \JsonSerializable {
     public function __construct($permissions = []) {
         $this->nameScheme =  new DelimitedScheme('.', new CamelCaseScheme());
         $this->setPermissions($permissions);
+    }
+
+    /**
+     * @return array
+     */
+    public function getJunctions(): array {
+        return $this->junctions;
+    }
+
+    /**
+     * Add a set of junctions.
+     *
+     * @param array $junctions
+     *
+     * @return $this
+     */
+    public function addJunctions(array $junctions): Permissions {
+        $this->junctions = array_merge_recursive($this->junctions, $junctions);
+        return $this;
+    }
+
+    /**
+     * Add a junction.
+     *
+     * @param string $junctionTable
+     * @param int $junctionID
+     *
+     * @return $this
+     */
+    public function addJunction(string $junctionTable, int $junctionID): Permissions {
+        $junctions = $this->junctions[$junctionTable] ?? [];
+        if (!in_array($junctionID, $junctions, true)) {
+            $junctions[] = $junctionID;
+        }
+        $this->junctions[$junctionTable] = $junctions;
+        return $this;
+    }
+
+    /**
+     * @return array
+     */
+    public function getJunctionAliases(): array {
+        return $this->junctionAliases;
+    }
+
+    /**
+     * Add some junction aliases.
+     *
+     * @param array $junctionAliases
+     *
+     * @return $this
+     */
+    public function addJunctionAliases(array $junctionAliases): Permissions {
+        $this->junctionAliases = array_merge_recursive($this->junctionAliases, $junctionAliases);
+        return $this;
     }
 
     /**
@@ -129,7 +261,18 @@ class Permissions implements \JsonSerializable {
     public function compileAndLoad(array $permissions) {
         foreach ($permissions as $row) {
             // Store the junction ID, if we have one.
-            $junctionID = array_key_exists('JunctionID', $row) ? $row['JunctionID'] : null;
+            $junctionID = $row['JunctionID'] ?? null;
+            $junctionTable = $row['JunctionTable'] ?? null;
+
+            // Handle root resourceIDs.
+            if ($junctionID === self::GLOBAL_JUNCTION_ID) {
+                $junctionID = null;
+                $junctionTable = null;
+            }
+
+            if ($junctionID !== null && $junctionTable !== null) {
+                $this->addJunction($junctionTable, $junctionID);
+            }
 
             // Clear out any non-permission fields.
             unset(
@@ -140,10 +283,12 @@ class Permissions implements \JsonSerializable {
                 $row['JunctionID']
             );
 
+
             // Iterate through the row's individual permissions.
             foreach ($row as $permission => $value) {
-                // If the user doesn't have this permission, move on to the next one.
-                if ($value == 0) {
+                $hasPermission = $value != 0;
+                if (!$hasPermission) {
+                    // If the user doesn't have this permission, move on to the next one.
                     continue;
                 }
 
@@ -216,10 +361,12 @@ class Permissions implements \JsonSerializable {
      *
      * @param string $permission Permission slug to check the value for (e.g. Vanilla.Discussions.View).
      * @param int|null $id Foreign object ID to validate the permission against (e.g. a category ID).
+     * @param string|null $checkMode One of {self::PERMISSION_CHECK_MODES}
+     * @param string|null $junctionTable Provide a junction table to check. Needed for some some checks.
      * @return bool
      */
-    public function has($permission, $id = null) {
-        return $this->hasAll((array)$permission, $id);
+    public function has($permission, $id = null, string $checkMode = self::CHECK_MODE_GLOBAL_OR_RESOURCE, ?string $junctionTable = null) {
+        return $this->hasAll((array)$permission, $id, $checkMode, $junctionTable);
     }
 
     /**
@@ -227,20 +374,23 @@ class Permissions implements \JsonSerializable {
      *
      * @param array $permissions Permission slugs to check the value for (e.g. Vanilla.Discussions.View).
      * @param int|null $id Foreign object ID to validate the permissions against (e.g. a category ID).
+     * @param string|null $checkMode One of {self::PERMISSION_CHECK_MODES}
+     * @param string|null $junctionTable Provide a junction table to check. Needed for some some checks.
+     *
      * @return bool
      */
-    public function hasAll(array $permissions, $id = null) {
+    public function hasAll(array $permissions, $id = null, string $checkMode = self::CHECK_MODE_GLOBAL_OR_RESOURCE, ?string $junctionTable = null) {
         // Look for the bans first.
         if ($this->isBanned($permissions)) {
             return false;
         }
 
-        if ($this->isAdmin()) {
+        if (!in_array(self::PERMISSION_SYSTEM, $permissions) && $this->isAdmin()) {
             return true;
         }
 
         foreach ($permissions as $permission) {
-            if ($this->hasInternal($permission, $id) === false) {
+            if ($this->hasInternal($permission, $id, $checkMode, $junctionTable) === false) {
                 return false;
             }
         }
@@ -253,21 +403,24 @@ class Permissions implements \JsonSerializable {
      *
      * @param array $permissions Permission slugs to check the value for (e.g. Vanilla.Discussions.View).
      * @param int|null $id Foreign object ID to validate the permissions against (e.g. a category ID).
+     * @param string|null $checkMode One of {self::PERMISSION_CHECK_MODES}
+     * @param string|null $junctionTable Provide a junction table to check. Needed for some some checks.
+     *
      * @return bool
      */
-    public function hasAny(array $permissions, $id = null) {
+    public function hasAny(array $permissions, $id = null, string $checkMode = self::CHECK_MODE_GLOBAL_OR_RESOURCE, ?string $junctionTable = null) {
         // Look for the bans first.
         if ($this->isBanned($permissions)) {
             return false;
         }
 
-        if ($this->isAdmin()) {
+        if (!in_array(self::PERMISSION_SYSTEM, $permissions) && $this->isAdmin()) {
             return true;
         }
 
         $nullCount = 0;
         foreach ($permissions as $permission) {
-            $has = $this->hasInternal($permission, $id);
+            $has = $this->hasInternal($permission, $id, $checkMode, $junctionTable);
             if ($has === true) {
                 return true;
             } elseif ($has === null) {
@@ -299,6 +452,10 @@ class Permissions implements \JsonSerializable {
             $source->getPermissions()
         ));
 
+        $this->addJunctions($source->getJunctions());
+        $this->addJunctionAliases($source->getJunctionAliases());
+        $this->setAdmin($this->isAdmin() || $source->isAdmin());
+
         return $this;
     }
 
@@ -313,7 +470,14 @@ class Permissions implements \JsonSerializable {
         if ($value === true || $value === false) {
             $this->set($permission, $value);
         } elseif (is_array($value)) {
+            // Set the resource specific permissions.
             $this->permissions[$permission] = $value;
+
+            if (empty($value)) {
+                // Sometimes this method is used to clear out permissions.
+                // If the permission is in as global, we need to clear it as well.
+                $this->set($permission, false);
+            }
         }
 
         return $this;
@@ -322,7 +486,7 @@ class Permissions implements \JsonSerializable {
     /**
      * Remove a permission.
      *
-     * @param $permission Permission slug to set the value for (e.g. Vanilla.Discussions.View).
+     * @param string $permission Permission slug to set the value for (e.g. Vanilla.Discussions.View).
      * @param int|array $ids One or more IDs of foreign objects (e.g. category IDs).
      * @return $this;
      */
@@ -388,27 +552,260 @@ class Permissions implements \JsonSerializable {
     }
 
     /**
+     * Given a ranked permission alias, resolve it to a full permission.
+     *
+     * @param string $permission
+     * @return string
+     */
+    public static function resolveRankedPermissionAlias(string $permission): string {
+        if (isset(self::RANKED_PERMISSION_ALIASES[$permission])) {
+            $permission = self::RANKED_PERMISSION_ALIASES[$permission];
+        }
+        return $permission;
+    }
+
+    /**
+     * Check the given permission, but also return true if the user has a higher permission.
+     *
+     * @param string $permission The permission to check.
+     * @return boolean True on valid authorization, false on failure to authorize
+     */
+    public function hasRanked(string $permission): bool {
+        $permission = self::resolveRankedPermissionAlias($permission);
+
+        if (!isset(self::RANKED_PERMISSIONS[$permission])) {
+            return $this->has($permission);
+        } else {
+            $minRank = self::RANKED_PERMISSIONS[$permission];
+
+            /**
+             * If the current permission is in our ranked list, iterate through the list, starting from the highest
+             * ranked permission down to our target permission, and determine if any are applicable to the current
+             * user.  This is done so that a user with a permission like Garden.Settings.Manage can still validate
+             * permissions against a Garden.Moderation.Manage permission check, without explicitly having it
+             * assigned to their role.
+             */
+            foreach (self::RANKED_PERMISSIONS as $name => $rank) {
+                if ($rank < $minRank) {
+                    return false;
+                } elseif ($this->has($name)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Return the highest ranking permission the user has.
+     *
+     * @return string
+     */
+    public function getRankingPermission(): string {
+        foreach (self::RANKED_PERMISSIONS as $name => $rank) {
+            if ($this->has($name)) {
+                return $name;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Get the names of the ranked permissions, suitable for drop downs and whatnot.
+     *
+     * @return array
+     */
+    public static function getRankedPermissionAliases(bool $includeEveryone = false): array {
+        $aliases = array_keys(self::RANKED_PERMISSION_ALIASES);
+        if ($includeEveryone) {
+            array_unshift($aliases, self::RANK_EVERYONE);
+        }
+        $result = array_combine($aliases, $aliases);
+        return $result;
+    }
+
+    /**
+     * Compare this permission set to another set to see which has the higher rank.
+     *
+     * @param Permissions $permissions The permissions to compare to.
+     * @return int Returns -1, 0, 1 for less than, equal, or greater than.
+     */
+    public function compareRankTo(Permissions $permissions): int {
+        $myRank = $this->getRankingPermission();
+        $otherRank = $permissions->getRankingPermission();
+
+        $r = (self::RANKED_PERMISSIONS[$myRank] ?? 0) <=> (self::RANKED_PERMISSIONS[$otherRank] ?? 0);
+        return $r;
+    }
+
+    /**
      * Check just the permissions array, ignoring overrides from admin/bans.
      *
      * @param string $permission The permission to check.
-     * @param int|null $id The database ID of a non-global permission or **null** if this is a global check.
+     * @param int|null $junctionID The database ID of a non-global permission or **null** if this is a global check.
+     * @param string|null $checkMode One of {self::PERMISSION_CHECK_MODES}
+     * @param string|null $junctionTable Provide a junction table to check. Needed for some some checks.
+     *
      * @return bool|null Returns **true** if the user has the permission, **false** if they don't, or **null** if the permissions isn't applicable.
      */
-    private function hasInternal($permission, $id = null) {
+    private function hasInternal($permission, $junctionID = null, string $checkMode = self::CHECK_MODE_GLOBAL_OR_RESOURCE, ?string $junctionTable = null) {
+        if ($checkMode === self::CHECK_MODE_RESOURCE_IF_JUNCTION) {
+            Assert::notNull($junctionTable, 'When using "CHECK_MODE_RESOURCE_IF_JUNCTION" you must provide a junctionTable.');
+            if ($junctionID !== null) {
+                $junctionID = $this->resolveJuntionAlias($junctionTable, $junctionID);
+            }
+        }
+
+        if ($permission === self::RANK_EVERYONE) {
+            return true;
+        }
+
+        // Fix the mode of checking.
+        $hasID = !in_array($junctionID, [null, self::GLOBAL_JUNCTION_ID, ''], true);
+        if ($hasID && $checkMode !== self::CHECK_MODE_RESOURCE_IF_JUNCTION) {
+            // We have a resource so we should check that.
+            $checkMode = self::CHECK_MODE_RESOURCE_ONLY;
+        }
+
         if (strcasecmp($permission, 'admin') === 0) {
             return $this->isAdmin();
         } elseif (substr($permission, 0, 1) === '!') {
             // This is a ban so skip it.
             return null;
-        } elseif ($id === null) {
-            return !empty($this->permissions[$permission]) || (array_search($permission, $this->permissions) !== false);
         } else {
-            if (array_key_exists($permission, $this->permissions) && is_array($this->permissions[$permission])) {
-                return (array_search($id, $this->permissions[$permission]) !== false);
-            } else {
-                return false;
+            $hasGlobal = array_search($permission, $this->permissions) !== false;
+            $hasResource = array_key_exists($permission, $this->permissions) && is_array($this->permissions[$permission])
+                ? array_search($junctionID, $this->permissions[$permission]) !== false
+                : false;
+            $hasAnyResourceSpecific = !empty($this->permissions[$permission]);
+
+            switch ($checkMode) {
+                case self::CHECK_MODE_RESOURCE_IF_JUNCTION:
+                    $junctionIDs = $this->junctions[$junctionTable] ?? [];
+                    $hasJunction = in_array($junctionID, $junctionIDs, true);
+                    return $hasJunction ? $hasResource : $hasGlobal;
+                case self::CHECK_MODE_RESOURCE_ONLY:
+                    return $hasResource;
+                case self::CHECK_MODE_GLOBAL_ONLY:
+                    return $hasGlobal;
+                case self::CHECK_MODE_GLOBAL_OR_RESOURCE:
+                default:
+                    return $hasGlobal || $hasAnyResourceSpecific;
             }
         }
+    }
+
+    /**
+     * Resolve a junction alias, falling back to the initial if there is no alias.
+     *
+     * @param string $junctionTable
+     * @param int $junctionID
+     *
+     * @return int
+     */
+    private function resolveJuntionAlias(string $junctionTable, int $junctionID): int {
+        $junctionsToCheck = $this->junctionAliases[$junctionTable] ?? [];
+        return $junctionsToCheck[$junctionID] ?? $junctionID;
+    }
+
+    /**
+     * @return array[] An array of permission fragemnts. See PermissionFragmentSchema
+     */
+    public function asPermissionFragments(): array {
+        $resultsByTypeAndID = [
+            'global' => [
+                'type' => 'global',
+                'id' => null,
+                'permissions' => [],
+            ],
+        ];
+
+        /**
+         * Push an item into the permission array.
+         *
+         * @param string $permissionName
+         * @param int|null $resourceID
+         */
+        $pushItem = function (string $permissionName, ?int $resourceID = null) use (&$resultsByTypeAndID) {
+            // Map permission name to API style.
+            $permissionName = $this->renamePermission($permissionName);
+            $junctionTable = $this->getJunctionTableForPermission($permissionName) ?? PermissionFragmentSchema::TYPE_GLOBAL;
+            $type = $junctionTable && $resourceID !== null ? $junctionTable : PermissionFragmentSchema::TYPE_GLOBAL;
+            $typeAndID = $type . $resourceID;
+
+            if (!empty($resultsByTypeAndID[$typeAndID])) {
+                $resultsByTypeAndID[$typeAndID]['permissions'][$permissionName] = true;
+            } else {
+                $resultsByTypeAndID[$typeAndID] = [
+                    'type' => $type,
+                    'id' => $resourceID,
+                    'permissions' => [$permissionName => true],
+                ];
+            }
+        };
+
+        // Push all of the permissions in.
+        foreach ($this->permissions as $key => $value) {
+            if (is_array($value)) {
+                // We have some resource specific information.
+                $permissionName = $key;
+                if ($this->isPermissionDeprecated($permissionName)) {
+                    continue;
+                }
+                foreach ($value as $resourceID) {
+                    $pushItem($permissionName, $resourceID);
+                }
+            } else {
+                // This is a global permission.
+                $permissionName = $value;
+                if ($this->isPermissionDeprecated($value)) {
+                    continue;
+                }
+                $pushItem($permissionName);
+            }
+        }
+
+        foreach ($resultsByTypeAndID as &$result) {
+            $permissions = $this->consolidatePermissions($result['permissions']);
+            ksort($permissions);
+            $result['permissions'] = $permissions;
+        }
+
+        return array_values($resultsByTypeAndID);
+    }
+
+    /**
+     * Get junction values for JSON.
+     *
+     * @param array $junctions
+     * @return array|\stdClass
+     */
+    private function getJsonObjectOutput(array $junctions) {
+        if (empty($junctions)) {
+            return new \stdClass();
+        }
+
+        $camelCase = new CamelCaseScheme();
+        return $camelCase->convertArrayKeys($junctions);
+    }
+
+    /**
+     * Get our output for the API.
+     *
+     * @param bool $withJunctions
+     * @return array
+     */
+    public function asApiOutput(bool $withJunctions): array {
+        $result = [
+            'permissions' => $this->asPermissionFragments(),
+            'isAdmin' => $this->isAdmin,
+        ];
+
+        if ($withJunctions) {
+            $result['junctions'] = $this->getJsonObjectOutput($this->getJunctions());
+            $result['junctionAliases'] = $this->getJsonObjectOutput($this->getJunctionAliases());
+        }
+        return $result;
     }
 
     /**
@@ -429,7 +826,6 @@ class Permissions implements \JsonSerializable {
                 }
             }
         }
-
         $result = [
             'permissions' => $permissions,
             'bans' => $this->bans,

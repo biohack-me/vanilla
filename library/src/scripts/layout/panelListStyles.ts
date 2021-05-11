@@ -5,12 +5,11 @@
  */
 
 import { percent } from "csx";
-import { styleFactory, useThemeCache, variableFactory } from "@library/styles/styleUtils";
+import { styleFactory, variableFactory } from "@library/styles/styleUtils";
+import { useThemeCache } from "@library/styles/themeCache";
 import { globalVariables } from "@library/styles/globalStyleVars";
-import { allLinkStates, margins, paddings, unit } from "@library/styles/styleHelpers";
-
-import { layoutVariables } from "@library/layout/panelLayoutStyles";
-import { TextDecorationProperty } from "csstype";
+import { allLinkStates } from "@library/styles/styleHelpers";
+import { styleUnit } from "@library/styles/styleUnit";
 
 export const panelListVariables = useThemeCache(() => {
     const globalVals = globalVariables();
@@ -38,10 +37,9 @@ export const panelListVariables = useThemeCache(() => {
     };
 });
 
-export const panelListClasses = useThemeCache(() => {
+export const panelListClasses = useThemeCache((mediaQueries) => {
     const globalVars = globalVariables();
     const vars = panelListVariables();
-    const mediaQueries = layoutVariables().mediaQueries();
     const style = styleFactory("panelList");
 
     const root = style({
@@ -50,14 +48,14 @@ export const panelListClasses = useThemeCache(() => {
     });
 
     const title = style("title", {
-        fontSize: unit(vars.title.fontSize),
-        marginBottom: unit(vars.offset.default),
+        fontSize: styleUnit(vars.title.fontSize),
+        marginBottom: styleUnit(vars.offset.default),
     });
 
     const item = style("item", {
-        $nest: {
+        ...{
             "& + &": {
-                marginTop: unit(vars.offset.default),
+                marginTop: styleUnit(vars.offset.default),
             },
         },
     });
@@ -66,7 +64,7 @@ export const panelListClasses = useThemeCache(() => {
         display: "block",
         position: "relative",
         width: percent(100),
-        fontSize: unit(vars.link.fontSize),
+        fontSize: styleUnit(vars.link.fontSize),
         color: "inherit",
         ...allLinkStates({
             allStates: {
@@ -84,7 +82,7 @@ export const panelListClasses = useThemeCache(() => {
     const items = style("items", {});
 
     return {
-        root,
+        root: root + " panelList", // This needs to be referenced in another file and was causing a circular import, so the static class is targetted instead
         title,
         item,
         link,
